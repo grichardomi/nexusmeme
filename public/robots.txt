@@ -1,0 +1,14 @@
+# Allow all crawlers to index the site
+User-agent: *
+Allow: /
+
+# Specifically allow crawlers to index the help center
+Allow: /help
+
+# Disallow private/protected routes
+Disallow: /dashboard
+Disallow: /account
+Disallow: /auth
+
+# Sitemap
+Sitemap: https://nexusmeme.com/sitemap.xml

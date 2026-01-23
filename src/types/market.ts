@@ -1,0 +1,52 @@
+export interface MarketData {
+  pair: string;
+  price: number;
+  volume: number;
+  timestamp: Date;
+  change24h?: number;
+  high24h?: number;
+  low24h?: number;
+}
+
+export interface OHLCV {
+  timestamp: Date;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export type RegimeType = 'choppy' | 'weak' | 'moderate' | 'strong';
+
+export interface MarketRegime {
+  type: RegimeType;
+  confidence: number; // 0-1
+  reason: string;
+  timestamp: Date;
+}
+
+export interface TradeDecision {
+  pair: string;
+  side: 'buy' | 'sell';
+  price: number;
+  amount: number;
+  reason: string;
+  timestamp: Date;
+  regime: MarketRegime;
+  stopLoss?: number; // Risk management: exit price on loss
+  takeProfit?: number; // Dynamic profit target based on regime
+}
+
+export interface ExecutionPlan {
+  userId: string;
+  botInstanceId: string;
+  pair: string;
+  side: 'buy' | 'sell';
+  amount: number;
+  price: number;
+  reason: string;
+  timestamp: Date;
+  stopLoss?: number; // Risk management: exit price on loss
+  takeProfit?: number; // Dynamic profit target based on regime
+}

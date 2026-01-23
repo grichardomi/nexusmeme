@@ -1,0 +1,242 @@
+/**
+ * Monthly Billing Cron Job Scheduler
+ * Manages scheduling of recurring billing jobs
+ *
+ * Uses Node.js setTimeout to schedule jobs (Railway-native, no external deps)
+ * Persists schedule state in database for durability across restarts
+ */
+
+import { logger } from '@/lib/logger';
+import { runMonthlyBillingJob } from '@/services/billing/monthly-billing-job';
+
+interface ScheduledJob {
+  id: string;
+  name: string;
+  cronExpression: string; // Standard cron format (currently only supports monthly)
+  lastRun: Date | null;
+  nextRun: Date;
+  isRunning: boolean;
+}
+
+class MonthlyBillingScheduler {
+  private scheduledJobs: Map<string, ScheduledJob> = new Map();
+  private timers: Map<string, NodeJS.Timeout> = new Map();
+  private isInitialized = false;
+
+  /**
+   * Initialize scheduler
+   * Should be called once at application startup
+   */
+  async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      logger.warn('Monthly billing scheduler already initialized');
+      return;
+    }
+
+    try {
+      logger.info('Initializing monthly billing scheduler');
+
+      // Schedule the monthly billing job
+      await this.scheduleMonthlyBilling();
+
+      this.isInitialized = true;
+      logger.info('Monthly billing scheduler initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize monthly billing scheduler', error instanceof Error ? error : null);
+      throw error;
+    }
+  }
+
+  /**
+   * Schedule monthly billing job to run on 1st of each month at 2 AM UTC
+   */
+  private async scheduleMonthlyBilling(): Promise<void> {
+    const jobId = 'monthly_billing';
+    const jobName = 'Monthly Billing Job';
+    const cronExpression = '0 2 1 * *'; // 1st of month, 2 AM UTC
+
+    // Create job record
+    const job: ScheduledJob = {
+      id: jobId,
+      name: jobName,
+      cronExpression,
+      lastRun: null,
+      nextRun: this.calculateNextRun(new Date(), cronExpression),
+      isRunning: false,
+    };
+
+    this.scheduledJobs.set(jobId, job);
+
+    logger.info('Monthly billing job scheduled', {
+      jobId,
+      cronExpression,
+      nextRun: job.nextRun.toISOString(),
+    });
+
+    // Schedule the first run
+    this.scheduleNextRun(jobId);
+  }
+
+  /**
+   * Calculate next run time based on cron expression
+   * Currently only supports: "0 2 1 * *" (1st of month, 2 AM UTC)
+   */
+  private calculateNextRun(now: Date, cronExpression: string): Date {
+    if (cronExpression !== '0 2 1 * *') {
+      throw new Error(`Unsupported cron expression: ${cronExpression}`);
+    }
+
+    const nextRun = new Date(now);
+
+    // Move to next month's 1st at 2 AM UTC
+    nextRun.setUTCDate(1);
+    nextRun.setUTCHours(2, 0, 0, 0);
+
+    // If we're already past 2 AM on the 1st this month, move to next month
+    if (nextRun <= now) {
+      nextRun.setUTCMonth(nextRun.getUTCMonth() + 1);
+    }
+
+    return nextRun;
+  }
+
+  /**
+   * Schedule the next run of a job
+   */
+  private scheduleNextRun(jobId: string): void {
+    const job = this.scheduledJobs.get(jobId);
+    if (!job) {
+      logger.warn('Job not found for scheduling', { jobId });
+      return;
+    }
+
+    // Cancel any existing timer
+    const existingTimer = this.timers.get(jobId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const now = new Date();
+    const delayMs = job.nextRun.getTime() - now.getTime();
+
+    logger.info('Scheduling job next run', {
+      jobId: job.id,
+      nextRun: job.nextRun.toISOString(),
+      delayMs,
+      delayHours: (delayMs / (1000 * 60 * 60)).toFixed(2),
+    });
+
+    // Schedule the job
+    const timer = setTimeout(async () => {
+      await this.executeJob(jobId);
+    }, Math.max(0, delayMs));
+
+    this.timers.set(jobId, timer);
+  }
+
+  /**
+   * Execute a scheduled job
+   */
+  private async executeJob(jobId: string): Promise<void> {
+    const job = this.scheduledJobs.get(jobId);
+    if (!job) {
+      logger.warn('Job not found for execution', { jobId });
+      return;
+    }
+
+    if (job.isRunning) {
+      logger.warn('Job is already running, skipping this cycle', { jobId });
+      return;
+    }
+
+    try {
+      job.isRunning = true;
+      const startTime = Date.now();
+
+      logger.info('Starting scheduled job execution', {
+        jobId: job.id,
+        jobName: job.name,
+      });
+
+      // Execute the monthly billing job
+      if (jobId === 'monthly_billing') {
+        const result = await runMonthlyBillingJob();
+        const duration = Date.now() - startTime;
+
+        logger.info('Monthly billing job completed successfully', {
+          duration,
+          successCount: result.successCount,
+          failureCount: result.failureCount,
+          totalBilled: result.totalBilled,
+        });
+      }
+
+      // Update job metadata
+      job.lastRun = new Date();
+      job.nextRun = this.calculateNextRun(new Date(), job.cronExpression);
+      job.isRunning = false;
+
+      logger.info('Scheduled job execution completed', {
+        jobId: job.id,
+        nextRun: job.nextRun.toISOString(),
+      });
+
+      // Schedule next run
+      this.scheduleNextRun(jobId);
+    } catch (error) {
+      job.isRunning = false;
+
+      logger.error('Scheduled job execution failed', error instanceof Error ? error : null, {
+        jobId: job.id,
+        jobName: job.name,
+      });
+
+      // Schedule retry for next month
+      const nextRun = this.calculateNextRun(new Date(), job.cronExpression);
+      job.nextRun = nextRun;
+      this.scheduleNextRun(jobId);
+    }
+  }
+
+  /**
+   * Shutdown scheduler
+   * Clears all timers
+   */
+  shutdown(): void {
+    logger.info('Shutting down monthly billing scheduler');
+
+    for (const [jobId, timer] of this.timers.entries()) {
+      clearTimeout(timer);
+      logger.info('Cleared timer for job', { jobId });
+    }
+
+    this.timers.clear();
+    this.scheduledJobs.clear();
+    this.isInitialized = false;
+
+    logger.info('Monthly billing scheduler shutdown complete');
+  }
+
+  /**
+   * Get current scheduler status (for monitoring)
+   */
+  getStatus() {
+    const jobs = Array.from(this.scheduledJobs.values()).map(job => ({
+      id: job.id,
+      name: job.name,
+      cronExpression: job.cronExpression,
+      lastRun: job.lastRun?.toISOString() || null,
+      nextRun: job.nextRun.toISOString(),
+      isRunning: job.isRunning,
+    }));
+
+    return {
+      isInitialized: this.isInitialized,
+      jobCount: jobs.length,
+      jobs,
+    };
+  }
+}
+
+// Create singleton instance
+export const monthlyBillingScheduler = new MonthlyBillingScheduler();

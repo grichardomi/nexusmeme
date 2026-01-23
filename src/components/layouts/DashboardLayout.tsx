@@ -1,0 +1,256 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { useSession, signOut } from 'next-auth/react';
+import { MinimalFooter } from './MinimalFooter';
+
+/**
+ * Dashboard Layout
+ * Main layout for authenticated dashboard pages
+ * Supports light/dark mode with Tailwind CSS
+ */
+
+interface DashboardLayoutProps {
+  children: React.ReactNode;
+  title: string;
+}
+
+interface Subscription {
+  id: string;
+  plan: string;
+  status: 'active' | 'trialing' | 'past_due' | 'cancelled';
+  trial_ends_at?: string;
+}
+
+export function DashboardLayout({ children, title }: DashboardLayoutProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { data: session } = useSession();
+  const [subscription, setSubscription] = useState<(Subscription & { daysRemaining?: number | null }) | null>(null);
+  const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
+
+  useEffect(() => {
+    async function fetchSubscription() {
+      try {
+        const response = await fetch('/api/billing/subscriptions');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.subscription) {
+            const sub = data.subscription;
+            let daysRemaining: number | null = null;
+
+            // Calculate days remaining for trial
+            if (sub.trial_ends_at) {
+              const trialEndDate = new Date(sub.trial_ends_at);
+              const today = new Date();
+              const diffTime = trialEndDate.getTime() - today.getTime();
+              daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            }
+
+            setSubscription({ ...sub, daysRemaining });
+          } else {
+            // No subscription found, user on live trial
+            setSubscription({
+              id: '',
+              plan: 'live_trial',
+              status: 'active',
+              daysRemaining: null,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch subscription:', err);
+        // Default to live trial if fetch fails
+        setSubscription({
+          id: '',
+          plan: 'live_trial',
+          status: 'active',
+          daysRemaining: null,
+        });
+      } finally {
+        setIsLoadingSubscription(false);
+      }
+    }
+
+    if (session?.user?.id) {
+      fetchSubscription();
+    }
+  }, [session?.user?.id]);
+
+  const handleSignOut = async () => {
+    await signOut({ redirect: true, callbackUrl: '/auth/signin' });
+  };
+
+  const navItems = [
+    { href: '/dashboard', label: 'Dashboard', icon: '📊' },
+    { href: '/dashboard/bots', label: 'Trading Bot', icon: '🤖' },
+    { href: '/dashboard/trading', label: 'Trading', icon: '💹' },
+    { href: '/dashboard/portfolio', label: 'Portfolio', icon: '💼' },
+    { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
+
+    { href: '/dashboard/support', label: 'Support', icon: '🎫' },
+    { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
+  ];
+
+  return (
+    <div className="flex h-screen flex-col md:flex-row bg-slate-50 dark:bg-slate-900">
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div
+        className={`fixed md:static inset-y-0 left-0 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-transform duration-300 flex flex-col z-40 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}
+      >
+        {/* Logo */}
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-xl hover:opacity-80 transition"
+          >
+            <Image
+              src="/logo.png"
+              alt="NexusMeme Logo"
+              width={24}
+              height={24}
+              className="w-6 h-6"
+            />
+            <span className={`${sidebarOpen ? 'inline' : 'hidden'} md:inline`}>NexusMeme</span>
+          </Link>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-2">
+          {navItems.map(item => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center gap-3 px-4 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition"
+            >
+              <span className="text-xl">{item.icon}</span>
+              <span className={`${sidebarOpen ? 'inline' : 'hidden'} md:inline text-sm`}>{item.label}</span>
+            </Link>
+          ))}
+        </nav>
+
+        {/* User Section */}
+        <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
+          {session?.user && (
+            <div className={`${sidebarOpen ? 'block' : 'hidden'} md:block px-4 py-2 text-sm text-slate-600 dark:text-slate-400`}>
+              <p className="font-medium text-slate-900 dark:text-white truncate">{session.user.name}</p>
+              <p className="truncate text-xs">{session.user.email}</p>
+            </div>
+          )}
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-2 px-4 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition text-sm"
+          >
+            <span>🚪</span>
+            <span className={`${sidebarOpen ? 'inline' : 'hidden'} md:inline`}>Sign Out</span>
+          </button>
+        </div>
+
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden w-full">
+        {/* Header */}
+        <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-3 md:py-4">
+          <div className="flex items-center justify-between gap-4">
+            {/* Left: Menu & Title */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="md:hidden p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition flex-shrink-0"
+                aria-label="Toggle sidebar"
+              >
+                ☰
+              </button>
+              <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">{title}</h1>
+            </div>
+
+            {/* Center: Plan Badge - Prominent display */}
+            {!isLoadingSubscription && subscription && (
+              <>
+                {subscription.status === 'trialing' && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="hidden sm:flex items-center bg-amber-100 rounded-full border border-amber-200 hover:bg-amber-200 transition-colors overflow-hidden flex-shrink-0"
+                  >
+                    <span className="px-3 py-1.5 text-amber-800 text-sm font-semibold">
+                      On Trial
+                    </span>
+                    {subscription.daysRemaining !== null && (
+                      <span className="px-3 py-1.5 bg-amber-700 text-white text-sm font-bold flex items-center justify-center min-w-[60px]">
+                        {subscription.daysRemaining}d left
+                      </span>
+                    )}
+                  </Link>
+                )}
+
+                {/* Mobile Trial Badge */}
+                {subscription.status === 'trialing' && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="sm:hidden px-2 py-1 bg-amber-700 text-white rounded-full text-xs font-bold flex-shrink-0"
+                  >
+                    {subscription.daysRemaining !== null ? `${subscription.daysRemaining}d` : 'Trial'}
+                  </Link>
+                )}
+
+                {subscription.status === 'active' && subscription.plan !== 'free' && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-semibold border border-green-200 hover:bg-green-200 transition-colors flex-shrink-0"
+                  >
+                    ✓ {subscription.plan === 'pro' ? 'Standard' : 'Pro'}
+                  </Link>
+                )}
+
+                {subscription.status === 'past_due' && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="px-3 py-1.5 bg-red-100 text-red-800 rounded-full text-xs sm:text-sm font-semibold border border-red-200 hover:bg-red-200 transition-colors animate-pulse flex-shrink-0"
+                  >
+                    ⚠️ Past Due
+                  </Link>
+                )}
+
+                {(subscription.status === 'active' || subscription.status === 'cancelled') &&
+                  subscription.plan === 'free' && (
+                    <Link
+                      href="/dashboard/billing"
+                      className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full text-xs sm:text-sm font-semibold border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors flex-shrink-0"
+                    >
+                      Free Plan
+                    </Link>
+                  )}
+              </>
+            )}
+
+            {/* Right: User Info (Hidden on small mobile) */}
+            <div className="text-right hidden sm:block flex-shrink-0">
+              <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate max-w-[120px] sm:max-w-none">
+                {session?.user?.name || session?.user?.email}
+              </p>
+            </div>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className="flex-1 overflow-auto p-4 md:p-8 bg-slate-50 dark:bg-slate-900">
+          {children}
+        </main>
+
+        {/* Minimal Footer */}
+        <MinimalFooter />
+      </div>
+    </div>
+  );
+}

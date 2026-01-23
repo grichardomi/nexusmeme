@@ -1,0 +1,20 @@
+# Railway Deployment Configuration
+# Defines web server and worker processes for NexusMeme
+
+[build]
+builder = "DOCKER"
+dockerfile = "Dockerfile"
+
+[[services]]
+name = "web"
+cmd = "pnpm start"
+
+[[services]]
+name = "worker"
+cmd = "node dist/worker.js"
+
+[services.worker.env]
+# Worker-specific environment variables
+NODE_ENV = "production"
+# Worker processes jobs, no web interface needed
+IS_WORKER = "true"
