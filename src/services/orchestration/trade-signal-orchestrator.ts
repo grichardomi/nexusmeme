@@ -928,10 +928,13 @@ class TradeSignalOrchestrator {
             }
           }
 
-          // CHECK 1A: Momentum-Based Underwater Exit (faster exit when momentum fails)
-          // If underwater AND momentum is weakening, exit immediately
-          // Uses UNDERWATER_MOMENTUM_THRESHOLD (1.5% default) which is more aggressive than entry momentum (0.5%)
-          if (!shouldClose && currentProfitPct < 0) {
+          // CHECK 1A: Momentum-Based Underwater Exit (exit when momentum collapses)
+          // If underwater AND momentum has dropped below threshold, exit
+          // UNDERWATER_MOMENTUM_THRESHOLD must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H)
+          // Entry requires > 0.5%, so only exit if momentum drops to < 0.3% (collapsed)
+          // CRITICAL: Only fires when loss is meaningful (not spread noise like -0.02%)
+          const underwaterMomentumMinLossPct = (env.UNDERWATER_MOMENTUM_MIN_LOSS_PCT || 0.001) * 100; // decimal to % (default -0.1%)
+          if (!shouldClose && currentProfitPct < -underwaterMomentumMinLossPct) {
             try {
               const indicators = await this.fetchAndCalculateIndicators(trade.pair, '1h', 50);
               const momentum1h = indicators.momentum1h ?? 0; // percent
@@ -946,6 +949,7 @@ class TradeSignalOrchestrator {
                   currentProfitPct: currentProfitPct.toFixed(2),
                   momentum1h: momentum1h.toFixed(2),
                   underwaterThreshold: underwaterMomentumThreshold.toFixed(2),
+                  minLossRequired: `-${underwaterMomentumMinLossPct.toFixed(2)}%`,
                   note: 'Momentum too weak to support recovery',
                 });
               }

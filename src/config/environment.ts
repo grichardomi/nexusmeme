@@ -125,8 +125,18 @@ const envSchema = z.object({
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.005'),
 
-  /* Underwater Momentum Exit - More aggressive than entry momentum */
-  UNDERWATER_MOMENTUM_THRESHOLD: z.string().transform(Number).default('0.015'), // 1.5% - exit underwater if momentum < 1.5%
+  /* Underwater Momentum Exit - Must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H) */
+  UNDERWATER_MOMENTUM_THRESHOLD: z.string().transform(Number).default('0.003'), // 0.3% - only exit if momentum collapses
+  /* Minimum loss depth before momentum failure exit fires (prevents exiting on spread noise) */
+  UNDERWATER_MOMENTUM_MIN_LOSS_PCT: z.string().transform(Number).default('0.001'), // 0.1% - don't exit at -0.02% (noise)
+
+  /* Minimum peak profit before aggressive collapse protection kicks in */
+  /* Prevents exiting trades that only had trivial momentary profits (noise) */
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - only protect if peaked at 0.5%+
+
+  /* Minimum peak profit before erosion cap kicks in (decimal form) */
+  /* Peaks below this are noise, not profit worth protecting (below fee level) */
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.003'), // 0.3% - don't protect peaks below fee level
 
   /* Pyramid ADX Requirements - Global (applies to all exchanges) */
   PYRAMID_L1_MIN_ADX: z.string().transform(Number).default('35'), // L1: Moderate trend minimum
@@ -246,7 +256,10 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_4H: 0.005,
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_PROFIT_TARGET_MINIMUM: 0.005,
-    UNDERWATER_MOMENTUM_THRESHOLD: 0.015,
+    UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
+    UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005,
+    EROSION_MIN_PEAK_PCT: 0.003,
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
     EARLY_LOSS_MINUTE_1_5: -0.008,

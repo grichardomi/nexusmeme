@@ -197,6 +197,21 @@ class PositionTracker {
       return result;
     }
 
+    // Don't apply erosion cap to trivial peaks below fee level
+    // A peak of 0.08% is noise, not profit worth protecting (Kraken fees ~0.52% round-trip)
+    const { getEnvironmentConfig } = require('@/config/environment');
+    const env = getEnvironmentConfig();
+    const erosionMinPeakPct = (env.EROSION_MIN_PEAK_PCT || 0.003) * 100; // Convert decimal to percent form
+    if (existing.peakPct < erosionMinPeakPct) {
+      logger.debug('Erosion check: peak below minimum threshold - skipping erosion cap', {
+        tradeId,
+        pair,
+        peakProfitPct: existing.peakPct.toFixed(4),
+        erosionMinPeakPct: erosionMinPeakPct.toFixed(2),
+      });
+      return result;
+    }
+
     // PROTECT GREEN TRADES: Don't exit if still profitable
     // Underwater timeout will handle negative positions
     if (currentProfitPct <= 0) {
@@ -289,18 +304,27 @@ class PositionTracker {
     const ageMinutes = (Date.now() - entryTimeMs) / (1000 * 60);
     result.ageMinutes = ageMinutes;
 
-    // Immediate protection: if the trade was profitable and slips below breakeven, exit right away
-    if (existing && peakPctNumeric > 0 && currentProfitPct < 0) {
-      logger.info('Underwater check: profitable trade breached breakeven - exiting immediately', {
+    // Immediate protection: if the trade was MEANINGFULLY profitable and slips below breakeven, exit
+    // BUT only if peak profit exceeds minimum threshold (avoids exiting on trivial momentary peaks from noise)
+    // Default threshold: 0.5% peak profit before collapse protection kicks in
+    const { getEnvironmentConfig } = require('@/config/environment');
+    const env = getEnvironmentConfig();
+    const minPeakForCollapseProtectionDecimal = env.PROFIT_COLLAPSE_MIN_PEAK_PCT || 0.005; // 0.5% default (decimal form)
+    // Convert to percent form to match peakPctNumeric (which is in percent, e.g., 0.5 = 0.5%)
+    const minPeakForCollapseProtection = minPeakForCollapseProtectionDecimal * 100;
+
+    if (existing && peakPctNumeric >= minPeakForCollapseProtection && currentProfitPct < 0) {
+      logger.info('Underwater check: meaningful profitable trade breached breakeven - exiting', {
         tradeId,
         pair,
         peakProfitPct: peakPctNumeric.toFixed(4),
+        minPeakThreshold: minPeakForCollapseProtection.toFixed(2) + '%',
         currentProfitPct: currentProfitPct.toFixed(2),
         ageMinutes: ageMinutes.toFixed(1),
       });
 
       result.shouldExit = true;
-      result.reason = `Profitable trade breached breakeven (peak +${peakPctNumeric.toFixed(4)}%, current ${currentProfitPct.toFixed(2)}%)`;
+      result.reason = `Profitable trade breached breakeven (peak +${peakPctNumeric.toFixed(2)}% >= ${minPeakForCollapseProtection.toFixed(2)}% min, current ${currentProfitPct.toFixed(2)}%)`;
       return result;
     }
 
@@ -327,20 +351,21 @@ class PositionTracker {
       return result;
     }
 
-    // Determine threshold based on whether trade was profitable
+    // Determine threshold based on whether trade was MEANINGFULLY profitable
+    // Trades with trivial peaks (< 0.5%) are treated as "never profitable" (normal market noise)
     let effectiveThresholdPct: number;
     let thresholdReason: string;
 
-    if (existing && peakPctNumeric > 0) {
-      // PROFITABLE TRADES THAT COLLAPSED: Return to breakeven (0%)
+    if (existing && peakPctNumeric >= minPeakForCollapseProtection) {
+      // MEANINGFULLY PROFITABLE TRADES THAT COLLAPSED: Return to breakeven (0%)
+      // Only applies if peak >= 0.5% (actual profit, not noise)
       // Exit if trade returns to breakeven or goes negative (protects winners from becoming losers)
-      // Example: peaked +0.18%, now -0.36% → well below breakeven → EXIT
       effectiveThresholdPct = 0; // Return to breakeven (as decimal form: 0 = 0%)
-      thresholdReason = `profitable_collapse (peaked +${peakPctNumeric.toFixed(4)}%, exit at breakeven)`;
+      thresholdReason = `profitable_collapse (peaked +${peakPctNumeric.toFixed(2)}% >= ${minPeakForCollapseProtection.toFixed(2)}% min, exit at breakeven)`;
     } else {
-      // NEVER-PROFITABLE TRADES: Use absolute threshold
+      // NEVER-PROFITABLE or TRIVIALLY-PROFITABLE TRADES: Use absolute threshold
+      // Trades with peaks < 0.5% are treated as normal market noise
       // Exit if loss exceeds the configured threshold
-      // Example: peaked 0%, now -1.27% → exceeds -0.8% threshold → EXIT
       effectiveThresholdPct = underwaterThresholdPct;
       thresholdReason = `never_profitable (absolute threshold ${(underwaterThresholdPct * 100).toFixed(2)}%)`;
     }

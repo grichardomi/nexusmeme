@@ -10,7 +10,9 @@ let pool: Pool | null = null;
 export function getPool(): Pool {
   if (!pool) {
     const isProduction = process.env.NODE_ENV === 'production';
-    const databaseUrl = isProduction ? getEnv('DATABASE_URL') : getEnv('DATABASE_URL');
+    // Production (Railway): use internal URL for better performance
+    // Development (localhost): use public URL since internal network isn't accessible
+    const databaseUrl = isProduction ? getEnv('DATABASE_URL') : getEnv('DATABASE_PUBLIC_URL');
 
     pool = new Pool({
       connectionString: databaseUrl,

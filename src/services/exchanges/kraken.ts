@@ -67,16 +67,14 @@ export class KrakenAdapter extends BaseExchangeAdapter {
       // Convert pair to Kraken format
       const krakenPair = this.convertToPairFormat(order.pair);
 
-      // Prepare order parameters
-      // CRITICAL: Only include valid Kraken API fields
-      // Note: timeinforce/PO parameter was causing "Invalid arguments:type" errors
+      // Prepare order parameters for Kraken AddOrder API
+      // Kraken uses 'type' for buy/sell direction and 'ordertype' for limit/market
       const params: Record<string, any> = {
         pair: krakenPair,
+        type: order.side, // 'buy' or 'sell' - Kraken API uses 'type' not 'side'
         ordertype: 'limit', // Limit order type
-        side: order.side, // 'buy' or 'sell'
         volume: order.amount.toString(),
         price: order.price.toString(),
-        // Removed timeinforce: 'PO' - Kraken AddOrder doesn't support this parameter
       };
 
       // Call Kraken API
