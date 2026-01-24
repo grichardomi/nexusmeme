@@ -6,6 +6,7 @@
 
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 import {
   sendPerformanceFeeChargedEmail,
   sendPerformanceFeeFailedEmail,
@@ -175,6 +176,8 @@ export async function runMonthlyBillingJob(): Promise<{
  * Get pending fees aggregated per user
  */
 async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
+  const { PERFORMANCE_FEE_MIN_INVOICE_USD } = getEnvironmentConfig();
+
   const result = await query(
     `SELECT
        u.id as user_id,
@@ -190,9 +193,15 @@ async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
      WHERE pf.status = 'pending_billing'
        AND usb.billing_status = 'active'
      GROUP BY u.id, u.email, u.name, usb.stripe_customer_id
-     HAVING SUM(pf.fee_amount) > 0
-     ORDER BY u.id`
+     HAVING SUM(pf.fee_amount) >= $1
+     ORDER BY u.id`,
+    [PERFORMANCE_FEE_MIN_INVOICE_USD]
   );
+
+  logger.debug('Pending fees query', {
+    minInvoiceThreshold: PERFORMANCE_FEE_MIN_INVOICE_USD,
+    usersWithFees: result.length,
+  });
 
   return result;
 }

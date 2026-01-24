@@ -156,6 +156,10 @@ const envSchema = z.object({
   /* Encryption */
   ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 
+  /* Performance Fees */
+  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.05'), // 5% of profits
+  PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
+
   /* Logging */
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   LOG_FORMAT: z.enum(['json', 'text']).default('json'),
@@ -267,6 +271,8 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_HOUR_1_3: -0.025,
     EARLY_LOSS_HOUR_4_PLUS: -0.035,
     EARLY_LOSS_DAILY: -0.045,
+    PERFORMANCE_FEE_RATE: 0.05,
+    PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
   };
 }
 

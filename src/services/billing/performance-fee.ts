@@ -6,9 +6,12 @@
 
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 import Stripe from 'stripe';
 
-const PERFORMANCE_FEE_RATE = 0.05; // 5%
+function getFeeRate(): number {
+  return getEnvironmentConfig().PERFORMANCE_FEE_RATE;
+}
 
 if (!process.env.STRIPE_SECRET_KEY) {
   throw new Error('STRIPE_SECRET_KEY is not set - cannot initialize Stripe client');
@@ -44,7 +47,7 @@ export async function recordPerformanceFee(
     return null;
   }
 
-  const feeAmount = profitAmount * PERFORMANCE_FEE_RATE;
+  const feeAmount = profitAmount * getFeeRate();
 
   try {
     const result = await query(
@@ -60,7 +63,7 @@ export async function recordPerformanceFee(
       tradeId,
       profitAmount,
       feeAmount,
-      feePercent: PERFORMANCE_FEE_RATE * 100,
+      feePercent: getFeeRate() * 100,
     });
 
     return result[0];
@@ -169,7 +172,7 @@ export async function adjustFee(
   reason: string
 ): Promise<void> {
   try {
-    const correctedFee = correctedProfit * PERFORMANCE_FEE_RATE;
+    const correctedFee = correctedProfit * getFeeRate();
 
     await transaction(async (client) => {
       // Get original fee record

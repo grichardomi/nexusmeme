@@ -1,26 +1,25 @@
 # Performance Fees - Help & FAQ
 
-## Understanding Performance Fees
+## How It Works
 
-NexusMeme uses a **performance-based pricing model**, not traditional subscription plans. You only pay when your trading bot makes profits.
+**5% of profits. No profits, no fee.**
 
-### How It Works
-
-- **Fee Rate**: 5% of profits
-- **When Charged**: Monthly on profitable trades
-- **How It's Calculated**: When your trading bot closes a trade with a profit, we collect 5% of that profit
+When your trading bot closes a trade with profit, we take 5%. If your bot loses money, you pay nothing.
 
 ### Example
 
 ```
-Trade closes with $500 profit
-→ Performance fee: 5% of $500 = $25
-→ You keep: $475
-
-Monthly billing (1st of month):
-→ Platform automatically charges your card for all pending fees
-→ You receive an email with invoice receipt
+Your bot makes $500 profit on a trade
+  Platform fee: 5% of $500 = $25
+  You keep: $475
 ```
+
+### When You're Charged
+
+- Fees accumulate throughout the month
+- On the **1st of each month**, all pending fees are charged in one payment
+- You receive a receipt email
+- Fees under $1.00 roll forward to next month (no micro-charges)
 
 ---
 
@@ -28,255 +27,94 @@ Monthly billing (1st of month):
 
 ### Step 1: Set Up Billing
 
-When you create your first trading bot, you'll be prompted to set up billing:
-
+When you create your first trading bot:
 1. Click **"Create Bot"**
-2. After bot creation, you'll see **"Complete Billing Setup"**
-3. Enter your payment information (credit/debit card)
-4. Click **"Authorize Payment Method"**
-5. ✅ Done! You're ready to start trading
+2. Enter your payment information (credit/debit card)
+3. Authorize the payment method
+4. Done - you won't be charged until your bot makes a profit
 
-**Important**: You won't be charged until your bot makes a profit and the monthly billing runs.
+### Step 2: Your Bot Trades
 
-### Step 2: Bot Starts Trading
+Your bot executes trades. For each profitable trade, 5% is set aside as a pending fee.
 
-Your bot will:
-- Execute trades based on your configured strategy
-- Record profits/losses
-- Collect 5% fees from profitable trades (marked as "pending")
+### Step 3: Monthly Billing
 
-### Step 3: Monthly Billing (1st of month)
-
-On the 1st of each month at 2 AM UTC:
-- Platform aggregates all pending fees
-- Creates an invoice in Stripe
-- Automatically charges your payment method
-- You receive a receipt email
+On the 1st of each month, all pending fees are charged to your card in one invoice.
 
 ---
 
 ## Viewing Your Fees
 
-### In Dashboard
+Visit **Dashboard → Billing** to see:
 
-Visit **Dashboard → Billing & Plans** to see:
-
-**Performance Overview:**
-- **Total Profits**: Sum of all profitable trades
-- **Total Fees Collected**: 5% of profits already charged
-- **Pending Fees**: Fees waiting for monthly billing
-- **Recent Transactions**: Last 10 trades with fees
-
-**Charge History:**
-- Shows monthly billing cycles
-- Invoice status: Succeeded, Failed, or Pending
-- Amount charged and date
-
-### API Endpoint
-
-Get your fee summary programmatically:
-
-```bash
-GET /api/fees/performance
-```
-
-Response:
-```json
-{
-  "summary": {
-    "total_profits": 2500,
-    "total_fees_collected": 125,
-    "pending_fees": 45.50,
-    "billed_fees": 0,
-    "total_trades": 50
-  },
-  "billing": {
-    "billing_status": "active",
-    "failed_charge_attempts": 0
-  },
-  "recentTransactions": [
-    {
-      "trade_id": "T-456",
-      "profit_amount": 100,
-      "fee_amount": 5,
-      "status": "paid",
-      "pair": "BTC/USDT"
-    }
-  ]
-}
-```
+- **Total Profits** - Sum of all your profitable trades
+- **Fees Collected** - 5% already charged
+- **Pending Fees** - Waiting for next billing cycle
+- **Recent Trades** - Your latest trades with fees
 
 ---
 
 ## Billing Status
 
-### Active ✅
-
-- Payment method is valid
-- Charges are being processed successfully
-- Status: All good, trading can continue
-
-### Past Due ⚠️
-
-- Credit card was declined
-- Stripe is retrying automatically (up to 3 times)
-- Check your email for dunning notice
-- **Action needed**: Update your payment method
-
-### Suspended 🚫
-
-- Payment failed 3 times
-- Your bot will pause in 24 hours
-- Must update payment method immediately
-
----
-
-## Managing Your Billing
-
-### Update Payment Method
-
-1. Go to **Dashboard → Billing & Plans**
-2. Click **"Update Payment Method"**
-3. Enter new card details
-4. Click **"Save"**
-
-Or use Stripe's customer portal:
-- Link in email receipts
-- Link in billing dashboard
-- Manage cards directly
-
-### Cancel Your Subscription
-
-At any time, you can:
-- Stop creating new bots
-- Let existing bots trade
-- No penalty for deletion
-- Continue paying fees only for profitable trades
-
-### Download Invoices
-
-1. Go to **Dashboard → Billing & Plans**
-2. Click invoice in **"Charge History"**
-3. Click **"Download PDF"**
+| Status | Meaning | Action |
+|--------|---------|--------|
+| Active | Everything is good | None |
+| Past Due | Card was declined, retrying | Update your card |
+| Suspended | 3 failed charges, bot pausing soon | Update card immediately |
 
 ---
 
 ## Common Questions
 
-### Q: Do I pay if my bot loses money?
+**Q: How much do I pay?**
+5% of profits. If your bot makes $100, we take $5.
 
-**A:** No! You only pay 5% on profitable trades. Losing trades are free.
+**Q: What if my bot loses money?**
+You pay nothing. Fees only apply to profitable trades.
 
-### Q: When exactly am I charged?
+**Q: Are there discounts for bigger accounts?**
+No. Everyone pays the same 5%. Fair is fair.
 
-**A:** Every 1st of the month at 2 AM UTC, all pending fees are charged in one batch.
+**Q: When exactly am I charged?**
+1st of each month at 2 AM UTC.
 
-### Q: What if my card is declined?
+**Q: Are there hidden fees or setup costs?**
+No. Just 5% of profits. Nothing else.
 
-**A:**
-- Stripe automatically retries for 5 days
-- You'll receive an email after each failed attempt
-- After 3 failed attempts, your bot will pause
-- Update your card to resume trading
+**Q: What if my card is declined?**
+Stripe retries up to 3 times over 5 days. You'll get an email after each attempt. Update your card to resolve.
 
-### Q: Can I change my payment method?
+**Q: What happens after 3 failed charges?**
+Your bot will pause in 24 hours. Update your payment method to resume.
 
-**A:** Yes, anytime in **Dashboard → Billing & Plans** or Stripe portal.
+**Q: Can I change my payment method?**
+Yes, anytime in **Dashboard → Billing**.
 
-### Q: Do I get a discount for annual payment?
+**Q: Can I get an invoice for accounting?**
+Yes. Download PDF invoices from **Dashboard → Billing** under charge history.
 
-**A:** Performance fees are monthly only. There's no annual discount (you only pay when you trade).
-
-### Q: What if I have multiple bots?
-
-**A:** Fees are calculated per-bot and charged monthly in one invoice covering all bots.
-
-### Q: Can I get an invoice for accounting?
-
-**A:** Yes! Download PDF invoices from **Dashboard → Billing & Plans** under "Charge History".
-
-### Q: What happens if I don't update my payment method after suspension?
-
-**A:** After 72 hours, your bots will be permanently paused. Reactivate by updating payment method.
-
-### Q: Are there any setup fees or hidden charges?
-
-**A:** No setup fees. Only the 5% performance fee on profits.
-
-### Q: Can I get a refund for fees?
-
-**A:** Contact support for fee disputes. We're happy to review trade data and adjust if there's an error.
+**Q: Can I get a refund?**
+Contact support. We'll review and adjust if there's an error.
 
 ---
 
 ## Troubleshooting
 
 ### "Billing Setup Required"
+You haven't added a payment method yet. Go to **Dashboard → Billing** and add your card.
 
-**Meaning**: You haven't authorized a payment method yet.
+### "Payment Failed"
+Your card was declined. Check that it's valid and has sufficient balance. Update via **Dashboard → Billing**.
 
-**Fix**:
-1. Go to **Dashboard → Billing & Plans**
-2. Click **"Complete Billing Setup"**
-3. Enter card details and authorize
+### "Bot Suspended"
+Payment failed 3 times. Update your card immediately to resume trading.
 
-### "Payment Failed - Retry Pending"
-
-**Meaning**: Your card was declined, Stripe is retrying.
-
-**Fix**:
-1. Check email for "Payment Failed" notice
-2. Verify card is valid and has available balance
-3. Go to Stripe portal and update card immediately (don't wait for retries)
-4. Stripe will retry within 5 days
-
-### "Billing Suspended"
-
-**Meaning**: Payment failed 3 times. Bot will pause in 24 hours.
-
-**Fix**:
-1. Update payment method immediately
-2. Contact support if you need emergency extension
-3. Once updated, Stripe will retry and lift suspension
-
-### "Fee Charges Are Wrong"
-
-**Meaning**: You think fees are calculated incorrectly.
-
-**Fix**:
-1. Get your fee summary from **Dashboard → Billing & Plans**
-2. Review recent trades and profit amounts
-3. Open support ticket with trade IDs and amounts
-4. We'll investigate and adjust if needed
-
-### "I Was Charged But Didn't Get Invoice Email"
-
-**Meaning**: Invoice email might not have arrived.
-
-**Fix**:
-1. Check spam folder
-2. Download invoice from **Dashboard → Billing & Plans**
-3. Check Stripe portal directly
-4. Contact support to resend
+### "Fee Seems Wrong"
+Review your trades in **Dashboard → Billing**. If something looks off, contact support with the trade ID.
 
 ---
 
 ## Support
 
-Have questions about your fees?
-
-**Contact Support:**
 - **Email**: support@nexusmeme.com
-- **In-App**: **Dashboard → Support** (create ticket)
-- **Chat**: Available during business hours (UTC)
-
-We typically respond within 24 hours.
-
----
-
-## Related Articles
-
-- [Billing Setup Guide](./ONBOARDING_BILLING.md)
-- [Payment Methods & Security](./PAYMENT_SECURITY.md)
-- [Trading Strategies & Profitability](./STRATEGIES.md)
-- [Terms of Service](./TERMS_OF_SERVICE.md)
+- **In-App**: Dashboard → Support
