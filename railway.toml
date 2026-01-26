@@ -2,8 +2,8 @@
 # Defines web server and worker processes for NexusMeme
 
 [build]
-builder = "DOCKER"
-dockerfile = "Dockerfile"
+# Use Nixpacks (default) since no Dockerfile is present
+builder = "NIXPACKS"
 
 [[services]]
 name = "web"
