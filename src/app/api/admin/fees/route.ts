@@ -177,12 +177,12 @@ export async function POST(request: NextRequest) {
         [newStatus, newFeeAmount, reason, feeId]
       );
 
-      // Create audit trail
+      // Create audit trail in fee_adjustments_audit table
       await client.query(
-        `INSERT INTO fee_audit_trail
-         (fee_id, user_id, action, old_status, new_status, old_amount, new_amount, reason, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-        [feeId, session.user?.id, action, fee.status, newStatus, fee.fee_amount, newFeeAmount, reason]
+        `INSERT INTO fee_adjustments_audit
+         (admin_user_id, affected_user_id, action, affected_fee_ids, reason, original_amount, adjusted_amount, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [session.user?.id, fee.user_id, action, [feeId], reason, fee.fee_amount, newFeeAmount]
       );
     });
 

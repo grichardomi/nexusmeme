@@ -28,7 +28,7 @@ async function getExpiringTrials(daysUntilExpiry: number) {
       `SELECT
         s.id,
         s.user_id,
-        s.plan,
+        s.plan_tier,
         s.trial_ends_at,
         s.trial_capital_used,
         u.email,
@@ -38,7 +38,7 @@ async function getExpiringTrials(daysUntilExpiry: number) {
        JOIN users u ON u.id = s.user_id
        LEFT JOIN payment_methods pm ON pm.user_id = u.id AND pm.is_default = true
        WHERE
-         s.plan = 'live_trial'
+         s.plan_tier = 'live_trial'
          AND s.trial_ends_at IS NOT NULL
          AND s.trial_ends_at <= NOW() + INTERVAL '${daysUntilExpiry} days'
          AND (s.trial_notification_sent_at IS NULL
@@ -292,7 +292,7 @@ export async function getTrialInfo(userId: string) {
     const result = await client.query(
       `SELECT
         id,
-        plan,
+        plan_tier,
         status,
         trial_ends_at,
         trial_capital_used,
@@ -311,7 +311,7 @@ export async function getTrialInfo(userId: string) {
     const sub = result.rows[0];
 
     // Return null if not in trial
-    if (sub.plan !== 'live_trial' || !sub.trial_ends_at) {
+    if (sub.plan_tier !== 'live_trial' || !sub.trial_ends_at) {
       return null;
     }
 
@@ -322,7 +322,7 @@ export async function getTrialInfo(userId: string) {
 
     return {
       isTrialActive,
-      plan: sub.plan,
+      plan: sub.plan_tier,
       trialEndsAt,
       daysRemaining: Math.max(0, daysRemaining),
       capitalUsed: sub.trial_capital_used ?? 0,

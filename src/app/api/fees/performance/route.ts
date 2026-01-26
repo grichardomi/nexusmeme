@@ -8,10 +8,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { logger } from '@/lib/logger';
-import {
-  getUserFeeSummary,
-  getRecentFeeTransactions,
-} from '@/services/billing/performance-fee';
+import { getUserFeeSummary } from '@/services/billing/performance-fee';
 import { query } from '@/lib/db';
 
 /**
@@ -68,9 +65,60 @@ export async function GET(request: Request) {
     // Fetch transactions if requested or on initial load
     if (type === 'summary' || type === 'transactions') {
       try {
-        const allTransactions = await getRecentFeeTransactions(session.user.id, 1000);
-        transactionTotal = allTransactions.length;
-        recentTransactions = allTransactions.slice(offset, offset + txnLimit);
+        const statusFilter = url.searchParams.get('status'); // Optional status filter
+
+        // Get total count with optional status filter
+        let countQuery = `SELECT COUNT(*) as total FROM performance_fees WHERE user_id = $1`;
+        let countParams: any[] = [session.user.id];
+
+        if (statusFilter && statusFilter !== 'all') {
+          countQuery += ` AND status = $2`;
+          countParams.push(statusFilter);
+        }
+
+        const countResult = await query(countQuery, countParams);
+        transactionTotal = parseInt(countResult[0]?.total || 0);
+
+        // Fetch paginated transactions with optional status filter
+        let txnQuery = `
+          SELECT
+            pf.id,
+            pf.trade_id,
+            pf.profit_amount,
+            pf.fee_amount,
+            pf.status,
+            pf.created_at,
+            pf.paid_at,
+            pf.billed_at,
+            pf.stripe_invoice_id,
+            COALESCE(t.pair, 'Unknown') as pair
+          FROM performance_fees pf
+          LEFT JOIN trades t ON pf.trade_id = t.id::text
+          WHERE pf.user_id = $1
+        `;
+        let txnParams: any[] = [session.user.id];
+
+        if (statusFilter && statusFilter !== 'all') {
+          txnQuery += ` AND pf.status = $2`;
+          txnParams.push(statusFilter);
+        }
+
+        txnQuery += ` ORDER BY pf.created_at DESC OFFSET $${txnParams.length + 1} LIMIT $${txnParams.length + 2}`;
+        txnParams.push(offset, txnLimit);
+
+        const txnResult = await query(txnQuery, txnParams);
+        recentTransactions = txnResult.map((t: any) => ({
+          id: t.id,
+          trade_id: t.trade_id,
+          profit_amount: parseFloat(t.profit_amount || 0),
+          fee_amount: parseFloat(t.fee_amount || 0),
+          status: t.status,
+          created_at: t.created_at,
+          paid_at: t.paid_at,
+          billed_at: t.billed_at,
+          stripe_invoice_id: t.stripe_invoice_id,
+          pair: t.pair || 'Unknown',
+        }));
       } catch (err) {
         logger.warn('Could not fetch recent transactions', {
           userId: session.user.id,
@@ -113,12 +161,17 @@ export async function GET(request: Request) {
 
         const historyResult = await query(
           `SELECT
+             id,
              user_id,
              billing_period_start,
              billing_period_end,
              total_fees_amount,
              total_fees_count,
-             status
+             stripe_invoice_id,
+             stripe_charge_id,
+             status,
+             paid_at,
+             created_at
            FROM fee_charge_history
            WHERE user_id = $1
            ORDER BY billing_period_end DESC
@@ -128,12 +181,21 @@ export async function GET(request: Request) {
         );
 
         chargeHistory = historyResult.map((h) => ({
-          invoice_id: `charge-${h.user_id}-${h.billing_period_end}`,
+          id: h.id,
+          invoice_id: h.stripe_invoice_id || `charge-${h.id}`,
+          stripe_invoice_id: h.stripe_invoice_id,
+          stripe_charge_id: h.stripe_charge_id,
           billing_period_start: h.billing_period_start,
           billing_period_end: h.billing_period_end,
           total_fees: parseFloat(h.total_fees_amount || 0),
           trade_count: h.total_fees_count || 0,
           status: h.status || 'pending',
+          paid_at: h.paid_at,
+          created_at: h.created_at,
+          // Generate Stripe invoice URL if we have invoice_id
+          invoice_url: h.stripe_invoice_id
+            ? `https://dashboard.stripe.com/invoices/${h.stripe_invoice_id}`
+            : null,
         }));
       } catch (err) {
         logger.warn('Could not fetch charge history', {
@@ -147,15 +209,6 @@ export async function GET(request: Request) {
       userId: session.user.id,
     });
 
-    // Ensure all numeric values are numbers
-    const safeRecentTransactions = recentTransactions.map((t) => ({
-      ...t,
-      profit_amount: parseFloat(t.profit_amount || 0),
-      fee_amount: parseFloat(t.fee_amount || 0),
-      created_at: t.created_at || t.created_at,
-      paid_at: t.paid_at || null,
-    }));
-
     return NextResponse.json({
       summary: {
         total_profits: parseFloat(summary.total_profits || 0),
@@ -165,7 +218,7 @@ export async function GET(request: Request) {
         total_trades: summary.total_trades || 0,
       },
       billing: billingStatus,
-      recentTransactions: safeRecentTransactions,
+      recentTransactions,
       transactionTotal,
       charges: chargeHistory,
       chargeTotal,
