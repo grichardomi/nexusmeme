@@ -125,18 +125,34 @@ const envSchema = z.object({
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.005'),
 
+  /* Loss Streak & Cooldown - Prevents trade churn after consecutive losses */
+  RISK_MAX_LOSS_STREAK: z.string().transform(Number).default('5'), // Max consecutive losses before extended cooldown
+  RISK_LOSS_COOLDOWN_HOURS: z.string().transform(Number).default('1'), // Extended cooldown after max loss streak
+
   /* Underwater Momentum Exit - Must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H) */
   UNDERWATER_MOMENTUM_THRESHOLD: z.string().transform(Number).default('0.003'), // 0.3% - only exit if momentum collapses
   /* Minimum loss depth before momentum failure exit fires (prevents exiting on spread noise) */
   UNDERWATER_MOMENTUM_MIN_LOSS_PCT: z.string().transform(Number).default('0.001'), // 0.1% - don't exit at -0.02% (noise)
 
   /* Minimum peak profit before aggressive collapse protection kicks in */
-  /* Prevents exiting trades that only had trivial momentary profits (noise) */
-  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - only protect if peaked at 0.5%+
+  /* Per CLAUDE.md: "Profitable trades turning negative is a design failure" */
+  /* Lowered to protect virtually ALL profits, not just large ones */
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.001'), // 0.1% - protect profits above 0.1%
 
   /* Minimum peak profit before erosion cap kicks in (decimal form) */
-  /* Peaks below this are noise, not profit worth protecting (below fee level) */
-  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.003'), // 0.3% - don't protect peaks below fee level
+  /* Per CLAUDE.md: Lock gains faster, never let profit slip away */
+  /* Lowered to protect virtually ALL profits */
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.0005'), // 0.05% - protect virtually all profits
+
+  /* Peak-Relative Erosion (from /nexus - catches small profits after time gate) */
+  /* Secondary check: exit if profit drops X% from peak, after holding Y minutes */
+  /* This catches small profits that the absolute erosion cap might miss */
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.40'), // 40% - exit if profit drops 40% from peak
+  EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('30'), // 30 minutes minimum hold before this check applies
+
+  /* Stale flat trade exit - prevents trades from running indefinitely with ~0% P&L */
+  STALE_FLAT_TRADE_HOURS: z.string().transform(Number).default('6'), // Exit if flat for 6+ hours
+  STALE_FLAT_TRADE_BAND_PCT: z.string().transform(Number).default('0.5'), // "Flat" = within +/-0.5%
 
   /* Pyramid ADX Requirements - Global (applies to all exchanges) */
   PYRAMID_L1_MIN_ADX: z.string().transform(Number).default('35'), // L1: Moderate trend minimum
@@ -260,10 +276,16 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_4H: 0.005,
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_PROFIT_TARGET_MINIMUM: 0.005,
+    RISK_MAX_LOSS_STREAK: 5,
+    RISK_LOSS_COOLDOWN_HOURS: 1,
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
-    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005,
-    EROSION_MIN_PEAK_PCT: 0.003,
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.001, // 0.1% - protect profits above 0.1%
+    EROSION_MIN_PEAK_PCT: 0.0005, // 0.05% - protect virtually all profits
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.40, // 40% - exit if profit drops 40% from peak
+    EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 30, // 30 minutes minimum hold before peak-relative check
+    STALE_FLAT_TRADE_HOURS: 6,
+    STALE_FLAT_TRADE_BAND_PCT: 0.5,
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
     EARLY_LOSS_MINUTE_1_5: -0.008,
@@ -353,6 +375,8 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
       BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
+      PERFORMANCE_FEE_RATE: 0.05,
+      PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     };
     return (testDefaults[key] ?? process.env[key]) as Environment[T];
   }
@@ -463,6 +487,20 @@ export const billingConfig = {
     },
     get webhookSecret() {
       return getEnv('STRIPE_WEBHOOK_SECRET');
+    },
+    get webhookSecretBilling() {
+      return getEnv('STRIPE_WEBHOOK_SECRET_BILLING');
+    },
+    get apiVersion() {
+      return getEnv('STRIPE_API_VERSION');
+    },
+  },
+  performanceFee: {
+    get rate() {
+      return getEnv('PERFORMANCE_FEE_RATE');
+    },
+    get minInvoiceUsd() {
+      return getEnv('PERFORMANCE_FEE_MIN_INVOICE_USD');
     },
   },
 };

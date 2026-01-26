@@ -18,7 +18,7 @@ This document defines how to execute the IMPLEMENTATION_PLAN.md in a structured,
 - [ ] Configure branch protection (main branch)
 - [ ] Set up Vercel/Render accounts for staging & production
 - [ ] Create PostgreSQL databases:
-  - Development (local Docker)
+
   - Staging (Railway/Render)
   - Production (Railway/Render)
 - [ ] Set up CI/CD pipeline (GitHub Actions)

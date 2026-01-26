@@ -377,7 +377,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
     this.validatePair(pair);
 
     try {
-      logger.info('Fetching Kraken OHLCV', { pair, timeframe, limit });
+      logger.debug('Fetching Kraken OHLCV', { pair, timeframe, limit });
 
       // Convert standard pair format to Kraken format
       const krakenPair = this.convertToPairFormat(pair);
@@ -397,7 +397,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         interval: interval.toString(),
       });
 
-      logger.info('Kraken OHLC response received', { pair, krakenPair, responseKeys: Object.keys(data).slice(0, 5) });
+      logger.debug('Kraken OHLC response received', { pair, krakenPair });
 
       // Find the candlestick data in response
       // Kraken returns: { result: { PAIR: [...candles...], last: 123456 }, error: [] }
@@ -410,13 +410,13 @@ export class KrakenAdapter extends BaseExchangeAdapter {
       let candles: any[] = [];
       if (Array.isArray(data.result[krakenPair])) {
         candles = data.result[krakenPair];
-        logger.info('Found candles in result', { key: krakenPair, count: candles.length });
+        logger.debug('Found candles in result', { key: krakenPair, count: candles.length });
       } else {
         // Fallback: search for first array in result (might be under a different key)
         for (const key of Object.keys(data.result)) {
           if (Array.isArray(data.result[key]) && key !== 'last') {
             candles = data.result[key];
-            logger.info('Found candles in result', { key, count: candles.length });
+            logger.debug('Found candles in result', { key, count: candles.length });
             break;
           }
         }

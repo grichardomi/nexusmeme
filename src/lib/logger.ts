@@ -103,7 +103,7 @@ export function logApiCall(
   durationMs: number,
   status: number
 ): void {
-  logger.info('API call', {
+  logger.debug('API call', {
     exchange,
     endpoint,
     method,

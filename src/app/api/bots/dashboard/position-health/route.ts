@@ -83,15 +83,29 @@ export async function GET(req: NextRequest) {
       const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
       const regime = botConfig?.regime || 'moderate';
 
+      // Debug: Log if peak < current (peak should always be >= current)
+      if (currentProfitPct > 0 && peakProfitPct < currentProfitPct) {
+        logger.warn('Position health: peak < current (peak should be updated)', {
+          tradeId: trade.id,
+          pair: trade.pair,
+          currentProfitPct: currentProfitPct.toFixed(4),
+          peakProfitPct: peakProfitPct.toFixed(4),
+          dbPeakValue: trade.peak_profit_percent,
+        });
+      }
+
       const alerts: string[] = [];
       let status: PositionHealth['status'] = 'healthy';
       let recommendation = '';
 
       // Erosion calculations (align with position tracker logic)
+      // IMPORTANT: If current >= peak, erosion is 0 (no erosion has occurred, profit increased)
       const erosionCapFraction = riskManager.getErosionCap(regime, peakProfitPct); // fraction of peak allowed to erode
-      const erosionAbsolutePct = peakProfitPct > 0 ? peakProfitPct - currentProfitPct : 0;
-      const erosionUsedFraction = peakProfitPct > 0 ? (peakProfitPct - currentProfitPct) / peakProfitPct : 0;
-      const erosionRatioPct = erosionCapFraction > 0 ? (erosionUsedFraction / erosionCapFraction) * 100 : 0;
+      const erosionAbsolutePct = peakProfitPct > 0 ? Math.max(0, peakProfitPct - currentProfitPct) : 0;
+      const erosionUsedFraction = peakProfitPct > 0 && currentProfitPct < peakProfitPct
+        ? (peakProfitPct - currentProfitPct) / peakProfitPct
+        : 0; // If current >= peak, no erosion
+      const erosionRatioPct = erosionCapFraction > 0 ? Math.max(0, (erosionUsedFraction / erosionCapFraction) * 100) : 0;
 
       // Check underwater condition
       if (currentProfitPct < 0 && peakProfitPct <= 0) {

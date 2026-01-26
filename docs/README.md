@@ -137,7 +137,7 @@ Reference during team coordination: **[WORKFLOW.md](./WORKFLOW.md)** (reference)
 ### Prerequisites
 ```
 - Node.js 18+
-- PostgreSQL 14+ (local Docker or managed)
+- PostgreSQL 14+
 - GitHub account
 - Stripe test mode account
 - Resend account

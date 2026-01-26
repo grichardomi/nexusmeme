@@ -195,13 +195,22 @@ Current Regime: ${regime.regime} (ADX-based classification)
    → Confidence: 70-75% for BUY (when momentum positive + confirmation), 50-68% for HOLD
 
 3. WEAK REGIME (ADX 20-30, ${regime.regime === 'weak' ? 'ACTIVE' : 'not active'}):
-   → Weak trend: Trade on positive momentum with light confirmation (matching Nexus pattern)
-   → PRIMARY SIGNAL: Positive 1h momentum is the key driver
-   → CONFIRMATION: RSI not overbought (< 85) OR MACD positive OR price above EMA200
-   → BUY if: positive momentum1h + at least 1 confirmation → Confidence 70-75%
-   → HOLD if: momentum negative OR all confirmations fail → Confidence 50-68%
-   → Price significantly below EMA200 (>5%): More confirmation needed but don't block
-   → Confidence: 70-75% for BUY (when momentum positive + any confirmation), 50-68% for HOLD
+   → MOMENTUM-FIRST: 1h momentum direction is the PRIMARY signal
+   → HARD BLOCKERS (only these prevent BUY):
+     • 4h momentum < -2.0% (strong bearish trend, wait for reversal)
+     • RSI < 15 (extreme panic selling)
+   → If 1h momentum is positive OR turning positive (was negative, now less negative):
+     • Generate BUY with confidence 70-75%
+     • Use 4.5% profit target for quick exits
+   → If 1h momentum is negative but improving (less negative than 4h):
+     • Generate BUY with confidence 68-72% (early reversal play)
+   → If 1h momentum is deeply negative (< -0.5%) and worsening:
+     • Generate HOLD with confidence 55-65%
+   → CONFIRMATIONS boost confidence by 2-3% each:
+     • MACD histogram positive or turning positive
+     • RSI between 30-50 (oversold bounce zone)
+     • Price holding above recent lows
+   → Confidence: 68-75% for BUY (momentum positive or improving), 55-65% for HOLD
 
 4. CHOPPY REGIME (ADX < 20, ${regime.regime === 'choppy' ? 'ACTIVE' : 'not active'}):
    → Ranging/choppy market: Avoid entries unless extreme momentum
@@ -296,8 +305,16 @@ Format as JSON:
     const regimeBasedProfitTarget = regimeProfitTargets[regime.regime] || 0.05; // 5% default
 
     // Use AI-provided takeProfit if available, otherwise use regime-based target
-    const entryPrice = parsed.entryPrice || currentPrice;
-    const finalTakeProfit = parsed.takeProfit || (
+    // IMPORTANT: AI may return "N/A" (string) for hold signals - must validate as number
+    const entryPrice = (typeof parsed.entryPrice === 'number' && !isNaN(parsed.entryPrice) && parsed.entryPrice > 0)
+      ? parsed.entryPrice
+      : currentPrice;
+    // Validate numeric values from AI (may return "N/A" strings for hold signals)
+    const isValidNum = (v: any): v is number => typeof v === 'number' && !isNaN(v) && v > 0;
+    const parsedStopLoss = isValidNum(parsed.stopLoss) ? parsed.stopLoss : null;
+    const parsedTakeProfit = isValidNum(parsed.takeProfit) ? parsed.takeProfit : null;
+
+    const finalTakeProfit = parsedTakeProfit || (
       signal === 'buy'
         ? entryPrice * (1 + regimeBasedProfitTarget)
         : entryPrice * (1 - regimeBasedProfitTarget)
@@ -306,7 +323,7 @@ Format as JSON:
     // Calculate risk/reward ratio
     let riskRewardRatio = 1;
     if (signal === 'buy') {
-      const risk = Math.abs(entryPrice - (parsed.stopLoss || entryPrice * 0.99)); // Hybrid: -1% stop loss
+      const risk = Math.abs(entryPrice - (parsedStopLoss || entryPrice * 0.99)); // Hybrid: -1% stop loss
       const reward = Math.abs(finalTakeProfit - entryPrice);
       riskRewardRatio = reward > 0 ? reward / risk : 1;
     }
@@ -316,7 +333,7 @@ Format as JSON:
       strength,
       confidence: Math.min(100, Math.max(0, parsed.confidence || 50)),
       entryPrice,
-      stopLoss: parsed.stopLoss || (signal === 'buy' ? currentPrice * 0.95 : currentPrice * 1.05), // 5% stop loss for parity with Nexus
+      stopLoss: parsedStopLoss || (signal === 'buy' ? currentPrice * 0.95 : currentPrice * 1.05), // 5% stop loss for parity with Nexus
       takeProfit: finalTakeProfit,
       riskRewardRatio,
       factors: parsed.factors || [],

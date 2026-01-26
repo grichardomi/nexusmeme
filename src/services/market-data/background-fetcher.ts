@@ -17,8 +17,8 @@
  */
 
 import { logger } from '@/lib/logger';
+import { query } from '@/lib/db';
 import { marketDataAggregator } from './aggregator';
-import { tradingConfig } from '@/config/environment';
 
 interface BackgroundFetcherStats {
   lastFetchTime: number | null;
@@ -93,7 +93,35 @@ class BackgroundMarketDataFetcher {
   }
 
   /**
-   * Fetch prices for all configured trading pairs
+   * Get unique trading pairs from all active bots (dynamic, not hardcoded)
+   */
+  private async getActiveBotPairs(): Promise<string[]> {
+    try {
+      const result = await query<{ enabled_pairs: string[] }>(
+        `SELECT DISTINCT enabled_pairs FROM bot_instances WHERE status = 'running'`
+      );
+
+      // Flatten and deduplicate all pairs from active bots
+      const allPairs = new Set<string>();
+      for (const row of result) {
+        if (Array.isArray(row.enabled_pairs)) {
+          for (const pair of row.enabled_pairs) {
+            allPairs.add(pair);
+          }
+        }
+      }
+
+      return Array.from(allPairs);
+    } catch (error) {
+      logger.debug('Failed to get active bot pairs, will skip fetch', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Fetch prices for pairs actively traded by running bots (dynamic)
    * Always fetches fresh data from exchange (bypasses aggregator cache)
    * Background fetcher should always refresh to keep cache warm
    * Logging is rate-limited to reduce spam (only logs every N successful fetches)
@@ -104,11 +132,11 @@ class BackgroundMarketDataFetcher {
     this.stats.nextScheduledFetch = startTime + 4000; // Approximate next fetch
 
     try {
-      // Get pairs to fetch (from config)
-      const pairs = tradingConfig.allowedPairs;
+      // Get pairs dynamically from active bots (not hardcoded config)
+      const pairs = await this.getActiveBotPairs();
 
       if (pairs.length === 0) {
-        logger.warn('No trading pairs configured for background fetch');
+        // No active bots - skip silently (not an error)
         return;
       }
 

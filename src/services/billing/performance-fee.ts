@@ -388,6 +388,40 @@ export async function refundFee(
 }
 
 /**
+ * Get pending fees aggregated per user (for monthly billing job)
+ * Skips users whose total pending fees are below the minimum invoice amount
+ */
+export async function getPendingFeesPerUser(): Promise<Array<{
+  user_id: string;
+  total_fee_amount: number;
+  fee_count: number;
+  fee_ids: string[];
+}>> {
+  const minInvoice = getEnvironmentConfig().PERFORMANCE_FEE_MIN_INVOICE_USD;
+
+  try {
+    const result = await query(
+      `SELECT
+         user_id,
+         SUM(fee_amount)::DECIMAL as total_fee_amount,
+         COUNT(*)::INT as fee_count,
+         ARRAY_AGG(id) as fee_ids
+       FROM performance_fees
+       WHERE status = 'pending_billing'
+       GROUP BY user_id
+       HAVING SUM(fee_amount) >= $1
+       ORDER BY SUM(fee_amount) DESC`,
+      [minInvoice]
+    );
+
+    return result;
+  } catch (error) {
+    logger.error('Failed to get pending fees per user', error instanceof Error ? error : null);
+    throw error;
+  }
+}
+
+/**
  * Helper: Get Stripe customer ID for a user
  */
 async function getStripeCustomerId(userId: string): Promise<string | null> {

@@ -18,7 +18,7 @@ class RegimeDetector {
    */
   async detectAndStoreRegime(pair: string, exchange: string = 'binance'): Promise<{ type: RegimeType; confidence: number; reason: string; timestamp: Date } | null> {
     try {
-      logger.info('Detecting market regime for pair', { pair, exchange });
+      logger.debug('Detecting market regime for pair', { pair, exchange });
 
       const adapter = getExchangeAdapter(exchange);
 
@@ -60,11 +60,10 @@ class RegimeDetector {
       // Detect regime
       const analysis = detectMarketRegime(candles, indicators);
 
-      logger.info('Market regime detected', {
+      logger.debug('Market regime detected', {
         pair,
         regime: analysis.regime,
         confidence: analysis.confidence,
-        analysis: analysis.analysis,
       });
 
       // No mapping needed - analysis.regime is already ADX-based (choppy/weak/moderate/strong)
@@ -105,7 +104,7 @@ class RegimeDetector {
       results.set(pair, regime);
     }
 
-    logger.info('Regime detection complete for all pairs', {
+    logger.debug('Regime detection complete for all pairs', {
       pairCount: pairs.length,
       successCount: Array.from(results.values()).filter(r => r !== null).length,
     });

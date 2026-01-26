@@ -395,8 +395,15 @@ export async function checkPlanLimits(
 
 /**
  * Handle Stripe webhook events
+ * Routes subscription events locally and performance fee events to dedicated handler
  */
 export async function handleStripeWebhook(event: Stripe.Event): Promise<void> {
+  const {
+    handleInvoicePaid,
+    handleInvoicePaymentFailed,
+    handleChargeRefunded,
+  } = await import('./stripe-webhook-handler');
+
   try {
     switch (event.type) {
       case 'customer.subscription.updated': {
@@ -431,71 +438,85 @@ export async function handleStripeWebhook(event: Stripe.Event): Promise<void> {
         break;
       }
 
+      case 'invoice.paid':
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice;
-        const client = await getPool().connect();
-        try {
-          // Get subscription ID from invoice
-          const subResult = await client.query(
-            'SELECT user_id FROM subscriptions WHERE stripe_subscription_id = $1',
-            [invoice.subscription]
-          );
 
-          if (subResult.rows[0]) {
-            const userId = subResult.rows[0].user_id;
-
-            // Record invoice in database
-            const dueDate = invoice.due_date ? new Date(invoice.due_date * 1000) : new Date();
-            await client.query(
-              `INSERT INTO invoices (
-                subscription_id, user_id, stripe_invoice_id, amount, currency,
-                status, invoice_number, due_date, paid_at, created_at, updated_at
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
-              ON CONFLICT (stripe_invoice_id) DO UPDATE SET
-                status = $6,
-                paid_at = NOW(),
-                updated_at = NOW()`,
-              [
-                invoice.subscription,
-                userId,
-                invoice.id,
-                invoice.amount_paid,
-                invoice.currency,
-                'paid',
-                invoice.number,
-                dueDate,
-              ]
+        if (invoice.subscription) {
+          // Subscription invoice — handle locally
+          const client = await getPool().connect();
+          try {
+            const subResult = await client.query(
+              'SELECT user_id FROM subscriptions WHERE stripe_subscription_id = $1',
+              [invoice.subscription]
             );
+
+            if (subResult.rows[0]) {
+              const userId = subResult.rows[0].user_id;
+              const dueDate = invoice.due_date ? new Date(invoice.due_date * 1000) : new Date();
+              await client.query(
+                `INSERT INTO invoices (
+                  subscription_id, user_id, stripe_invoice_id, amount, currency,
+                  status, invoice_number, due_date, paid_at, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+                ON CONFLICT (stripe_invoice_id) DO UPDATE SET
+                  status = $6,
+                  paid_at = NOW(),
+                  updated_at = NOW()`,
+                [
+                  invoice.subscription,
+                  userId,
+                  invoice.id,
+                  invoice.amount_paid,
+                  invoice.currency,
+                  'paid',
+                  invoice.number,
+                  dueDate,
+                ]
+              );
+            }
+          } finally {
+            client.release();
           }
-        } finally {
-          client.release();
+        } else {
+          // Performance fee invoice (no subscription) — route to fee handler
+          await handleInvoicePaid(event);
         }
         break;
       }
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice;
-        const client = await getPool().connect();
-        try {
-          await client.query(
-            `UPDATE invoices
-             SET status = 'uncollectible', updated_at = NOW()
-             WHERE stripe_invoice_id = $1`,
-            [invoice.id]
-          );
 
-          // Update subscription status to past_due
-          if (invoice.subscription) {
+        if (invoice.subscription) {
+          // Subscription invoice failure
+          const client = await getPool().connect();
+          try {
+            await client.query(
+              `UPDATE invoices
+               SET status = 'uncollectible', updated_at = NOW()
+               WHERE stripe_invoice_id = $1`,
+              [invoice.id]
+            );
             await client.query(
               `UPDATE subscriptions
                SET status = 'past_due', updated_at = NOW()
                WHERE stripe_subscription_id = $1`,
               [invoice.subscription]
             );
+          } finally {
+            client.release();
           }
-        } finally {
-          client.release();
+        } else {
+          // Performance fee invoice failure — route to fee handler
+          await handleInvoicePaymentFailed(event);
         }
+        break;
+      }
+
+      case 'charge.refunded': {
+        // Route all refunds to performance fee handler
+        await handleChargeRefunded(event);
         break;
       }
     }

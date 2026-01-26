@@ -152,8 +152,9 @@ class RiskManager {
   ): RiskFilterResult {
     logger.debug('RiskManager: Stage 2 - Drop Protection', { pair, btcMomentum1h: this.btcMomentum1h });
 
-    // Altcoin protection: Block if BTC is dumping
-    if (pair !== 'BTC/USD' && this.btcMomentum1h < this.config.btcDumpThreshold1h) {
+    // Altcoin protection: Block if BTC is dumping (skip for BTC pairs themselves)
+    const isBtcPair = pair.startsWith('BTC/');
+    if (!isBtcPair && this.btcMomentum1h < this.config.btcDumpThreshold1h) {
       logger.info('RiskManager: Entry blocked - BTC dumping', {
         pair,
         btcMomentum1h: this.btcMomentum1h.toFixed(4),

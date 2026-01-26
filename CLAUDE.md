@@ -87,6 +87,28 @@ The bot's entire purpose is to capture profitable opportunities without leaving 
 | `src/services/exchanges/kraken.ts` | Kraken adapter | Captures fees on order execution |
 | `src/services/exchanges/binance.ts` | Binance adapter | Captures fees on order execution |
 | `src/app/api/bots/trades/close/route.ts` | Trade exit handler | Deducts fees from P&L |
+| `src/services/orchestration/trade-signal-orchestrator.ts` | Trade orchestrator | Direct execution, position checks |
+| `src/services/execution/fan-out.ts` | Trade execution | Direct execution (no job queue) |
+| `src/services/market-data/aggregator.ts` | Price fetcher | Uses Kraken public API |
+| `src/services/market-data/background-fetcher.ts` | Background prices | Dynamic pairs from active bots |
+
+## Execution Architecture (/nexus Parity)
+
+**Direct Execution (No Job Queue)**
+- Trades execute synchronously, one at a time - prevents race conditions
+- Position check happens BEFORE signal generation (like /nexus)
+- No async job queue that can cause duplicate trades
+
+**Key Flow:**
+1. Orchestrator checks if open position exists for pair → skip if yes
+2. Generate signal only for pairs without open positions
+3. Execute trade directly via `executeTradesDirect()` (not queued)
+4. Each execution has duplicate check before insert
+
+**Dynamic Exchange/Pair Handling:**
+- Market data aggregator uses Kraken public API (no auth required)
+- Background fetcher queries active bots for pairs: `SELECT enabled_pairs FROM bot_instances WHERE status = 'running'`
+- No hardcoded pair lists - pairs come from bot config in dashboard
 
 ## Common Patterns
 

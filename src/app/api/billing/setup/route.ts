@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { logger } from '@/lib/logger';
-import { query, transaction } from '@/lib/db';
+import { query } from '@/lib/db';
 import Stripe from 'stripe';
 import { z } from 'zod';
 
@@ -160,21 +160,32 @@ async function confirmSetup(userId: string, body: any): Promise<NextResponse> {
       throw new Error(`SetupIntent status is ${setupIntent.status}, expected succeeded`);
     }
 
-    if (setupIntent.customer !== setupIntent.customer) {
+    // Verify the SetupIntent belongs to this user's Stripe customer
+    const userBilling = await query(
+      `SELECT stripe_customer_id FROM user_stripe_billing WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (!userBilling[0]?.stripe_customer_id || setupIntent.customer !== userBilling[0].stripe_customer_id) {
       throw new Error('SetupIntent customer mismatch');
     }
 
-    // Update user billing config with payment method
-    await transaction(async (client) => {
-      await client.query(
-        `UPDATE user_stripe_billing
-         SET stripe_payment_method_id = $1,
-             billing_status = 'active',
-             updated_at = NOW()
-         WHERE user_id = $2`,
-        [paymentMethodId, userId]
-      );
+    // Set as default payment method for invoices on the Stripe customer
+    await stripe.customers.update(userBilling[0].stripe_customer_id, {
+      invoice_settings: {
+        default_payment_method: paymentMethodId,
+      },
     });
+
+    // Update user billing config with payment method
+    await query(
+      `UPDATE user_stripe_billing
+       SET stripe_payment_method_id = $1,
+           billing_status = 'active',
+           updated_at = NOW()
+       WHERE user_id = $2`,
+      [paymentMethodId, userId]
+    );
 
     logger.info('Billing setup confirmed', {
       userId,

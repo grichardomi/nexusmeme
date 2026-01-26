@@ -1,4 +1,4 @@
-import { getPool } from '@/lib/db';
+import { getPool, query } from '@/lib/db';
 import {
   createStripeCustomer,
   createSubscription as createStripeSubscription,
@@ -141,6 +141,20 @@ export async function checkActionAllowed(
   userId: string,
   action: 'createBot' | 'addPair' | 'makeApiCall'
 ): Promise<{ allowed: boolean; reason?: string; limit?: number }> {
+  // Block bot creation/startup if billing is suspended
+  if (action === 'createBot') {
+    const billingResult = await query(
+      `SELECT billing_status FROM user_stripe_billing WHERE user_id = $1`,
+      [userId]
+    );
+    if (billingResult[0]?.billing_status === 'suspended') {
+      return {
+        allowed: false,
+        reason: 'Your billing is suspended due to failed payments. Please update your payment method to resume trading.',
+      };
+    }
+  }
+
   const subscription = await getUserSubscription(userId);
 
   // If no subscription, assume free tier

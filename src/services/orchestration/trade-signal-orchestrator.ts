@@ -35,6 +35,13 @@ class TradeSignalOrchestrator {
   private isRunning = false;
   private interval: NodeJS.Timer | null = null;
 
+  // Per-pair loss cooldown tracking (prevents trade churn after losses)
+  // Key: pair, Value: timestamp when cooldown expires
+  private pairLossCooldowns = new Map<string, number>();
+
+  // Per-pair loss streak tracking
+  private pairLossStreaks = new Map<string, number>();
+
   /**
    * Helper: Parse entry_time correctly (handle string or Date object from database)
    */
@@ -46,6 +53,88 @@ class TradeSignalOrchestrator {
       return entryTime.getTime();
     }
     return new Date(entryTime).getTime();
+  }
+
+  /**
+   * Check for existing open positions on a pair across all bots (/nexus parity)
+   * Returns count of open positions - if > 0, skip signal generation for this pair
+   */
+  private async checkExistingOpenPositions(pair: string): Promise<number> {
+    try {
+      const result = await query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM trades
+         WHERE pair = $1 AND status = 'open'`,
+        [pair]
+      );
+      return parseInt(result[0]?.count || '0', 10);
+    } catch (error) {
+      logger.error('Failed to check existing positions', error instanceof Error ? error : null, { pair });
+      return 0; // Fail open - allow trade if check fails
+    }
+  }
+
+  /**
+   * Check if a pair is in loss cooldown (prevents trade churn after consecutive losses)
+   * Returns the cooldown reason if in cooldown, null otherwise
+   */
+  private isPairInLossCooldown(pair: string): string | null {
+    const cooldownExpiry = this.pairLossCooldowns.get(pair);
+    if (cooldownExpiry && Date.now() < cooldownExpiry) {
+      const remainingMinutes = Math.ceil((cooldownExpiry - Date.now()) / 60000);
+      const lossStreak = this.pairLossStreaks.get(pair) || 0;
+      return `Loss cooldown active (${lossStreak} consecutive losses, ${remainingMinutes}min remaining)`;
+    }
+    // Cooldown expired - clear it
+    if (cooldownExpiry) {
+      this.pairLossCooldowns.delete(pair);
+      this.pairLossStreaks.set(pair, 0); // Reset streak after cooldown
+    }
+    return null;
+  }
+
+  /**
+   * Record a loss for a pair and apply cooldown if needed
+   * Cooldown increases with consecutive losses to prevent churn
+   */
+  recordPairLoss(pair: string): void {
+    const env = getEnvironmentConfig();
+    const currentStreak = (this.pairLossStreaks.get(pair) || 0) + 1;
+    this.pairLossStreaks.set(pair, currentStreak);
+
+    // Cooldown: 5 minutes base, increases with streak
+    // 1st loss: 5 min, 2nd: 10 min, 3rd+: 15 min
+    const baseCooldownMs = 5 * 60 * 1000; // 5 minutes
+    const cooldownMultiplier = Math.min(currentStreak, 3); // Cap at 3x
+    const cooldownMs = baseCooldownMs * cooldownMultiplier;
+
+    const maxLossStreak = env.RISK_MAX_LOSS_STREAK || 5;
+
+    // If exceeded max streak, apply hour-long cooldown
+    if (currentStreak >= maxLossStreak) {
+      const hourCooldownMs = (env.RISK_LOSS_COOLDOWN_HOURS || 1) * 60 * 60 * 1000;
+      this.pairLossCooldowns.set(pair, Date.now() + hourCooldownMs);
+      logger.warn('Loss streak limit reached - applying extended cooldown', {
+        pair,
+        lossStreak: currentStreak,
+        maxLossStreak,
+        cooldownHours: env.RISK_LOSS_COOLDOWN_HOURS || 1,
+      });
+    } else {
+      this.pairLossCooldowns.set(pair, Date.now() + cooldownMs);
+      logger.info('Loss recorded - applying cooldown', {
+        pair,
+        lossStreak: currentStreak,
+        cooldownMinutes: cooldownMs / 60000,
+      });
+    }
+  }
+
+  /**
+   * Record a win for a pair (resets loss streak)
+   */
+  recordPairWin(pair: string): void {
+    this.pairLossStreaks.set(pair, 0);
+    this.pairLossCooldowns.delete(pair);
   }
 
   /**
@@ -129,15 +218,21 @@ class TradeSignalOrchestrator {
       await marketDataAggregator.getMarketData(allPairs);
 
       // ZERO PASS A: Fetch BTC momentum for drop protection (needed by risk manager)
+      // Determine BTC pair based on exchange (Kraken uses USD, Binance uses USDT)
       try {
-        const btcData = await marketDataAggregator.getMarketData(['BTC/USD']);
-        const btcMarketData = btcData.get('BTC/USD');
+        const primaryExchange = activeBots[0]?.exchange || 'kraken';
+        const btcPair = primaryExchange === 'binance' ? 'BTC/USDT' : 'BTC/USD';
+
+        const btcData = await marketDataAggregator.getMarketData([btcPair]);
+        const btcMarketData = btcData.get(btcPair);
         if (btcMarketData) {
           // Calculate BTC 1h momentum (needs minimum 26 candles for indicator calculation)
-          const btcCandles = await this.fetchAndCalculateIndicators('BTC/USD', '1h', 50);
+          const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '1h', 50);
           if (btcCandles.momentum1h !== undefined) {
             riskManager.updateBTCMomentum(btcCandles.momentum1h / 100); // Convert percent to decimal
-            logger.info('Orchestrator: BTC momentum updated for risk management', {
+            logger.debug('Orchestrator: BTC momentum updated for risk management', {
+              btcPair,
+              exchange: primaryExchange,
               btcMomentum1h: (btcCandles.momentum1h / 100).toFixed(4),
             });
           }
@@ -192,6 +287,97 @@ class TradeSignalOrchestrator {
 
       for (const pair of allPairs) {
         try {
+          // LOSS COOLDOWN CHECK: Skip pairs that had recent consecutive losses
+          // Prevents trade churn where losing trades keep reopening
+          const cooldownReason = this.isPairInLossCooldown(pair);
+          if (cooldownReason) {
+            console.log(`\n⏳ COOLDOWN: Skipping ${pair} - ${cooldownReason}`);
+            logger.info('Orchestrator: skipping pair due to loss cooldown', {
+              pair,
+              reason: cooldownReason,
+            });
+            rejectedSignals.push({
+              pair,
+              reason: 'loss_cooldown',
+              details: cooldownReason,
+            });
+            continue;
+          }
+
+          // POSITION CHECK: Skip pairs with existing open positions (/nexus parity)
+          // This prevents duplicate entries - check BEFORE generating signals
+          const existingPositions = await this.checkExistingOpenPositions(pair);
+          if (existingPositions > 0) {
+            console.log(`\n📊 POSITION EXISTS: Skipping ${pair} - ${existingPositions} open position(s)`);
+            logger.debug('Orchestrator: skipping pair - open position exists', {
+              pair,
+              openPositions: existingPositions,
+            });
+            continue; // Don't even analyze - already have a position
+          }
+
+          // ============================================
+          // 5-STAGE RISK FILTER (/nexus parity - BEFORE AI)
+          // This is critical: runs BEFORE AI to prevent entries in bad conditions
+          // If momentum is weak, we don't even call AI - saves API costs + prevents churn
+          // ============================================
+          let indicators;
+          try {
+            indicators = await this.fetchAndCalculateIndicators(pair, '1h', 50);
+          } catch (indicatorError) {
+            logger.warn('Failed to fetch indicators for pre-entry risk check', {
+              pair,
+              error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
+            });
+            continue; // Skip pair if we can't get indicators
+          }
+
+          // Get current price for risk filter
+          const marketData = await marketDataAggregator.getMarketData([pair]);
+          const currentPriceData = marketData.get(pair);
+          if (!currentPriceData) {
+            logger.warn('No market data for pre-entry risk check', { pair });
+            continue;
+          }
+          const currentPrice = currentPriceData.price;
+
+          // Run 5-stage risk filter (matching /nexus behavior)
+          const profitTarget = currentPrice * 0.05; // 5% target for cost calculation
+          const ticker = { spread: currentPrice * 0.001 }; // Estimate spread as 0.1%
+
+          const riskFilter = await riskManager.runFullRiskFilter(
+            pair,
+            currentPrice,
+            indicators,
+            ticker,
+            profitTarget
+          );
+
+          if (!riskFilter.pass) {
+            console.log(`\n🚫 RISK FILTER BLOCKED: ${pair} - ${riskFilter.reason}`);
+            logger.info('Orchestrator: entry blocked by 5-stage risk filter', {
+              pair,
+              reason: riskFilter.reason,
+              stage: riskFilter.stage,
+              momentum1h: indicators.momentum1h?.toFixed(3),
+              adx: indicators.adx?.toFixed(1),
+            });
+            rejectedSignals.push({
+              pair,
+              reason: 'risk_filter_blocked',
+              details: riskFilter.reason,
+              stage: riskFilter.stage,
+            });
+            continue; // Don't call AI - conditions are bad
+          }
+
+          console.log(`\n✅ RISK FILTER PASSED: ${pair} - proceeding to AI analysis`);
+          logger.debug('Orchestrator: 5-stage risk filter passed', {
+            pair,
+            momentum1h: indicators.momentum1h?.toFixed(3),
+            adx: indicators.adx?.toFixed(1),
+          });
+
           const analysis = await analyzeMarket({
             pair,
             timeframe: '1h',
@@ -199,9 +385,26 @@ class TradeSignalOrchestrator {
             includeRegime: true,
           });
 
+          // DIAGNOSTIC: Log raw analysis result immediately after analyzeMarket returns
+          console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, {
+            hasSignal: !!analysis.signal,
+            hasRegime: !!analysis.regime,
+            signalType: analysis.signal?.signal,
+            signalConfidence: analysis.signal?.confidence,
+            regimeType: analysis.regime?.regime,
+          });
+          logger.info('Orchestrator: analyzeMarket returned', {
+            pair,
+            hasSignal: !!analysis.signal,
+            hasRegime: !!analysis.regime,
+            signalType: analysis.signal?.signal,
+            signalConfidence: analysis.signal?.confidence,
+            regimeType: analysis.regime?.regime,
+          });
+
           const minConfidenceThreshold = riskManager.getAIConfidenceThreshold();
 
-          logger.debug('Orchestrator: AI threshold computed', {
+          logger.info('Orchestrator: AI threshold computed', {
             pair,
             signalConfidence: analysis.signal?.confidence,
             regime: analysis.regime?.regime,
@@ -227,133 +430,8 @@ class TradeSignalOrchestrator {
             }
 
             // ============================================
-            // APPLY 5-STAGE RISK FILTER (critical gate)
-            // ============================================
-
-            // Get indicators for risk assessment
-            const indicators = await this.fetchAndCalculateIndicators(pair, '1h', 50);
-
-            // STAGE 1: Health Gate (ADX chop detection)
-            const healthGate = riskManager.checkHealthGate(indicators.adx);
-            if (!healthGate.pass) {
-              logger.warn('Orchestrator: risk filter rejected signal - health gate', {
-                pair,
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: healthGate.reason,
-              });
-              rejectedSignals.push({
-                pair,
-                reason: 'risk_filter_health_gate',
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: healthGate.reason,
-              });
-              continue;
-            }
-
-            // STAGE 2: Drop Protection (BTC dumps, volume panics, spreads)
-            const marketData = await marketDataAggregator.getMarketData([pair]);
-            const currentMarketData = marketData.get(pair);
-            const ticker = (currentMarketData as any)?.ticker || {};
-            const dropProtection = riskManager.checkDropProtection(
-              pair,
-              ticker,
-              indicators
-            );
-            if (!dropProtection.pass) {
-              logger.warn('Orchestrator: risk filter rejected signal - drop protection', {
-                pair,
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: dropProtection.reason,
-              });
-              rejectedSignals.push({
-                pair,
-                reason: 'risk_filter_drop_protection',
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: dropProtection.reason,
-              });
-              continue;
-            }
-
-            // STAGE 3: Entry Quality (no tops, no extreme overbought, requires momentum)
-            const entryQuality = riskManager.checkEntryQuality(
-              pair,
-              analysis.signal.entryPrice,
-              indicators
-            );
-            if (!entryQuality.pass) {
-              logger.warn('Orchestrator: risk filter rejected signal - entry quality', {
-                pair,
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: entryQuality.reason,
-              });
-              rejectedSignals.push({
-                pair,
-                reason: 'risk_filter_entry_quality',
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: entryQuality.reason,
-              });
-              continue;
-            }
-
-            // STAGE 4: AI Validation (confidence threshold - already checked but double-check)
-            const aiValidation = riskManager.checkAIValidation(
-              analysis.signal.confidence,
-              minConfidenceThreshold
-            );
-            if (!aiValidation.pass) {
-              logger.warn('Orchestrator: risk filter rejected signal - AI validation', {
-                pair,
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: aiValidation.reason,
-                threshold: minConfidenceThreshold,
-              });
-              rejectedSignals.push({
-                pair,
-                reason: 'risk_filter_ai_validation',
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: aiValidation.reason,
-              });
-              continue;
-            }
-
-            // STAGE 5: Cost Floor (profit > 3× costs minimum)
-            const profitTargetPct = analysis.signal.takeProfit
-              ? ((analysis.signal.takeProfit - analysis.signal.entryPrice) / analysis.signal.entryPrice)
-              : riskManager.getProfitTarget(analysis.regime.regime);
-
-            const costFloor = riskManager.checkCostFloor(
-              pair,
-              analysis.signal.entryPrice,
-              analysis.signal.takeProfit || (analysis.signal.entryPrice * (1 + profitTargetPct)),
-              profitTargetPct
-            );
-            if (!costFloor.pass) {
-              logger.warn('Orchestrator: risk filter rejected signal - cost floor', {
-                pair,
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: costFloor.reason,
-              });
-              rejectedSignals.push({
-                pair,
-                reason: 'risk_filter_cost_floor',
-                signal: 'buy',
-                confidence: analysis.signal.confidence,
-                filterReason: costFloor.reason,
-              });
-              continue;
-            }
-
-            // ============================================
-            // ALL 5 STAGES PASSED - CREATE TRADE DECISION
+            // CREATE TRADE DECISION (AI signal is gatekeeper)
+            // /nexus parity: No BEARISH TREND BLOCKER - AI confidence is the gatekeeper
             // ============================================
 
             const decision: TradeDecision = {
@@ -363,7 +441,7 @@ class TradeSignalOrchestrator {
               amount: 1, // Base amount - will be adjusted per-bot
               stopLoss: analysis.signal.stopLoss, // Risk management: 2% default
               takeProfit: analysis.signal.takeProfit, // Dynamic profit target based on regime
-              reason: `AI signal (strength: ${analysis.signal.strength}, confidence: ${analysis.signal.confidence}%, regime: ${analysis.regime.regime}) - 5-stage risk filter PASSED`,
+              reason: `AI signal (strength: ${analysis.signal.strength}, confidence: ${analysis.signal.confidence}%, regime: ${analysis.regime.regime}) - matching /nexus`,
               timestamp: new Date(),
               regime: {
                 type: analysis.regime.regime as any,
@@ -375,6 +453,11 @@ class TradeSignalOrchestrator {
 
             tradeDecisions.push(decision);
 
+            console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, {
+              confidence: analysis.signal.confidence,
+              minThreshold: minConfidenceThreshold,
+              regime: analysis.regime.regime,
+            });
             logger.info('Orchestrator: TRADE DECISION CREATED (5-stage filter passed)', {
               pair,
               signalStrength: analysis.signal.strength,
@@ -406,6 +489,25 @@ class TradeSignalOrchestrator {
               pair,
               hasRegime: !!analysis.regime,
               regimeType: analysis.regime?.regime,
+            });
+          } else {
+            // DIAGNOSTIC: Catch-all for any other rejection reason
+            console.log(`\n❌ SIGNAL REJECTED for ${pair}:`, {
+              hasSignal: !!analysis.signal,
+              hasRegime: !!analysis.regime,
+              signalType: analysis.signal?.signal,
+              signalConfidence: analysis.signal?.confidence,
+              minThreshold: minConfidenceThreshold,
+              passesConfidence: analysis.signal ? analysis.signal.confidence >= minConfidenceThreshold : false,
+            });
+            logger.warn('Orchestrator: signal rejected - unknown reason', {
+              pair,
+              hasSignal: !!analysis.signal,
+              hasRegime: !!analysis.regime,
+              signalType: analysis.signal?.signal,
+              signalConfidence: analysis.signal?.confidence,
+              minConfidenceThreshold,
+              passesConfidenceCheck: analysis.signal ? analysis.signal.confidence >= minConfidenceThreshold : false,
             });
           }
         } catch (error) {
@@ -442,16 +544,18 @@ class TradeSignalOrchestrator {
         }
       }
 
-      // Queue all execution plans for async processing
+      // Execute trades directly (/nexus parity - no job queue race conditions)
       if (allPlans.length > 0) {
         try {
-          await executionFanOut.queueExecutionPlans(allPlans);
-          logger.info('Orchestrator: queued execution plans for processing', {
+          const result = await executionFanOut.executeTradesDirect(allPlans);
+          logger.info('Orchestrator: direct execution complete', {
             planCount: allPlans.length,
+            executed: result.executed,
+            skipped: result.skipped,
           });
         } catch (error) {
           logger.error(
-            'Orchestrator: failed to queue execution plans',
+            'Orchestrator: direct execution failed',
             error instanceof Error ? error : null
           );
         }
@@ -656,6 +760,13 @@ class TradeSignalOrchestrator {
                 // Clear position tracking when trade closes
                 positionTracker.clearPosition(trade.id);
                 exitCount++;
+
+                // Record loss/win for cooldown tracking (prevents trade churn)
+                if (profitLoss < 0) {
+                  this.recordPairLoss(trade.pair);
+                } else {
+                  this.recordPairWin(trade.pair);
+                }
               } else {
                 const errorText = await closeResponse.text();
                 logger.error('Failed to close trade', new Error(errorText), {
@@ -755,7 +866,20 @@ class TradeSignalOrchestrator {
 
           // Parse entry_time correctly (handle string or Date object)
           const entryTimeMs = this.parseEntryTime(trade.entry_time);
-          const tradeAgeMinutes = (Date.now() - entryTimeMs) / (1000 * 60);
+          const rawTradeAgeMinutes = (Date.now() - entryTimeMs) / (1000 * 60);
+          // Clamp to 0 minimum - negative ageMinutes means entry_time is in the future (data bug)
+          // which would prevent time-based exits from ever firing
+          const tradeAgeMinutes = Math.max(0, rawTradeAgeMinutes);
+          if (rawTradeAgeMinutes < 0) {
+            logger.warn('Trade entry_time is in the future (data integrity issue) - clamping ageMinutes to 0', {
+              tradeId: trade.id,
+              pair: trade.pair,
+              entryTime: trade.entry_time,
+              entryTimeMs,
+              nowMs: Date.now(),
+              rawAgeMinutes: rawTradeAgeMinutes.toFixed(1),
+            });
+          }
 
           // CRITICAL: Persist current profit metrics to database for monitoring
           // This ensures profit_loss and profit_loss_percent are always up-to-date
@@ -1007,6 +1131,28 @@ class TradeSignalOrchestrator {
             exitReason = 'profit_target_hit'; // Generic reason, actual profit % logged separately
           }
 
+          // CHECK 2.5: Stale flat trade exit - trade running for hours with ~0% P&L
+          // Prevents trades from being stuck indefinitely when no other exit triggers
+          if (!shouldClose) {
+            const { getEnvironmentConfig } = require('@/config/environment');
+            const envConfig = getEnvironmentConfig();
+            const staleFlatHours = envConfig.STALE_FLAT_TRADE_HOURS || 6;
+            const staleFlatBandPct = envConfig.STALE_FLAT_TRADE_BAND_PCT || 0.5;
+            if (tradeAgeMinutes >= staleFlatHours * 60 &&
+                Math.abs(currentProfitPct) < staleFlatBandPct) {
+              shouldClose = true;
+              exitReason = 'stale_flat_trade';
+              logger.info('Stale flat trade exit triggered - trade has been near-zero P&L too long', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
+                staleFlatHours,
+                currentProfitPct: currentProfitPct.toFixed(2),
+                staleFlatBandPct,
+              });
+            }
+          }
+
           // CHECK 3: Maximum hold time exceeded
           if (!shouldClose && tradeAgeMinutes >= maxHoldHours * 60) {
             shouldClose = true;
@@ -1072,6 +1218,13 @@ class TradeSignalOrchestrator {
                 // Clear position tracking when trade closes
                 positionTracker.clearPosition(trade.id);
                 exitCount++;
+
+                // Record loss/win for cooldown tracking (prevents trade churn)
+                if (profitLoss < 0) {
+                  this.recordPairLoss(trade.pair);
+                } else {
+                  this.recordPairWin(trade.pair);
+                }
               } else {
                 const errorText = await closeResponse.text();
                 logger.error('Failed to close profitable trade', new Error(errorText), {

@@ -14,7 +14,7 @@ interface CachedMarketData {
  * Unified caching strategy with multiple layers for cost optimization:
  * 1. In-process memory cache (10s TTL) - serves 67% of requests locally, zero cost
  * 2. Redis distributed cache (15s TTL) - shared across all server instances
- * 3. Binance API (rate-limited) - only fetched when cache layers cold
+ * 3. Kraken public API - only fetched when cache layers cold
  *
  * Usage:
  * - API consumers: Call getMarketData() - uses cache intelligently
@@ -24,7 +24,7 @@ interface CachedMarketData {
  * Cost benefit:
  * - In-process cache eliminates ~67% of Redis calls
  * - Background fetcher keeps Redis warm every 4 seconds
- * - Binance API rarely called (only on cold start or Redis expiry)
+ * - Kraken public API (no auth required) for ticker data
  */
 class MarketDataAggregator {
   private cache: CachedMarketData | null = null;
@@ -56,60 +56,78 @@ class MarketDataAggregator {
   }
 
   /**
+   * Map pair to Kraken format
+   * BTC/USD -> XXBTZUSD, ETH/USD -> XETHZUSD
+   */
+  private mapToKrakenPair(pair: string): string {
+    const [base, quote] = pair.split('/');
+    const krakenBase = base === 'BTC' ? 'XXBT' : `X${base}`;
+    const krakenQuote = quote === 'USD' ? 'ZUSD' : quote;
+    return `${krakenBase}${krakenQuote}`;
+  }
+
+  /**
    * Normalize pair format for exchange
-   * Maps USD quotes to USDT (Binance uses USDT, not USD)
+   * Kraken uses USD directly, no conversion needed
    * @param pair Trading pair (e.g., BTC/USD)
-   * @returns Normalized pair (e.g., BTC/USDT)
+   * @returns Same pair (Kraken supports USD)
    */
   private normalizePairForExchange(pair: string): string {
-    const [base, quote] = pair.split('/');
-    // Map USD to USDT for Binance compatibility
-    if (quote === 'USD') {
-      return `${base}/USDT`;
-    }
+    // Kraken uses USD directly - no normalization needed
     return pair;
   }
 
   /**
-   * Direct Binance ticker fetch without rate limiter
-   * Used by aggregator which only makes ~15 req/min (safe within Binance's 1200/min limit)
-   * Bypasses shared rate limiter which may be exhausted by other app components
-   * Uses BinanceUS API endpoint (api.binance.us) instead of Binance (api.binance.com)
-   * for better geographic compatibility
-   * @param pair Trading pair (e.g., BTC/USDT)
+   * Direct Kraken ticker fetch (public API - no auth required)
+   * Used by aggregator for market data display
+   * Kraken public API: https://api.kraken.com/0/public/Ticker
+   * @param pair Trading pair (e.g., BTC/USD)
    */
   private async fetchTicker(pair: string): Promise<any> {
     try {
-      const symbol = pair.replace('/', '');
-      // Use BinanceUS API for better geographic availability
-      // Fall back to Binance if needed
-      const url = `https://api.binance.us/api/v3/ticker/24hr?symbol=${symbol}`;
+      const krakenPair = this.mapToKrakenPair(pair);
+      const url = `https://api.kraken.com/0/public/Ticker?pair=${krakenPair}`;
 
       const response = await fetch(url);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(
-          `Binance API error: ${response.status} ${response.statusText} - ${errorText.slice(0, 100)}`
+          `Kraken API error: ${response.status} ${response.statusText} - ${errorText.slice(0, 100)}`
         );
       }
 
       const data = await response.json();
 
+      if (data.error && data.error.length > 0) {
+        throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+      }
+
+      // Kraken returns data keyed by pair name (may differ from request)
+      const tickerKey = Object.keys(data.result)[0];
+      const tickerData = data.result[tickerKey];
+
+      // Kraken ticker format: a=ask, b=bid, c=last, v=volume, p=vwap, t=trades, l=low, h=high, o=open
+      const last = parseFloat(tickerData.c[0]);
+      const openPrice = parseFloat(tickerData.o);
+      const priceChangePercent = ((last - openPrice) / openPrice) * 100;
+
       const ticker = {
         pair,
-        last: parseFloat(data.lastPrice),
-        bid: parseFloat(data.bidPrice),
-        ask: parseFloat(data.askPrice),
-        volume: parseFloat(data.volume),
-        priceChangePercent: parseFloat(data.priceChangePercent),
-        highPrice: parseFloat(data.highPrice),
-        lowPrice: parseFloat(data.lowPrice),
+        last,                                    // c = last trade closed [price, lot volume]
+        bid: parseFloat(tickerData.b[0]),       // b = bid [price, whole lot volume, lot volume]
+        ask: parseFloat(tickerData.a[0]),       // a = ask [price, whole lot volume, lot volume]
+        volume: parseFloat(tickerData.v[1]),    // v = volume [today, last 24h]
+        highPrice: parseFloat(tickerData.h[1]), // h = high [today, last 24h]
+        lowPrice: parseFloat(tickerData.l[1]),  // l = low [today, last 24h]
+        openPrice,                              // o = open price
+        priceChangePercent,                     // calculated 24h change
         timestamp: new Date().getTime(),
       };
 
       return ticker;
     } catch (error) {
-      logger.error('Failed to fetch Binance ticker directly', error instanceof Error ? error : null, {
+      console.log(`\n❌ KRAKEN API ERROR: ${pair} - ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error('Failed to fetch Kraken ticker', error instanceof Error ? error : null, {
         pair,
         errorMessage: error instanceof Error ? error.message : String(error),
       });

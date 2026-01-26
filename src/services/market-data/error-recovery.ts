@@ -10,6 +10,7 @@
  */
 
 import { logger } from '@/lib/logger';
+import { query } from '@/lib/db';
 import { checkRedisPriceHealth } from './redis-price-distribution';
 import type { PriceUpdate } from '@/types/market-data';
 
@@ -135,7 +136,23 @@ export class ErrorRecoveryStrategy {
     // Check health every 30 seconds
     this.redisHealthCheckInterval = setInterval(async () => {
       try {
-        const health = await checkRedisPriceHealth(['BTC/USDT', 'ETH/USDT']);
+        // Get pairs dynamically from active bots (not hardcoded)
+        const botsResult = await query<{ enabled_pairs: string[] }>(
+          `SELECT DISTINCT enabled_pairs FROM bot_instances WHERE status = 'running'`
+        );
+        const pairs = new Set<string>();
+        for (const row of botsResult) {
+          if (Array.isArray(row.enabled_pairs)) {
+            row.enabled_pairs.forEach(p => pairs.add(p));
+          }
+        }
+        const activePairs = Array.from(pairs);
+
+        if (activePairs.length === 0) {
+          return; // No active bots, skip health check
+        }
+
+        const health = await checkRedisPriceHealth(activePairs);
         const wasHealthy = this.redisHealthy;
         this.redisHealthy = health.healthy;
 
