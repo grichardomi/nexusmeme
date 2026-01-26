@@ -92,6 +92,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
 
       // Query the order to get fee information
       let fee: number | undefined;
+      let avgPrice: number | undefined;
       try {
         const queryResult = await this.privateRequest('/0/private/QueryOrders', {
           txid: orderId,
@@ -100,6 +101,16 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         if (queryResult && queryResult[orderId]) {
           const orderData = queryResult[orderId];
           fee = parseFloat(orderData.fee) || undefined;
+          const parsedAvgPrice = parseFloat(orderData.avg_price || orderData.price || '0');
+          if (parsedAvgPrice > 0) {
+            avgPrice = parsedAvgPrice;
+          } else {
+            const cost = parseFloat(orderData.cost || '0');
+            const volume = parseFloat(orderData.vol_exec || '0');
+            if (cost > 0 && volume > 0) {
+              avgPrice = cost / volume;
+            }
+          }
           logger.debug('Captured Kraken order fee', { orderId, fee });
         }
       } catch (feeError) {
@@ -116,6 +127,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         side: order.side,
         amount: order.amount,
         price: order.price,
+        avgPrice,
         timestamp: new Date(),
         status: 'pending',
         fee,

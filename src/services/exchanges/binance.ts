@@ -117,15 +117,27 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         status: result.status,
       });
 
-      // Query the order to get fee information (if available in response)
+      // Query the order to get fee and fill price information (if available in response)
       let fee: number | undefined;
+      let avgPrice: number | undefined;
       try {
         // Check if fills are included in the place order response
         if (result.fills && Array.isArray(result.fills)) {
           // Sum commission from all fills
+          let totalCost = 0;
+          let totalQty = 0;
           const totalCommission = result.fills.reduce((sum: number, fill: any) => {
+            const price = parseFloat(fill.price || fill.p || '0');
+            const qty = parseFloat(fill.qty || fill.quantity || fill.q || '0');
+            if (price > 0 && qty > 0) {
+              totalCost += price * qty;
+              totalQty += qty;
+            }
             return sum + (parseFloat(fill.commission) || 0);
           }, 0);
+          if (totalQty > 0 && totalCost > 0) {
+            avgPrice = totalCost / totalQty;
+          }
           if (totalCommission > 0) {
             fee = totalCommission;
             logger.debug('Captured Binance order fees from response', {
@@ -136,7 +148,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         }
 
         // If no fills in response, query the order to get commission details
-        if (fee === undefined) {
+        if (fee === undefined || avgPrice === undefined) {
           const orderData = await this.circuitBreaker.execute(async () => {
             return await withRetry(
               async () => {
@@ -157,15 +169,35 @@ export class BinanceAdapter extends BaseExchangeAdapter {
           });
 
           if (orderData?.fills && Array.isArray(orderData.fills)) {
+            let totalCost = 0;
+            let totalQty = 0;
             const totalCommission = orderData.fills.reduce((sum: number, fill: any) => {
+              const price = parseFloat(fill.price || fill.p || '0');
+              const qty = parseFloat(fill.qty || fill.quantity || fill.q || '0');
+              if (price > 0 && qty > 0) {
+                totalCost += price * qty;
+                totalQty += qty;
+              }
               return sum + (parseFloat(fill.commission) || 0);
             }, 0);
+            if (totalQty > 0 && totalCost > 0) {
+              avgPrice = totalCost / totalQty;
+            }
             if (totalCommission > 0) {
               fee = totalCommission;
               logger.debug('Captured Binance order fees from query', {
                 orderId: result.orderId,
                 fee,
               });
+            }
+          }
+
+          // Fallback to cummulative quote quantity if no fills array is present
+          if ((avgPrice === undefined || Number.isNaN(avgPrice)) && orderData) {
+            const executedQty = parseFloat(orderData.executedQty || '0');
+            const quoteQty = parseFloat(orderData.cummulativeQuoteQty || '0');
+            if (executedQty > 0 && quoteQty > 0) {
+              avgPrice = quoteQty / executedQty;
             }
           }
         }
@@ -183,6 +215,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         side: order.side,
         amount: order.amount,
         price: order.price,
+        avgPrice,
         timestamp: new Date(result.transactTime || Date.now()),
         status: result.status.toLowerCase(),
         fee,

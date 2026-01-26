@@ -42,6 +42,7 @@ export interface OrderResult {
   side: 'buy' | 'sell';
   amount: number;
   price: number;
+  avgPrice?: number; // Average fill price if provided by exchange
   timestamp: Date;
   status: 'pending' | 'filled' | 'error';
   error?: string;

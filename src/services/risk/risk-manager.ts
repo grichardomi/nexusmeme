@@ -502,6 +502,60 @@ class RiskManager {
 
     return { pass: true };
   }
+
+  /**
+   * Run full 5-stage risk filter (stages 1-3 for pre-AI entry validation)
+   * Stages 4-5 (AI Validation, Cost Floor) run separately after AI signal
+   *
+   * @param pair - Trading pair (e.g., "BTC/USD")
+   * @param price - Current price
+   * @param indicators - Technical indicators (ADX, momentum, RSI, etc.)
+   * @param ticker - Ticker data with bid/ask for spread calculation
+   * @param profitTarget - Expected profit target price (for cost floor check)
+   * @returns RiskFilterResult with pass/fail and reason
+   */
+  async runFullRiskFilter(
+    pair: string,
+    price: number,
+    indicators: TechnicalIndicators,
+    ticker: { bid?: number; ask?: number; last?: number; spread?: number },
+    profitTarget: number
+  ): Promise<RiskFilterResult> {
+    const adx = indicators.adx ?? 0;
+
+    // STAGE 1: Health Gate - Check ADX for choppy markets
+    const stage1 = this.checkHealthGate(adx);
+    if (!stage1.pass) {
+      return stage1;
+    }
+
+    // STAGE 2: Drop Protection - BTC dump, volume panic, spread widening
+    const stage2 = this.checkDropProtection(pair, ticker, indicators);
+    if (!stage2.pass) {
+      return stage2;
+    }
+
+    // STAGE 3: Entry Quality - Price top, overbought, momentum
+    const stage3 = this.checkEntryQuality(pair, price, indicators);
+    if (!stage3.pass) {
+      return stage3;
+    }
+
+    // Stages 1-3 passed - ready for AI analysis
+    // Stages 4 (AI Validation) and 5 (Cost Floor) run after AI signal
+    logger.debug('RiskManager: Pre-AI stages (1-3) passed', {
+      pair,
+      adx: adx.toFixed(1),
+      momentum1h: (indicators.momentum1h ?? 0).toFixed(3),
+      profitTarget,
+    });
+
+    return {
+      pass: true,
+      stage: 'Pre-AI Filter Complete',
+      adx,
+    };
+  }
 }
 
 export const riskManager = new RiskManager();
