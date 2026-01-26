@@ -8,5 +8,6 @@ nixPkgs = [
   "gnumake",
   "gcc",
   "python3",
+  "nodejs_18",
   "pnpm"
 ]
