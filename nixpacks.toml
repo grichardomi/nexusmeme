@@ -7,5 +7,6 @@ nixPkgs = [
   "pkg-config",
   "gnumake",
   "gcc",
-  "python3"
+  "python3",
+  "pnpm"
 ]
