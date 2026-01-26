@@ -133,16 +133,18 @@ const envSchema = z.object({
   UNDERWATER_MOMENTUM_THRESHOLD: z.string().transform(Number).default('0.003'), // 0.3% - only exit if momentum collapses
   /* Minimum loss depth before momentum failure exit fires (prevents exiting on spread noise) */
   UNDERWATER_MOMENTUM_MIN_LOSS_PCT: z.string().transform(Number).default('0.001'), // 0.1% - don't exit at -0.02% (noise)
+  /* Minimum time before underwater exits can trigger (parity with /nexus) */
+  UNDERWATER_EXIT_MIN_TIME_MINUTES: z.string().transform(Number).default('15'), // 15 minutes - don't exit too early
 
   /* Minimum peak profit before aggressive collapse protection kicks in */
   /* Per CLAUDE.md: "Profitable trades turning negative is a design failure" */
   /* Lowered to protect virtually ALL profits, not just large ones */
-  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.001'), // 0.1% - protect profits above 0.1%
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - parity with /nexus
 
   /* Minimum peak profit before erosion cap kicks in (decimal form) */
   /* Per CLAUDE.md: Lock gains faster, never let profit slip away */
   /* Lowered to protect virtually ALL profits */
-  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.0005'), // 0.05% - protect virtually all profits
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.003'), // 0.3% - avoid noise-level peaks triggering erosion
 
   /* Peak-Relative Erosion (from /nexus - catches small profits after time gate) */
   /* Secondary check: exit if profit drops X% from peak, after holding Y minutes */
@@ -280,8 +282,9 @@ function getDefaultEnvironment(): Environment {
     RISK_LOSS_COOLDOWN_HOURS: 1,
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
-    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.001, // 0.1% - protect profits above 0.1%
-    EROSION_MIN_PEAK_PCT: 0.0005, // 0.05% - protect virtually all profits
+    UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005, // 0.5% - parity with /nexus
+    EROSION_MIN_PEAK_PCT: 0.003, // 0.3% - avoid noise-level peaks triggering erosion
     EROSION_PEAK_RELATIVE_THRESHOLD: 0.40, // 40% - exit if profit drops 40% from peak
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 30, // 30 minutes minimum hold before peak-relative check
     STALE_FLAT_TRADE_HOURS: 6,

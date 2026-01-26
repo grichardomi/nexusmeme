@@ -227,7 +227,7 @@ class TradeSignalOrchestrator {
         const btcMarketData = btcData.get(btcPair);
         if (btcMarketData) {
           // Calculate BTC 1h momentum (needs minimum 26 candles for indicator calculation)
-          const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '1h', 50);
+          const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '15m', 100);
           if (btcCandles.momentum1h !== undefined) {
             riskManager.updateBTCMomentum(btcCandles.momentum1h / 100); // Convert percent to decimal
             logger.debug('Orchestrator: BTC momentum updated for risk management', {
@@ -323,7 +323,7 @@ class TradeSignalOrchestrator {
           // ============================================
           let indicators;
           try {
-            indicators = await this.fetchAndCalculateIndicators(pair, '1h', 50);
+            indicators = await this.fetchAndCalculateIndicators(pair, '15m', 100);
           } catch (indicatorError) {
             logger.warn('Failed to fetch indicators for pre-entry risk check', {
               pair,
@@ -568,9 +568,14 @@ class TradeSignalOrchestrator {
   /**
    * Fetch OHLC candles from Kraken API and calculate technical indicators
    * CRITICAL: Do NOT return default indicators on error - only use real data for risk assessment
+   *
+   * PARITY REQUIREMENT: Must use 15m candles (not 1h) to match /nexus behavior!
+   * With 15m candles: momentum1h = 4 candles, momentum4h = 16 candles
+   * With 1h candles: those same calculations would give 4h and 16h momentum (WRONG!)
    */
-  private async fetchAndCalculateIndicators(pair: string, timeframe: string = '1h', limit: number = 50) {
-    // Fetch real OHLC data from Kraken API (parity with analyzer)
+  private async fetchAndCalculateIndicators(pair: string, timeframe: string = '15m', limit: number = 100) {
+    // Fetch real OHLC data from Kraken API (parity with /nexus)
+    // Uses 15m candles so momentum calculations match /nexus exactly
     // Throws if Kraken unavailable - caller must handle
     const candles = await fetchKrakenOHLC(pair, limit, timeframe);
 
@@ -695,7 +700,7 @@ class TradeSignalOrchestrator {
           }
 
           // Fetch and calculate real technical indicators
-          const indicators = await this.fetchAndCalculateIndicators(trade.pair, '1h', 50);
+          const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
 
           // Run momentum failure detector
           const momentumResult = momentumFailureDetector.detectMomentumFailure(
@@ -987,7 +992,7 @@ class TradeSignalOrchestrator {
           // Only applies to positions that never went positive
           if (!shouldClose && currentProfitPct < 0) {
             // Read minimum time threshold from bot config, but use time-based escalation for actual loss threshold
-            const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '2');
+            const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '15');
             const ageMinutes = tradeAgeMinutes;
 
             // Use environment-based time-escalated thresholds (philosophy: more aggressive on young trades)
@@ -1057,10 +1062,24 @@ class TradeSignalOrchestrator {
           // UNDERWATER_MOMENTUM_THRESHOLD must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H)
           // Entry requires > 0.5%, so only exit if momentum drops to < 0.3% (collapsed)
           // CRITICAL: Only fires when loss is meaningful (not spread noise like -0.02%)
+          // PARITY WITH /NEXUS: Require minimum 15 minutes before underwater exits trigger
           const underwaterMomentumMinLossPct = (env.UNDERWATER_MOMENTUM_MIN_LOSS_PCT || 0.001) * 100; // decimal to % (default -0.1%)
-          if (!shouldClose && currentProfitPct < -underwaterMomentumMinLossPct) {
+          const underwaterMinTimeMinutes = env.UNDERWATER_EXIT_MIN_TIME_MINUTES || 15; // Match /nexus: 15 min minimum
+
+          // Skip underwater momentum check if trade is too young (parity with /nexus)
+          if (!shouldClose && currentProfitPct < -underwaterMomentumMinLossPct && tradeAgeMinutes < underwaterMinTimeMinutes) {
+            logger.debug('Underwater momentum check skipped - trade too young', {
+              tradeId: trade.id,
+              pair: trade.pair,
+              tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
+              minRequired: underwaterMinTimeMinutes,
+              currentProfitPct: currentProfitPct.toFixed(2),
+            });
+          }
+
+          if (!shouldClose && tradeAgeMinutes >= underwaterMinTimeMinutes && currentProfitPct < -underwaterMomentumMinLossPct) {
             try {
-              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '1h', 50);
+              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
               const momentum1h = indicators.momentum1h ?? 0; // percent
               const underwaterMomentumThreshold = env.UNDERWATER_MOMENTUM_THRESHOLD * 100; // env is decimal, convert to %
 
@@ -1348,7 +1367,7 @@ class TradeSignalOrchestrator {
               // Also check ADX for trend strength (philosophy requirement)
               let adx = 0;
               try {
-                const indicators = await this.fetchAndCalculateIndicators(trade.pair, '1h', 50);
+                const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
                 adx = indicators.adx || 0;
               } catch (indicatorError) {
                 logger.warn('Failed to fetch ADX for pyramid check', {
@@ -1442,7 +1461,7 @@ class TradeSignalOrchestrator {
               // Also check ADX for trend strength (philosophy requirement)
               let adx = 0;
               try {
-                const indicators = await this.fetchAndCalculateIndicators(trade.pair, '1h', 50);
+                const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
                 adx = indicators.adx || 0;
               } catch (indicatorError) {
                 logger.warn('Failed to fetch ADX for pyramid check', {

@@ -63,7 +63,7 @@ class PositionAlertsService {
         // Check for underwater condition
         if (currentProfitPct < 0 && peakProfitPct <= 0) {
           const underwaterThresholdPct = parseFloat(botConfig?.underwaterExitThresholdPct || '-0.008');
-          const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '2');
+          const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '15');
 
           // Only alert if old enough to be actionable
           if (ageMinutes >= minTimeMinutes) {
@@ -87,21 +87,24 @@ class PositionAlertsService {
         }
 
         // Check for erosion condition (peak was positive but eroding)
-        if (peakProfitPct > 0) {
-          const erosionAbsolute = peakProfitPct - currentProfitPct;
-          const erosionCap = riskManager.getErosionCap(regime);
+        // PARITY FIX: Use fraction-based comparison (not absolute percentage points)
+        // erosionUsedFraction = how much of peak has eroded (0-1)
+        // erosionCapFraction = how much erosion is allowed (0-1)
+        if (peakProfitPct > 0 && currentProfitPct < peakProfitPct) {
+          const erosionUsedFraction = (peakProfitPct - currentProfitPct) / peakProfitPct;
+          const erosionCapFraction = riskManager.getErosionCap(regime, peakProfitPct);
 
-          if (erosionAbsolute > erosionCap) {
-            const severity = this.getErosionSeverity(erosionAbsolute, erosionCap);
+          if (erosionUsedFraction > erosionCapFraction) {
+            const severity = this.getErosionSeverity(erosionUsedFraction, erosionCapFraction);
             const alert: PositionAlert = {
               type: 'EROSION_ALERT',
               tradeId: trade.id,
               pair: trade.pair,
               severity,
-              message: `Profit erosion detected: peaked at +${peakProfitPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% (erosion: ${erosionAbsolute.toFixed(4)}, cap: ${erosionCap.toFixed(4)})`,
+              message: `Profit erosion detected: peaked at +${peakProfitPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% (used ${(erosionUsedFraction * 100).toFixed(1)}% of peak vs cap ${(erosionCapFraction * 100).toFixed(1)}%)`,
               currentProfitPct,
               peakProfitPct,
-              threshold: erosionCap * 100,
+              threshold: erosionCapFraction * 100,
               ageMinutes,
               timestamp: new Date(),
             };

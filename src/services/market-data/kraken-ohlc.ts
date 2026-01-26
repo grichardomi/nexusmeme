@@ -13,8 +13,8 @@ import type { OHLCCandle } from '@/types/ai';
  */
 export async function fetchKrakenOHLC(
   pair: string,
-  limit: number = 50,
-  timeframe: string = '1h'
+  limit: number = 100,
+  timeframe: string = '15m'
 ): Promise<OHLCCandle[]> {
   try {
     logger.debug('Fetching OHLC data from Kraken API', { pair, limit, timeframe });

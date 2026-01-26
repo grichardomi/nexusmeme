@@ -210,30 +210,16 @@ class PositionTracker {
       return result;
     }
 
-    // CRITICAL: If trade WAS profitable (has peak > 0) and is now underwater, EXIT IMMEDIATELY
-    // This is the "green → red" protection - never let a profitable trade turn into a loss
-    // Per CLAUDE.md: "Profitable trades turning negative is a design failure"
-    if (currentProfitPct <= 0 && existing.peakPct > 0) {
-      logger.info('Erosion check: GREEN TRADE TURNING RED - immediate exit to protect profit', {
-        tradeId,
-        pair,
-        peakProfitPct: existing.peakPct.toFixed(4),
-        currentProfitPct: currentProfitPct.toFixed(4),
-        action: 'EXIT_IMMEDIATELY',
-      });
-
-      result.shouldExit = true;
-      result.reason = `Green→Red Protection (peaked +${existing.peakPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% - exiting to preserve profit)`;
-      return result;
-    }
-
-    // If trade never went profitable (peak = 0), skip erosion cap (handled by underwater timeout)
+    // PARITY WITH /NEXUS: Don't exit via erosion cap if trade is underwater
+    // Underwater timeout will handle negative positions
+    // This prevents exits on noise-level fluctuations (e.g., +0.02% peak → -0.01%)
     if (currentProfitPct <= 0) {
-      logger.debug('Erosion check: trade never profitable - skip erosion cap (handled by underwater timeout)', {
+      logger.debug('Erosion check: trade is underwater - skip erosion cap (handled by underwater timeout)', {
         tradeId,
         pair,
         currentProfitPct: currentProfitPct.toFixed(2),
         peakProfitPct: existing.peakPct.toFixed(4),
+        note: 'Parity with /nexus - erosion cap only applies to green trades',
       });
       return result;
     }

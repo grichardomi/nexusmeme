@@ -25,6 +25,8 @@ export function calculateTechnicalIndicators(
   const volumes = candles.map((c) => c.volume);
 
   // Calculate momentum (percentage change over periods)
+  // CRITICAL: Assumes 15m candles for /nexus parity!
+  // With 15m candles: 4 candles = 1h, 16 candles = 4h
   const momentum1h = candles.length >= 4
     ? ((closes[closes.length - 1] - closes[closes.length - 4]) / closes[closes.length - 4]) * 100
     : 0;

@@ -301,7 +301,7 @@ export async function POST(request: NextRequest) {
             maxHoldHours: 336,               // 14 days max hold
             emergencyLossLimit: -0.06,       // -6% emergency exit (safety net)
             underwaterExitThresholdPct: -0.005,  // -0.5% underwater threshold (hybrid: more aggressive than /nexus)
-            underwaterExitMinTimeMinutes: 2,     // 2 minutes minimum (aggressive: exit bad entries quickly)
+            underwaterExitMinTimeMinutes: 15,    // 15 minutes minimum (parity with /nexus)
             // ===== RISK MANAGEMENT (5-STAGE FILTER) =====
             minADXForEntry: 20,              // Chop detection threshold
             btcDumpThreshold1h: -0.015,      // BTC dump protection for alts

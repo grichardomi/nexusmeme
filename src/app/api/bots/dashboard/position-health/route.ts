@@ -83,15 +83,29 @@ export async function GET(req: NextRequest) {
       const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
       const regime = botConfig?.regime || 'moderate';
 
-      // Debug: Log if peak < current (peak should always be >= current)
+      // Fix stale peak: if current > peak and current is positive, update peak in DB
+      // This catches cases where the orchestrator's DB update may have failed
+      let effectivePeakPct = peakProfitPct;
       if (currentProfitPct > 0 && peakProfitPct < currentProfitPct) {
-        logger.warn('Position health: peak < current (peak should be updated)', {
+        effectivePeakPct = currentProfitPct;
+        logger.info('Position health: fixing stale peak (current > stored peak)', {
           tradeId: trade.id,
           pair: trade.pair,
-          currentProfitPct: currentProfitPct.toFixed(4),
-          peakProfitPct: peakProfitPct.toFixed(4),
-          dbPeakValue: trade.peak_profit_percent,
+          oldPeak: peakProfitPct.toFixed(4),
+          newPeak: currentProfitPct.toFixed(4),
         });
+        // Update the database
+        try {
+          await query(
+            `UPDATE trades SET peak_profit_percent = $1, peak_profit_recorded_at = NOW() WHERE id = $2`,
+            [currentProfitPct, trade.id]
+          );
+        } catch (updateErr) {
+          logger.warn('Failed to fix stale peak in DB', {
+            tradeId: trade.id,
+            error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+          });
+        }
       }
 
       const alerts: string[] = [];
@@ -100,17 +114,25 @@ export async function GET(req: NextRequest) {
 
       // Erosion calculations (align with position tracker logic)
       // IMPORTANT: If current >= peak, erosion is 0 (no erosion has occurred, profit increased)
-      const erosionCapFraction = riskManager.getErosionCap(regime, peakProfitPct); // fraction of peak allowed to erode
-      const erosionAbsolutePct = peakProfitPct > 0 ? Math.max(0, peakProfitPct - currentProfitPct) : 0;
-      const erosionUsedFraction = peakProfitPct > 0 && currentProfitPct < peakProfitPct
-        ? (peakProfitPct - currentProfitPct) / peakProfitPct
-        : 0; // If current >= peak, no erosion
+      // PARITY WITH /NEXUS: If trade is underwater (current <= 0), skip erosion entirely
+      // Underwater trades are handled by underwater timeout, not erosion cap
+      // Use effectivePeakPct which may have been corrected above
+      const erosionCapFraction = riskManager.getErosionCap(regime, effectivePeakPct); // fraction of peak allowed to erode
+
+      // Skip erosion for underwater trades - produces meaningless huge numbers
+      const isUnderwater = currentProfitPct <= 0;
+      const erosionAbsolutePct = effectivePeakPct > 0 && !isUnderwater
+        ? Math.max(0, effectivePeakPct - currentProfitPct)
+        : 0;
+      const erosionUsedFraction = effectivePeakPct > 0 && currentProfitPct < effectivePeakPct && !isUnderwater
+        ? (effectivePeakPct - currentProfitPct) / effectivePeakPct
+        : 0; // If current >= peak OR underwater, no erosion
       const erosionRatioPct = erosionCapFraction > 0 ? Math.max(0, (erosionUsedFraction / erosionCapFraction) * 100) : 0;
 
       // Check underwater condition
-      if (currentProfitPct < 0 && peakProfitPct <= 0) {
+      if (currentProfitPct < 0 && effectivePeakPct <= 0) {
         const underwaterThresholdPct = parseFloat(botConfig?.underwaterExitThresholdPct || '-0.008');
-        const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '2');
+        const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '15');
 
         if (currentProfitPct < underwaterThresholdPct * 100) {
           alerts.push(`UNDERWATER_ALERT: ${currentProfitPct.toFixed(2)}% (threshold: ${(underwaterThresholdPct * 100).toFixed(1)}%)`);
@@ -126,9 +148,9 @@ export async function GET(req: NextRequest) {
       }
 
       // Check erosion condition using cap fraction (percentage-of-peak model)
-      if (peakProfitPct > 0) {
+      if (effectivePeakPct > 0) {
         if (erosionUsedFraction > erosionCapFraction) {
-          alerts.push(`EROSION_ALERT: Peaked +${peakProfitPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% (used ${(erosionUsedFraction * 100).toFixed(2)}% of peak vs cap ${(erosionCapFraction * 100).toFixed(2)}%)`);
+          alerts.push(`EROSION_ALERT: Peaked +${effectivePeakPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% (used ${(erosionUsedFraction * 100).toFixed(2)}% of peak vs cap ${(erosionCapFraction * 100).toFixed(2)}%)`);
           status = 'critical';
           recommendation = `CLOSE NOW: Erosion ${(erosionRatioPct).toFixed(1)}% of cap`;
         } else if (erosionUsedFraction > erosionCapFraction * 0.8) {
@@ -153,7 +175,7 @@ export async function GET(req: NextRequest) {
         entryPrice,
         currentProfit,
         currentProfitPct,
-        peakProfitPct,
+        peakProfitPct: effectivePeakPct,
         ageMinutes,
         status,
         alerts,
@@ -169,7 +191,7 @@ export async function GET(req: NextRequest) {
 
       // Update summary
       summary.totalProfitPct += currentProfitPct;
-      summary.peakProfitPct += peakProfitPct;
+      summary.peakProfitPct += effectivePeakPct;
       if (status === 'healthy') summary.healthy++;
       else if (status === 'warning') summary.warning++;
       else if (status === 'critical') summary.critical++;
