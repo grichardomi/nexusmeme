@@ -1,0 +1,11 @@
+[phases.setup]
+# System packages required to build sodium-native
+nixPkgs = [
+  "autoconf",
+  "automake",
+  "libtool",
+  "pkg-config",
+  "gnumake",
+  "gcc",
+  "python3"
+]
