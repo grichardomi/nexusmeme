@@ -4,6 +4,9 @@
 [build]
 # Use Nixpacks (default) since no Dockerfile is present
 builder = "NIXPACKS"
+[build.env]
+# Add system packages needed for sodium-native build
+NIXPACKS_PKGS = "libtool autoconf automake pkg-config"
 
 [[services]]
 name = "web"
