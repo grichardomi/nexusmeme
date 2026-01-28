@@ -139,8 +139,14 @@ class MonthlyBillingScheduler {
     return this.calculateNextRunForDay(now, dayOfMonth);
   }
 
+  // Max safe setTimeout delay: 24 hours (well under 2^31-1 ms limit of ~24.8 days)
+  private static readonly MAX_TIMER_DELAY_MS = 24 * 60 * 60 * 1000;
+
   /**
    * Schedule the next run of a job
+   * Uses a re-check pattern to avoid setTimeout overflow (max 2^31-1 ms).
+   * If the target time is more than 24 hours away, schedules a wake-up
+   * in 24 hours to re-evaluate.
    */
   private scheduleNextRun(jobId: string): void {
     const job = this.scheduledJobs.get(jobId);
@@ -158,17 +164,37 @@ class MonthlyBillingScheduler {
     const now = new Date();
     const delayMs = job.nextRun.getTime() - now.getTime();
 
+    if (delayMs <= 0) {
+      // Target time already passed, execute immediately
+      logger.info('Job target time already passed, executing now', { jobId: job.id });
+      const timer = setTimeout(async () => {
+        await this.executeJob(jobId);
+      }, 0);
+      this.timers.set(jobId, timer);
+      return;
+    }
+
+    // Cap delay to avoid setTimeout 32-bit integer overflow
+    const safeDelay = Math.min(delayMs, MonthlyBillingScheduler.MAX_TIMER_DELAY_MS);
+    const willExecute = safeDelay === delayMs;
+
     logger.info('Scheduling job next run', {
       jobId: job.id,
       nextRun: job.nextRun.toISOString(),
       delayMs,
+      safeDelay,
       delayHours: (delayMs / (1000 * 60 * 60)).toFixed(2),
+      willExecute,
     });
 
-    // Schedule the job
     const timer = setTimeout(async () => {
-      await this.executeJob(jobId);
-    }, Math.max(0, delayMs));
+      if (willExecute) {
+        await this.executeJob(jobId);
+      } else {
+        // Not yet time — re-schedule with another capped delay
+        this.scheduleNextRun(jobId);
+      }
+    }, safeDelay);
 
     this.timers.set(jobId, timer);
   }

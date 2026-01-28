@@ -1,23 +1,16 @@
 /**
  * Performance Fee Service
  * Handles 5% fee calculation on profitable trades
- * Manages fee tracking, Stripe billing integration, and edge cases
+ * Manages fee tracking and Coinbase Commerce billing integration
  */
 
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
-import Stripe from 'stripe';
 
 function getFeeRate(): number {
   return getEnvironmentConfig().PERFORMANCE_FEE_RATE;
 }
-
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is not set - cannot initialize Stripe client');
-}
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export interface PerformanceFeeRecord {
   id: string;
@@ -27,7 +20,7 @@ export interface PerformanceFeeRecord {
   profit_amount: number;
   fee_amount: number;
   status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived' | 'disputed';
-  stripe_invoice_id: string | null;
+  coinbase_charge_id: string | null;
   created_at: string;
 }
 
@@ -141,11 +134,11 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
          pf.profit_amount,
          pf.fee_amount,
          pf.status,
-         pf.stripe_invoice_id,
+         pf.coinbase_charge_id,
          pf.paid_at,
          t.pair
        FROM performance_fees pf
-       LEFT JOIN trades t ON pf.trade_id = t.id
+       LEFT JOIN trades t ON pf.trade_id::text = t.id::text
        WHERE pf.user_id = $1
        ORDER BY pf.created_at DESC
        LIMIT $2`,
@@ -164,6 +157,7 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
 /**
  * Adjust a fee (for P&L corrections)
  * Called by admin when profit calculation is corrected
+ * Note: With Coinbase Commerce, refunds must be handled manually
  */
 export async function adjustFee(
   feeId: string,
@@ -186,21 +180,6 @@ export async function adjustFee(
       }
 
       const fee = originalFee.rows[0];
-
-      // If already billed: create Stripe credit
-      if (fee.stripe_invoice_id) {
-        const adjustment = correctedFee - fee.fee_amount;
-
-        // Add credit line item to Stripe invoice (if needed)
-        if (adjustment !== 0) {
-          await stripe.invoiceItems.create({
-            customer: (await getStripeCustomerId(fee.user_id))!,
-            invoice: fee.stripe_invoice_id,
-            amount: Math.round(adjustment * 100), // Stripe uses cents
-            description: `Fee adjustment: ${reason}`,
-          });
-        }
-      }
 
       // Update fee record
       await client.query(
@@ -262,7 +241,7 @@ export async function waiveFee(
       const fee = feeResult.rows[0];
 
       // Check if already billed
-      if (fee.stripe_invoice_id) {
+      if (fee.coinbase_charge_id) {
         throw new Error('Cannot waive already-billed fees. Use refund instead.');
       }
 
@@ -301,14 +280,16 @@ export async function waiveFee(
 }
 
 /**
- * Refund a fee (after payment was made)
- * Called by admin
+ * Mark a fee as refunded (manual refund process for crypto payments)
+ * Called by admin after manually processing crypto refund
+ * Note: Coinbase Commerce crypto refunds must be done manually via wallet transfer
  */
-export async function refundFee(
+export async function markFeeRefunded(
   feeId: string,
   adminUserId: string,
-  reason: string
-): Promise<string> {
+  reason: string,
+  refundTxId?: string
+): Promise<void> {
   try {
     const feeResult = await query(
       `SELECT * FROM performance_fees WHERE id = $1`,
@@ -325,31 +306,17 @@ export async function refundFee(
       throw new Error('Only paid fees can be refunded');
     }
 
-    if (!fee.stripe_invoice_id) {
-      throw new Error('No Stripe invoice found');
-    }
-
-    // Get Stripe charge ID from invoice
-    const invoice = await stripe.invoices.retrieve(fee.stripe_invoice_id);
-    const chargeId = invoice.charge as string | null;
-
-    if (!chargeId) {
-      throw new Error('No charge found on invoice');
-    }
-
-    // Issue refund
-    const refund = await stripe.refunds.create({
-      charge: chargeId as string,
-    });
-
     // Update fee record
     await transaction(async (client) => {
       await client.query(
         `UPDATE performance_fees
          SET status = 'refunded',
+             refund_tx_id = $1,
+             adjusted_by_admin = $2,
+             adjustment_reason = $3,
              updated_at = NOW()
-         WHERE id = $1`,
-        [feeId]
+         WHERE id = $4`,
+        [refundTxId || null, adminUserId, reason, feeId]
       );
 
       // Log audit trail
@@ -360,27 +327,32 @@ export async function refundFee(
         [adminUserId, fee.user_id, [feeId], reason, fee.fee_amount]
       );
 
-      // Update charge history
-      await client.query(
-        `UPDATE fee_charge_history
-         SET status = 'refunded',
-             refunded_at = NOW(),
-             refund_amount = $1
-         WHERE stripe_invoice_id = $2`,
-        [fee.fee_amount, fee.stripe_invoice_id]
-      );
+      // Update charge history if exists
+      if (fee.coinbase_charge_id) {
+        await client.query(
+          `UPDATE fee_charge_history
+           SET status = 'refunded',
+               refunded_at = NOW(),
+               refund_amount = $1
+           WHERE id = (
+             SELECT fch.id FROM fee_charge_history fch
+             JOIN coinbase_charges cc ON fch.coinbase_charge_id = cc.charge_id
+             WHERE cc.charge_id = $2
+             LIMIT 1
+           )`,
+          [fee.fee_amount, fee.coinbase_charge_id]
+        );
+      }
     });
 
-    logger.info('Fee refunded', {
+    logger.info('Fee marked as refunded', {
       feeId,
-      refundId: refund.id,
+      refundTxId,
       adminUserId,
       reason,
     });
-
-    return refund.id;
   } catch (error) {
-    logger.error('Failed to refund fee', error instanceof Error ? error : null, {
+    logger.error('Failed to mark fee as refunded', error instanceof Error ? error : null, {
       feeId,
     });
     throw error;
@@ -422,47 +394,28 @@ export async function getPendingFeesPerUser(): Promise<Array<{
 }
 
 /**
- * Helper: Get Stripe customer ID for a user
- */
-async function getStripeCustomerId(userId: string): Promise<string | null> {
-  try {
-    const result = await query(
-      `SELECT stripe_customer_id FROM user_stripe_billing WHERE user_id = $1`,
-      [userId]
-    );
-
-    return result[0]?.stripe_customer_id || null;
-  } catch (error) {
-    logger.error('Failed to get Stripe customer ID', error instanceof Error ? error : null, {
-      userId,
-    });
-    return null;
-  }
-}
-
-/**
  * Helper: Mark fees as billed in batch
- * Called by monthly billing job
+ * Called by monthly billing job when Coinbase charge is created
  */
 export async function markFeesAsBilled(
   userId: string,
-  stripeInvoiceId: string,
+  coinbaseChargeId: string,
   feeIds: string[]
 ): Promise<void> {
   try {
     await query(
       `UPDATE performance_fees
-       SET stripe_invoice_id = $1,
+       SET coinbase_charge_id = $1,
            status = 'billed',
            billed_at = NOW(),
            updated_at = NOW()
        WHERE id = ANY($2)`,
-      [stripeInvoiceId, feeIds]
+      [coinbaseChargeId, feeIds]
     );
 
     logger.info('Fees marked as billed', {
       userId,
-      stripeInvoiceId,
+      coinbaseChargeId,
       feeCount: feeIds.length,
     });
   } catch (error) {
@@ -475,25 +428,25 @@ export async function markFeesAsBilled(
 
 /**
  * Helper: Mark fees as paid
- * Called by Stripe webhook (invoice.paid)
+ * Called by Coinbase webhook (charge:confirmed)
  */
-export async function markFeesAsPaid(stripeInvoiceId: string): Promise<void> {
+export async function markFeesAsPaid(coinbaseChargeId: string): Promise<void> {
   try {
     await query(
       `UPDATE performance_fees
        SET status = 'paid',
            paid_at = NOW(),
            updated_at = NOW()
-       WHERE stripe_invoice_id = $1`,
-      [stripeInvoiceId]
+       WHERE coinbase_charge_id = $1`,
+      [coinbaseChargeId]
     );
 
     logger.info('Fees marked as paid', {
-      stripeInvoiceId,
+      coinbaseChargeId,
     });
   } catch (error) {
     logger.error('Failed to mark fees as paid', error instanceof Error ? error : null, {
-      stripeInvoiceId,
+      coinbaseChargeId,
     });
     throw error;
   }

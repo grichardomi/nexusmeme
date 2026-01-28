@@ -5,23 +5,12 @@
  *
  * MODEL: Performance-Based Pricing
  * - No monthly subscriptions, no setup fees
- * - Only pay 5% of profits from closed trades
+ * - Only pay 5% of profits from closed trades via Coinbase Commerce (crypto)
  * - Everyone starts with 10-day Live Trading Trial
  * - No legacy "paper trading forever" - encourages conversion
  */
 
 import { SubscriptionPlan } from '@/types/billing';
-
-/**
- * Stripe Price IDs - Legacy, kept for backward compatibility
- * These are no longer used with performance fees model
- */
-const STRIPE_PRICE_IDS = {
-  standard: process.env.NEXT_PUBLIC_STRIPE_PRICE_STANDARD || 'price_1RZNjaD6muARz8OlT8QMEetc',
-  pro: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO || 'price_1SUrYID6muARz8OljOoP7nJK',
-};
-
-export { STRIPE_PRICE_IDS };
 
 /**
  * Pricing Plans
@@ -51,7 +40,6 @@ export const PRICING_PLANS = {
     description: 'Trade with real money free for 10 days',
     monthlyPrice: 0,
     yearlyPrice: 0,
-    stripePriceId: undefined,
     features: [
       'Real money live trading execution',
       '1 trading bot',
@@ -83,7 +71,6 @@ export const PRICING_PLANS = {
     description: 'Unlimited live trading with 5% fee on profits only',
     monthlyPrice: 0, // No subscription
     yearlyPrice: 0,
-    stripePriceId: undefined,
     features: [
       'Everything in Live Trial, plus:',
       'Unlimited capital - trade as much as you want',

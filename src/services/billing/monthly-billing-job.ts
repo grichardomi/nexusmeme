@@ -1,7 +1,7 @@
 /**
  * Monthly Billing Job
  * Runs on 1st of each month at 2 AM UTC
- * Aggregates pending fees and creates Stripe invoices
+ * Aggregates pending fees and creates Coinbase Commerce charges
  */
 
 import { query, transaction } from '@/lib/db';
@@ -12,19 +12,12 @@ import {
   sendPerformanceFeeFailedEmail,
   sendUpcomingBillingEmail,
 } from '@/services/email/triggers';
-import Stripe from 'stripe';
-
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is not set - cannot initialize Stripe client');
-}
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+import { createPerformanceFeeCharge, isCoinbaseCommerceEnabled } from './coinbase-commerce';
 
 interface PendingUserFees {
   user_id: string;
   email: string;
   name?: string;
-  stripe_customer_id: string;
   total_fees: number;
   fee_count: number;
   fee_ids: string[];
@@ -43,6 +36,19 @@ export async function runMonthlyBillingJob(): Promise<{
   errors: string[];
 }> {
   logger.info('Starting monthly billing job');
+
+  // Check if Coinbase Commerce is enabled
+  if (!isCoinbaseCommerceEnabled()) {
+    logger.error('Monthly billing job failed: Coinbase Commerce not enabled');
+    return {
+      success: false,
+      billingRunId: '',
+      successCount: 0,
+      failureCount: 0,
+      totalBilled: 0,
+      errors: ['Coinbase Commerce not enabled'],
+    };
+  }
 
   const startOfLastMonth = getStartOfLastMonth();
   const endOfLastMonth = getEndOfLastMonth();
@@ -184,16 +190,13 @@ async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
        u.id as user_id,
        u.email,
        u.name,
-       usb.stripe_customer_id,
        SUM(pf.fee_amount)::DECIMAL as total_fees,
        COUNT(pf.id)::INT as fee_count,
        ARRAY_AGG(pf.id) as fee_ids
      FROM users u
-     JOIN user_stripe_billing usb ON u.id = usb.user_id
      JOIN performance_fees pf ON u.id = pf.user_id
      WHERE pf.status = 'pending_billing'
-       AND usb.billing_status = 'active'
-     GROUP BY u.id, u.email, u.name, usb.stripe_customer_id
+     GROUP BY u.id, u.email, u.name
      HAVING SUM(pf.fee_amount) >= $1
      ORDER BY u.id`,
     [PERFORMANCE_FEE_MIN_INVOICE_USD]
@@ -209,72 +212,64 @@ async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
 
 /**
  * Process billing for a single user
+ * Creates a Coinbase Commerce charge for the user to pay
  * @param userFees - Fees to bill for this user
  * @param billingRunId - ID of the current billing run (for metrics scoping, optional for admin functions)
  */
 async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?: string): Promise<void> {
   try {
-    // Create Stripe invoice item first
-    await stripe.invoiceItems.create({
-      customer: userFees.stripe_customer_id,
-      amount: Math.round(userFees.total_fees * 100), // Stripe uses cents
-      currency: 'usd',
-      description: `Trading Bot Performance Fee - ${userFees.fee_count} profitable trade(s)`,
-    });
-
-    // Create Stripe invoice
-    const invoice = await stripe.invoices.create({
-      customer: userFees.stripe_customer_id,
-      collection_method: 'charge_automatically',
-      auto_advance: true, // Auto-finalize and attempt payment
-      description: `Performance fees for ${userFees.fee_count} profitable trades`,
-    });
-
-    logger.info('Stripe invoice created', {
+    // Create Coinbase Commerce charge
+    const charge = await createPerformanceFeeCharge({
       userId: userFees.user_id,
-      invoiceId: invoice.id,
       amount: userFees.total_fees,
+      description: `Trading Bot Performance Fee - ${userFees.fee_count} profitable trade(s)`,
+      feeIds: userFees.fee_ids,
     });
 
-    // Mark fees as billed
-    await transaction(async (client) => {
-      // Update performance_fees (with billing_run_id for proper scoping)
-      await client.query(
-        `UPDATE performance_fees
-         SET stripe_invoice_id = $1,
-             status = 'billed',
-             billed_at = NOW(),
-             billing_run_id = $3,
-             updated_at = NOW()
-         WHERE id = ANY($2)`,
-        [invoice.id, userFees.fee_ids, billingRunId]
-      );
-
-      // Create charge history record
-      await client.query(
-        `INSERT INTO fee_charge_history
-         (user_id, billing_period_start, billing_period_end, total_fees_amount,
-          total_fees_count, stripe_invoice_id, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [
-          userFees.user_id,
-          getStartOfLastMonth(),
-          getEndOfLastMonth(),
-          userFees.total_fees,
-          userFees.fee_count,
-          invoice.id,
-        ]
-      );
+    logger.info('Coinbase Commerce charge created', {
+      userId: userFees.user_id,
+      chargeId: charge.id,
+      chargeCode: charge.code,
+      amount: userFees.total_fees,
+      hostedUrl: charge.hosted_url,
     });
 
-    // Send notification email
+    // Mark fees as billed with billing_run_id for proper scoping
+    if (billingRunId) {
+      await transaction(async (client) => {
+        await client.query(
+          `UPDATE performance_fees
+           SET billing_run_id = $1
+           WHERE id = ANY($2)`,
+          [billingRunId, userFees.fee_ids]
+        );
+      });
+    }
+
+    // Create charge history record
+    await query(
+      `INSERT INTO fee_charge_history
+       (user_id, billing_period_start, billing_period_end, total_fees_amount,
+        total_fees_count, coinbase_charge_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+      [
+        userFees.user_id,
+        getStartOfLastMonth(),
+        getEndOfLastMonth(),
+        userFees.total_fees,
+        userFees.fee_count,
+        charge.id,
+      ]
+    );
+
+    // Send notification email with payment link
     try {
       await sendPerformanceFeeChargedEmail(
         userFees.email,
         userFees.name || 'Trader',
         userFees.total_fees,
-        invoice.id,
-        invoice.hosted_invoice_url || undefined,
+        charge.code,
+        charge.hosted_url,
         userFees.fee_count
       );
     } catch (emailError) {
@@ -285,9 +280,10 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
       // Don't fail the entire billing if email fails
     }
 
-    logger.info('User billed successfully', {
+    logger.info('User billing charge created successfully', {
       userId: userFees.user_id,
       amount: userFees.total_fees,
+      chargeCode: charge.code,
     });
   } catch (error) {
     logger.error('Failed to process user billing', error instanceof Error ? error : null, {
@@ -337,6 +333,10 @@ function getEndOfLastMonth(): Date {
 export async function runBillingJobForMonth(year: number, month: number): Promise<any> {
   logger.info('Running billing job for specific month', { year, month });
 
+  if (!isCoinbaseCommerceEnabled()) {
+    throw new Error('Coinbase Commerce not enabled');
+  }
+
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0);
 
@@ -345,18 +345,16 @@ export async function runBillingJobForMonth(year: number, month: number): Promis
     `SELECT
        u.id as user_id,
        u.email,
-       usb.stripe_customer_id,
+       u.name,
        SUM(pf.fee_amount)::DECIMAL as total_fees,
        COUNT(pf.id)::INT as fee_count,
        ARRAY_AGG(pf.id) as fee_ids
      FROM users u
-     JOIN user_stripe_billing usb ON u.id = usb.user_id
      JOIN performance_fees pf ON u.id = pf.user_id
      WHERE pf.status = 'pending_billing'
-       AND usb.billing_status = 'active'
        AND pf.created_at >= $1
        AND pf.created_at < $2
-     GROUP BY u.id, u.email, usb.stripe_customer_id`,
+     GROUP BY u.id, u.email, u.name`,
     [startDate, endDate]
   );
 

@@ -41,9 +41,6 @@ importers:
       sodium-plus:
         specifier: ^0.1.0
         version: 0.1.0(sodium-native@2.4.9)
-      stripe:
-        specifier: ^14.0.0
-        version: 14.25.0
       winston:
         specifier: ^3.19.0
         version: 3.19.0
@@ -3152,10 +3149,6 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
-
-  stripe@14.25.0:
-    resolution: {integrity: sha512-wQS3GNMofCXwH8TSje8E1SE8zr6ODiGtHQgPtO95p9Mb4FhKC9jvXR2NUTpZ9ZINlckJcFidCmaTFV4P6vsb9g==}
-    engines: {node: '>=12.*'}
 
   styled-jsx@5.1.6:
     resolution: {integrity: sha512-qSVyDTeMotdvQYoHWLNGwRFJHC+i+ZvdBRYosOFgC+Wg1vx4frN2/RG/NA7SYqqvKNLf39P2LSRA2pu6n0XYZA==}
@@ -7094,11 +7087,6 @@ snapshots:
   strip-final-newline@2.0.0: {}
 
   strip-json-comments@3.1.1: {}
-
-  stripe@14.25.0:
-    dependencies:
-      '@types/node': 20.19.30
-      qs: 6.14.1
 
   styled-jsx@5.1.6(@babel/core@7.28.6)(react@19.2.3):
     dependencies:

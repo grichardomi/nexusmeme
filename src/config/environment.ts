@@ -27,13 +27,6 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
 
-  /* Stripe (legacy - being replaced by Coinbase Commerce) */
-  STRIPE_SECRET_KEY: z.string().min(1),
-  STRIPE_PUBLISHABLE_KEY: z.string().min(1),
-  STRIPE_WEBHOOK_SECRET: z.string().min(1),
-  STRIPE_WEBHOOK_SECRET_BILLING: z.string().min(1).optional().transform(v => v?.trim() || undefined),
-  STRIPE_API_VERSION: z.string().default('2025-02-24.acacia'),
-
   /* Coinbase Commerce - Crypto payments for performance fees */
   COINBASE_COMMERCE_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   COINBASE_COMMERCE_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
@@ -244,11 +237,6 @@ function getDefaultEnvironment(): Environment {
     INTERNAL_API_KEY: 'build-phase',
     UPSTASH_REDIS_REST_URL: 'https://build-phase.upstash.io',
     UPSTASH_REDIS_REST_TOKEN: 'build-phase',
-    STRIPE_SECRET_KEY: 'sk_test_build',
-    STRIPE_PUBLISHABLE_KEY: 'pk_test_build',
-    STRIPE_WEBHOOK_SECRET: 'whsec_build',
-    STRIPE_WEBHOOK_SECRET_BILLING: undefined,
-    STRIPE_API_VERSION: '2025-02-24.acacia',
     COINBASE_COMMERCE_API_KEY: undefined,
     COINBASE_COMMERCE_WEBHOOK_SECRET: undefined,
     COINBASE_COMMERCE_ENABLED: false,
@@ -528,21 +516,15 @@ export const exchangeFeesConfig = {
  * Billing configuration
  */
 export const billingConfig = {
-  stripe: {
-    get secretKey() {
-      return getEnv('STRIPE_SECRET_KEY');
-    },
-    get publishableKey() {
-      return getEnv('STRIPE_PUBLISHABLE_KEY');
+  coinbaseCommerce: {
+    get apiKey() {
+      return getEnv('COINBASE_COMMERCE_API_KEY');
     },
     get webhookSecret() {
-      return getEnv('STRIPE_WEBHOOK_SECRET');
+      return getEnv('COINBASE_COMMERCE_WEBHOOK_SECRET');
     },
-    get webhookSecretBilling() {
-      return getEnv('STRIPE_WEBHOOK_SECRET_BILLING');
-    },
-    get apiVersion() {
-      return getEnv('STRIPE_API_VERSION');
+    get enabled() {
+      return getEnv('COINBASE_COMMERCE_ENABLED');
     },
   },
   performanceFee: {

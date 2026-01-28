@@ -8,8 +8,8 @@ import {
   getPlanUsage,
   getAvailablePlans,
 } from '@/services/billing/subscription';
-import { getUserInvoices } from '@/services/billing/stripe';
-import { Invoice, Subscription } from '@/types/billing';
+import { getRecentFeeTransactions } from '@/services/billing/performance-fee';
+import { Subscription } from '@/types/billing';
 import { z } from 'zod';
 import { getEnvironmentConfig } from '@/config/environment';
 
@@ -63,13 +63,13 @@ export async function GET() {
       };
     }
 
-    // Get invoices
-    let invoices: Invoice[] = [];
+    // Get recent fee transactions (replaces legacy invoices)
+    let feeTransactions: any[] = [];
     try {
-      invoices = await getUserInvoices(session.user.id, 5);
+      feeTransactions = await getRecentFeeTransactions(session.user.id, 10);
     } catch (err) {
-      console.error('Error fetching invoices:', err);
-      // Continue - invoices table may not exist
+      console.error('Error fetching fee transactions:', err);
+      // Continue - table may not exist
     }
 
     // Get available plans
@@ -78,7 +78,7 @@ export async function GET() {
     return NextResponse.json({
       subscription,
       planUsage,
-      invoices,
+      feeTransactions,
       availablePlans,
     });
   } catch (error) {

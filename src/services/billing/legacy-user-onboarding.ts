@@ -44,8 +44,8 @@ export async function hasActiveSubscription(userId: string): Promise<boolean> {
  * Creates a live trading trial with 10-day duration if user doesn't have one
  *
  * @param userId - User ID
- * @param email - User email (required for Stripe customer creation)
- * @param name - User name (optional, for Stripe customer metadata)
+ * @param email - User email
+ * @param name - User name (optional)
  * @returns Assignment result with subscription details
  */
 export async function assignStarterPlanToLegacyUser(
@@ -71,9 +71,9 @@ export async function assignStarterPlanToLegacyUser(
         };
       }
 
-      // 2. Check if user has Stripe customer ID already
+      // 2. Check if user exists
       const userResult = await client.query(
-        `SELECT stripe_customer_id FROM users WHERE id = $1`,
+        `SELECT id FROM users WHERE id = $1`,
         [userId]
       );
 
@@ -88,7 +88,7 @@ export async function assignStarterPlanToLegacyUser(
       }
 
       // 3. Initialize subscription for the user
-      // This creates Stripe customer (if needed) and free subscription with trial
+      // This creates a live trial subscription in the database
       logger.info('Initializing live trial plan for legacy user', { userId, email });
 
       const subscription = await initializeSubscription(userId, email, name);
@@ -176,7 +176,7 @@ export async function findUsersWithoutSubscriptions(
  * Useful for migrations or one-time onboarding flows
  *
  * @param createdBeforeDate - Optional: only process users created before this date
- * @param batchSize - Process in batches of this size to avoid overwhelming Stripe
+ * @param batchSize - Process in batches of this size
  * @returns Summary of assignment results
  */
 export async function batchAssignStarterPlansToLegacyUsers(
@@ -235,7 +235,7 @@ export async function batchAssignStarterPlansToLegacyUsers(
         summary.failed++;
       }
 
-      // Add small delay between API calls to Stripe
+      // Add small delay between operations
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 

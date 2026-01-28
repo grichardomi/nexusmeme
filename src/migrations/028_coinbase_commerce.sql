@@ -45,6 +45,28 @@ CREATE INDEX IF NOT EXISTS idx_performance_fees_coinbase_charge
 ON performance_fees(coinbase_charge_id)
 WHERE coinbase_charge_id IS NOT NULL;
 
+-- Add refund_tx_id column to performance_fees for crypto refund tracking
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'performance_fees' AND column_name = 'refund_tx_id'
+    ) THEN
+        ALTER TABLE performance_fees ADD COLUMN refund_tx_id VARCHAR(255);
+    END IF;
+END $$;
+
+-- Add coinbase_charge_id to fee_charge_history if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'fee_charge_history' AND column_name = 'coinbase_charge_id'
+    ) THEN
+        ALTER TABLE fee_charge_history ADD COLUMN coinbase_charge_id VARCHAR(255);
+    END IF;
+END $$;
+
 -- Comment for documentation
 COMMENT ON TABLE coinbase_charges IS 'Tracks Coinbase Commerce charges for crypto performance fee payments';
 COMMENT ON COLUMN coinbase_charges.charge_id IS 'Coinbase Commerce charge ID (unique identifier)';

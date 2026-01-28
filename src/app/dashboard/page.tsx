@@ -5,7 +5,6 @@ import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useLoadMore } from '@/hooks/useLoadMore';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
 
 /**
@@ -53,25 +52,21 @@ export default function DashboardPage() {
     sharpeRatio: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [tradesOpen, setTradesOpen] = useState(false);
 
-  // Memoize fetch function to prevent infinite re-renders
-  const fetchTradesData = useCallback(async (offset: number, limit: number) => {
-    const response = await fetch(`/api/trades?offset=${offset}&limit=${limit}`);
-    if (!response.ok) throw new Error('Failed to fetch trades');
+  const [trades, setTrades] = useState<Trade[]>([]);
 
-    const data = await response.json();
-    return {
-      items: data.trades || [],
-      total: data.total || 0,
-    };
+  const loadTrades = useCallback(async () => {
+    try {
+      const response = await fetch('/api/trades?offset=0&limit=500');
+      if (!response.ok) throw new Error('Failed to fetch trades');
+      const data = await response.json();
+      setTrades(data.trades || []);
+    } catch (err) {
+      console.error('Failed to fetch trades:', err);
+      setTrades([]);
+    }
   }, []);
-
-  // Use Load More hook for trades
-  const { items: trades, isLoading: tradesLoading, hasMore, load: loadTrades, loadMore } = useLoadMore<Trade>({
-    initialPageSize: 5,
-    pageSize: 10,
-    fetchFn: fetchTradesData,
-  });
 
   // Hooks must be called before any conditional returns
   useEffect(() => {
@@ -161,7 +156,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-8">
         {/* Active Bots Card */}
         <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
-          <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-2">Active Trading Bot</div>
+          <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-2">Active Trading Bots</div>
           <div className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white">
             {stats.activeBots}
           </div>
@@ -296,110 +291,109 @@ export default function DashboardPage() {
       )}
 
       {/* Recent Activity */}
-      <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">Recent Trades</h2>
-          {trades.length > 0 && !hasMore && (
-            <span className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Showing all {trades.length} trades
-            </span>
-          )}
-        </div>
-
-        {trades.length === 0 ? (
-          <div className="text-center py-8 sm:py-12 text-slate-600 dark:text-slate-400">
-            {bots.length === 0 ? (
-              <>
-                <p className="text-sm sm:text-base mb-3">📊 Create a trading bot to get started!</p>
-                <Link
-                  href="/dashboard/bots/new"
-                  className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded font-medium transition text-sm sm:text-base"
-                >
-                  Create Your First Bot
-                </Link>
-              </>
-            ) : bots[0].isActive ? (
-              <>
-                <p className="text-sm sm:text-base mb-3">✨ Your bot is running and monitoring the market...</p>
-                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-500">
-                  Trades will appear here once your bot executes them. Check the Live Trading dashboard for real-time updates.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm sm:text-base mb-3">⏹️ Your bot is stopped</p>
-                <Link
-                  href={`/dashboard/bots/${bots[0].id}`}
-                  className="inline-block bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded font-medium transition text-sm sm:text-base"
-                >
-                  Start Bot
-                </Link>
-              </>
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+        <button
+          onClick={() => setTradesOpen(prev => !prev)}
+          className="w-full flex items-center justify-between p-4 sm:p-6 text-left hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors rounded-lg"
+        >
+          <div className="flex items-center gap-2">
+            <h2 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">Recent Trades</h2>
+            {trades.length > 0 && (
+              <span className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                ({trades.length})
+              </span>
             )}
           </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              {trades.map(trade => (
-                <div
-                  key={trade.id}
-                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 border-l-4 rounded-r hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                  style={{
-                    borderLeftColor:
-                      trade.exitPrice
-                        ? trade.profitLoss && trade.profitLoss >= 0
-                          ? '#10b981' // green
-                          : '#ef4444' // red
-                        : '#3b82f6', // blue
-                  }}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-slate-900 dark:text-white text-sm sm:text-base truncate">
-                      {trade.pair}
-                    </p>
-                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                      Entry: ${trade.entryPrice.toFixed(2)}
-                      {trade.exitPrice && ` → Exit: $${trade.exitPrice.toFixed(2)}`}
-                    </p>
-                  </div>
-                  {trade.status === 'closed' && trade.profitLoss !== null ? (
-                    <div className="text-right mt-1 sm:mt-0 ml-auto">
-                      <p
-                        className={`text-sm sm:text-base font-bold ${
-                          trade.profitLoss >= 0
-                            ? 'text-green-600 dark:text-green-400'
-                            : 'text-red-600 dark:text-red-400'
-                        }`}
-                      >
-                        {trade.profitLoss >= 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {trade.profitLossPercent?.toFixed(2)}%
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-right mt-1 sm:mt-0 ml-auto">
-                      <p className="text-xs sm:text-sm text-yellow-600 dark:text-yellow-400 font-medium">Open</p>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+          <svg
+            className={`w-5 h-5 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${tradesOpen ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
 
-            {/* Load More Button */}
-            {hasMore && (
-              <div className="flex justify-center pt-2">
-                <button
-                  onClick={() => loadMore()}
-                  disabled={tradesLoading}
-                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded font-medium transition text-sm sm:text-base ${
-                    tradesLoading
-                      ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600'
-                  }`}
-                >
-                  {tradesLoading ? 'Loading...' : 'Load More Trades'}
-                </button>
+        {tradesOpen && (
+          <div className="px-4 sm:px-6 pb-4 sm:pb-6">
+            {trades.length === 0 ? (
+              <div className="text-center py-8 sm:py-12 text-slate-600 dark:text-slate-400">
+                {bots.length === 0 ? (
+                  <>
+                    <p className="text-sm sm:text-base mb-3">Create a trading bot to get started!</p>
+                    <Link
+                      href="/dashboard/bots/new"
+                      className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded font-medium transition text-sm sm:text-base"
+                    >
+                      Create Your First Bot
+                    </Link>
+                  </>
+                ) : bots[0].isActive ? (
+                  <>
+                    <p className="text-sm sm:text-base mb-3">Your bot is running and monitoring the market...</p>
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-500">
+                      Trades will appear here once your bot executes them. Check the Live Trading dashboard for real-time updates.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm sm:text-base mb-3">Your bot is stopped</p>
+                    <Link
+                      href={`/dashboard/bots/${bots[0].id}`}
+                      className="inline-block bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2 sm:py-3 rounded font-medium transition text-sm sm:text-base"
+                    >
+                      Start Bot
+                    </Link>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {trades.map(trade => (
+                  <div
+                    key={trade.id}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 border-l-4 rounded-r hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                    style={{
+                      borderLeftColor:
+                        trade.exitPrice
+                          ? trade.profitLoss && trade.profitLoss >= 0
+                            ? '#10b981'
+                            : '#ef4444'
+                          : '#3b82f6',
+                    }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-900 dark:text-white text-sm sm:text-base truncate">
+                        {trade.pair}
+                      </p>
+                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                        Entry: ${trade.entryPrice.toFixed(2)}
+                        {trade.exitPrice && ` \u2192 Exit: $${trade.exitPrice.toFixed(2)}`}
+                      </p>
+                    </div>
+                    {trade.status === 'closed' && trade.profitLoss !== null ? (
+                      <div className="text-right mt-1 sm:mt-0 ml-auto">
+                        <p
+                          className={`text-sm sm:text-base font-bold ${
+                            trade.profitLoss >= 0
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}
+                        >
+                          {trade.profitLoss >= 0 ? '+' : ''}${trade.profitLoss.toFixed(2)}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {trade.profitLossPercent?.toFixed(2)}%
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-right mt-1 sm:mt-0 ml-auto">
+                        <p className="text-xs sm:text-sm text-yellow-600 dark:text-yellow-400 font-medium">Open</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

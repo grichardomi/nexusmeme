@@ -4,7 +4,6 @@
  */
 
 import { logger } from '@/lib/logger';
-import Stripe from 'stripe';
 
 interface ValidationResult {
   success: boolean;
@@ -22,26 +21,36 @@ export async function validateStartup(): Promise<ValidationResult> {
 
   logger.info('Starting application startup validation');
 
-  // 1. Validate Stripe configuration
-  if (!process.env.STRIPE_SECRET_KEY) {
-    errors.push('STRIPE_SECRET_KEY is not set');
+  // 1. Validate Coinbase Commerce configuration (required for billing)
+  if (!process.env.COINBASE_COMMERCE_API_KEY) {
+    warnings.push('COINBASE_COMMERCE_API_KEY is not set (billing will not work)');
   } else {
     try {
-      // Test Stripe connection by creating a client and listing customers
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-      await stripe.customers.list({ limit: 1 });
-      logger.info('✓ Stripe API connection validated');
+      // Test Coinbase Commerce API connection
+      const response = await fetch('https://api.commerce.coinbase.com/checkouts', {
+        method: 'GET',
+        headers: {
+          'X-CC-Api-Key': process.env.COINBASE_COMMERCE_API_KEY,
+          'X-CC-Version': '2018-03-22',
+        },
+      });
+
+      if (response.ok) {
+        logger.info('✓ Coinbase Commerce API connection validated');
+      } else {
+        warnings.push(`Coinbase Commerce API returned status ${response.status}`);
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`Stripe API validation failed: ${errorMsg}`);
+      warnings.push(`Coinbase Commerce API validation failed: ${errorMsg}`);
     }
   }
 
-  // 2. Validate Stripe webhook secret
-  if (!process.env.STRIPE_WEBHOOK_SECRET_BILLING) {
-    warnings.push('STRIPE_WEBHOOK_SECRET_BILLING is not set (webhooks will not work)');
+  // 2. Validate Coinbase Commerce webhook secret
+  if (!process.env.COINBASE_COMMERCE_WEBHOOK_SECRET) {
+    warnings.push('COINBASE_COMMERCE_WEBHOOK_SECRET is not set (webhooks will not work)');
   } else {
-    logger.info('✓ Stripe webhook secret configured');
+    logger.info('✓ Coinbase Commerce webhook secret configured');
   }
 
   // 3. Validate database connection (already happens in db.ts)

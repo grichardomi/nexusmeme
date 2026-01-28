@@ -1,11 +1,4 @@
 import { getPool, query } from '@/lib/db';
-import {
-  createStripeCustomer,
-  createSubscription as createStripeSubscription,
-  cancelSubscription as cancelStripeSubscription,
-  updateSubscriptionPlan as updateStripeSubscriptionPlan,
-  checkPlanLimits,
-} from './stripe';
 import { PRICING_PLANS } from '@/config/pricing';
 import { Subscription, SubscriptionPlan, BillingPeriod } from '@/types/billing';
 
@@ -16,38 +9,45 @@ import { Subscription, SubscriptionPlan, BillingPeriod } from '@/types/billing';
  * - Managing subscription lifecycle
  * - Enforcing plan limits
  * - Handling downgrades/upgrades
+ *
+ * Note: With performance-based pricing, all users start on live_trial
+ * and move to performance_fees after trial expires. No Stripe subscriptions.
  */
 
 /**
  * Initialize subscription for a new user
- * Creates a free trial subscription and Stripe customer
+ * Creates a live_trial subscription in database (no external payment provider)
  */
 export async function initializeSubscription(
   userId: string,
-  email: string,
-  name?: string
+  _email: string,
+  _name?: string
 ): Promise<Subscription> {
   const client = await getPool().connect();
 
   try {
-    // Create Stripe customer
-    const stripeCustomerId = await createStripeCustomer(userId, email, name);
+    const now = new Date();
+    const trialEnd = new Date(now);
+    trialEnd.setDate(trialEnd.getDate() + 10); // 10-day trial
 
-    // Save Stripe customer ID to user record
-    await client.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [
-      stripeCustomerId,
-      userId,
-    ]);
-
-    // Create live_trial subscription (free plan no longer exists)
-    const subscription = await createStripeSubscription(
-      userId,
-      stripeCustomerId,
-      'live_trial',
-      'monthly'
+    // Create live_trial subscription
+    const result = await client.query(
+      `INSERT INTO subscriptions (
+        user_id, plan, status, period,
+        current_period_start, current_period_end, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      RETURNING *`,
+      [
+        userId,
+        'live_trial',
+        'trialing',
+        'monthly',
+        now,
+        trialEnd,
+      ]
     );
 
-    return subscription;
+    return result.rows[0] as Subscription;
   } finally {
     client.release();
   }
@@ -76,6 +76,7 @@ export async function getUserSubscription(userId: string): Promise<Subscription 
 
 /**
  * Upgrade or downgrade subscription plan
+ * With performance fees model, this just updates the database
  */
 export async function upgradeSubscription(
   userId: string,
@@ -98,14 +99,16 @@ export async function upgradeSubscription(
       throw new Error(`Invalid plan: ${newPlan}`);
     }
 
-    // Update Stripe subscription
-    const updatedSub = await updateStripeSubscriptionPlan(
-      (subscription as any).stripe_subscription_id,
-      newPlan,
-      period
+    // Update database directly (no Stripe)
+    const result = await client.query(
+      `UPDATE subscriptions
+       SET plan = $1, period = $2, updated_at = NOW()
+       WHERE user_id = $3 AND status != 'cancelled'
+       RETURNING *`,
+      [newPlan, period, userId]
     );
 
-    return updatedSub;
+    return result.rows[0] as Subscription;
   } finally {
     client.release();
   }
@@ -116,7 +119,7 @@ export async function upgradeSubscription(
  */
 export async function cancelUserSubscription(
   userId: string,
-  immediate = false
+  _immediate = false
 ): Promise<void> {
   const client = await getPool().connect();
 
@@ -127,8 +130,13 @@ export async function cancelUserSubscription(
       throw new Error('User has no active subscription');
     }
 
-    // Cancel Stripe subscription
-    await cancelStripeSubscription((subscription as any).stripe_subscription_id, immediate);
+    // Update database directly (no Stripe)
+    await client.query(
+      `UPDATE subscriptions
+       SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
+       WHERE user_id = $1 AND status != 'cancelled'`,
+      [userId]
+    );
   } finally {
     client.release();
   }
@@ -211,6 +219,42 @@ export async function checkActionAllowed(
 }
 
 /**
+ * Check if user has exceeded plan limits
+ */
+export async function checkPlanLimits(
+  userId: string,
+  plan: SubscriptionPlan,
+  metric: 'botsPerUser' | 'tradingPairsPerBot'
+): Promise<{ exceeded: boolean; current: number; limit: number }> {
+  const pricingPlan = PRICING_PLANS[plan];
+  if (!pricingPlan) {
+    throw new Error(`Invalid plan: ${plan}`);
+  }
+
+  const client = await getPool().connect();
+  try {
+    let current = 0;
+
+    if (metric === 'botsPerUser') {
+      const result = await client.query('SELECT COUNT(*) as count FROM bot_instances WHERE user_id = $1', [userId]);
+      current = parseInt(result.rows[0]?.count || 0, 10);
+    } else if (metric === 'tradingPairsPerBot') {
+      // This is per-bot, not per-user, so we'll return the limit only
+      current = 0; // Would be checked per-bot
+    }
+
+    const limit = pricingPlan.limits[metric];
+    return {
+      exceeded: current >= limit,
+      current,
+      limit,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Get plan usage for user
  */
 export async function getPlanUsage(userId: string) {
@@ -259,7 +303,7 @@ export async function getPlanUsage(userId: string) {
     try {
       const tradeResult = await client.query(
         `SELECT COUNT(*) as count FROM trades
-         WHERE bot_id IN (SELECT id FROM bot_instances WHERE user_id = $1)
+         WHERE bot_instance_id IN (SELECT id FROM bot_instances WHERE user_id = $1)
          AND created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'`,
         [userId]
       );

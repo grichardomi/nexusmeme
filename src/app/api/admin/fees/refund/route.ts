@@ -3,12 +3,14 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { refundFee } from '@/services/billing/performance-fee';
+import { markFeeRefunded } from '@/services/billing/performance-fee';
 import { z } from 'zod';
 
 /**
  * POST /api/admin/fees/refund
- * Refund a paid fee
+ * Mark a paid fee as refunded (manual crypto refund process)
+ * Note: With Coinbase Commerce, refunds must be processed manually
+ * via crypto wallet transfer. This endpoint records the refund in the system.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
     const refundSchema = z.object({
       feeId: z.string().uuid(),
       reason: z.string().min(10).max(500),
+      refundTxId: z.string().optional(), // Optional transaction ID for crypto refund
     });
 
     const validated = refundSchema.safeParse(body);
@@ -47,30 +50,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { feeId, reason } = validated.data;
+    const { feeId, reason, refundTxId } = validated.data;
 
-    // Perform refund
-    const refundId = await refundFee(feeId, session.user.id, reason);
+    // Mark fee as refunded
+    await markFeeRefunded(feeId, session.user.id, reason, refundTxId);
 
-    logger.info('Fee refunded by admin', {
+    logger.info('Fee marked as refunded by admin', {
       adminId: session.user.id,
       feeId,
-      refundId,
+      refundTxId,
     });
 
     return NextResponse.json(
       {
-        message: 'Fee refunded successfully',
+        message: 'Fee marked as refunded successfully',
         feeId,
-        refundId,
+        refundTxId,
       },
       { status: 200 }
     );
   } catch (error) {
-    logger.error('Failed to refund fee', error instanceof Error ? error : null);
+    logger.error('Failed to mark fee as refunded', error instanceof Error ? error : null);
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'Failed to refund fee',
+        error: error instanceof Error ? error.message : 'Failed to mark fee as refunded',
       },
       { status: 500 }
     );
