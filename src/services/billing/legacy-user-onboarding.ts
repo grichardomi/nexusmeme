@@ -306,7 +306,7 @@ export async function initializeUserOnboarding(userId: string): Promise<{
 
     // 4. Get current subscription details
     const subResult = await client.query(
-      `SELECT plan, status, trial_ends_at FROM subscriptions
+      `SELECT plan_tier as plan, status, trial_ends_at FROM subscriptions
        WHERE user_id = $1 AND status IN ('active', 'trialing')
        LIMIT 1`,
       [userId]

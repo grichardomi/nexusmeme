@@ -34,6 +34,7 @@ export interface TradeDecision {
   reason: string;
   timestamp: Date;
   regime: MarketRegime;
+  signalConfidence: number; // 0-100: AI's confidence in the trade signal (used for position sizing)
   stopLoss?: number; // Risk management: exit price on loss
   takeProfit?: number; // Dynamic profit target based on regime
 }

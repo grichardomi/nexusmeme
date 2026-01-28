@@ -151,7 +151,10 @@ class ExecutionFanOut {
       });
     }
 
-    const aiConfidence = decision.regime?.confidence ?? 70; // AI confidence already in 0-100 range
+    // Use signal confidence (0-100) for position sizing, NOT regime confidence
+    // Signal confidence = AI's confidence in the trade signal (72% = bigger position)
+    // Regime confidence = confidence in market regime detection (separate concern)
+    const aiConfidence = decision.signalConfidence ?? 70; // 0-100 scale
 
     let effectiveBalance = 0;
 
@@ -267,7 +270,28 @@ class ExecutionFanOut {
       stopLossPct // Use actual stop loss from decision, not hardcoded 2%
     );
 
-    const quantity = positionSize.sizeAsset;
+    // REGIME-BASED POSITION SIZING: Scale positions based on market regime
+    // Strong trends = bigger positions (ride the wave)
+    // Weak/choppy = smaller positions (reduce risk in uncertain markets)
+    const regimeMultipliers: Record<string, number> = {
+      strong: 1.5,    // 50% larger in strong trends
+      moderate: 1.0,  // Normal sizing
+      weak: 0.75,     // 25% smaller in weak trends
+      choppy: 0.5,    // 50% smaller in choppy markets
+    };
+    const regimeType = decision.regime?.type || 'moderate';
+    const regimeMultiplier = regimeMultipliers[regimeType] ?? 1.0;
+
+    const baseQuantity = positionSize.sizeAsset;
+    const quantity = baseQuantity * regimeMultiplier;
+
+    logger.info('Regime-adjusted position size', {
+      botId: bot.id,
+      regime: regimeType,
+      regimeMultiplier: `${regimeMultiplier}x`,
+      baseQuantity: baseQuantity.toFixed(8),
+      adjustedQuantity: quantity.toFixed(8),
+    });
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
       logger.warn('Position sizing produced invalid quantity, skipping trade', {

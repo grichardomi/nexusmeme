@@ -33,17 +33,20 @@ export async function initializeSubscription(
     // Create live_trial subscription
     const result = await client.query(
       `INSERT INTO subscriptions (
-        user_id, plan, status, period,
-        current_period_start, current_period_end, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-      RETURNING *`,
+        user_id, plan_tier, status,
+        current_period_start, current_period_end,
+        trial_ends_at, trial_started_at,
+        created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      RETURNING *, plan_tier as plan`,
       [
         userId,
         'live_trial',
         'trialing',
-        'monthly',
         now,
         trialEnd,
+        trialEnd,
+        now,
       ]
     );
 
@@ -61,7 +64,7 @@ export async function getUserSubscription(userId: string): Promise<Subscription 
 
   try {
     const result = await client.query(
-      `SELECT * FROM subscriptions
+      `SELECT *, plan_tier as plan FROM subscriptions
        WHERE user_id = $1 AND status != 'cancelled'
        ORDER BY created_at DESC
        LIMIT 1`,
@@ -81,7 +84,7 @@ export async function getUserSubscription(userId: string): Promise<Subscription 
 export async function upgradeSubscription(
   userId: string,
   newPlan: SubscriptionPlan,
-  period: BillingPeriod
+  _period?: BillingPeriod
 ): Promise<Subscription> {
   const client = await getPool().connect();
 
@@ -102,10 +105,10 @@ export async function upgradeSubscription(
     // Update database directly (no Stripe)
     const result = await client.query(
       `UPDATE subscriptions
-       SET plan = $1, period = $2, updated_at = NOW()
-       WHERE user_id = $3 AND status != 'cancelled'
-       RETURNING *`,
-      [newPlan, period, userId]
+       SET plan_tier = $1, updated_at = NOW()
+       WHERE user_id = $2 AND status != 'cancelled'
+       RETURNING *, plan_tier as plan`,
+      [newPlan, userId]
     );
 
     return result.rows[0] as Subscription;
@@ -395,7 +398,7 @@ export async function getSubscriptionDetails(subscriptionId: string) {
 
   try {
     const result = await client.query(
-      `SELECT s.*, u.email, u.name
+      `SELECT s.*, s.plan_tier as plan, u.email, u.name
        FROM subscriptions s
        JOIN users u ON u.id = s.user_id
        WHERE s.id = $1`,
@@ -416,7 +419,7 @@ export async function getUserSubscriptionHistory(userId: string, limit = 10) {
 
   try {
     const result = await client.query(
-      `SELECT * FROM subscriptions
+      `SELECT *, plan_tier as plan FROM subscriptions
        WHERE user_id = $1
        ORDER BY created_at DESC
        LIMIT $2`,

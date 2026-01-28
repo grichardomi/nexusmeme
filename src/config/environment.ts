@@ -141,11 +141,11 @@ const envSchema = z.object({
   /* Minimum peak profit before aggressive collapse protection kicks in */
   /* Minimum peak profit before collapse protection kicks in (decimal form) */
   /* Only protect meaningful profits - let small fluctuations play out */
-  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.01'), // 1% - only protect meaningful profits
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - protect profits earlier
 
   /* Minimum peak profit before erosion cap kicks in (decimal form) */
   /* Only protect meaningful profits - let small fluctuations play out */
-  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.01'), // 1% - only protect meaningful profits
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - protect profits earlier
 
   /* Peak-Relative Erosion (from /nexus - catches small profits after time gate) */
   /* Secondary check: exit if profit drops X% from peak, after holding Y minutes */
@@ -155,10 +155,10 @@ const envSchema = z.object({
 
   /* Regime-based Erosion Caps - How much giveback allowed before exit (as fraction of peak) */
   /* Lower = tighter protection (keep more profit), Higher = let trends run */
-  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.30'), // 30% - tight for scalping in chop
-  EROSION_CAP_WEAK: z.string().transform(Number).default('0.30'), // 30% - tight for weak trends
-  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.50'), // 50% - standard for moderate trends
-  EROSION_CAP_STRONG: z.string().transform(Number).default('0.50'), // 50% - let strong trends run
+  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.20'), // 20% - very tight for scalping in chop
+  EROSION_CAP_WEAK: z.string().transform(Number).default('0.25'), // 25% - tight for weak trends
+  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.30'), // 30% - tighter for moderate trends
+  EROSION_CAP_STRONG: z.string().transform(Number).default('0.40'), // 40% - let strong trends run but protect
   EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.005'), // 0.5% - min profit to close (covers fees)
 
   /* Regime-based Profit Lock - Lock in minimum profit before it disappears */
@@ -305,14 +305,14 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
-    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.01, // 1% - only protect meaningful profits (was 0.5%)
-    EROSION_MIN_PEAK_PCT: 0.01, // 1% - only protect meaningful profits (was 0.3%)
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005, // 0.5% - protect profits earlier (was 1%)
+    EROSION_MIN_PEAK_PCT: 0.005, // 0.5% - protect profits earlier
     EROSION_PEAK_RELATIVE_THRESHOLD: 0.40, // 40% - exit if profit drops 40% from peak
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 30, // 30 minutes minimum hold before peak-relative check
-    EROSION_CAP_CHOPPY: 0.30, // 30% - tight for scalping in chop
-    EROSION_CAP_WEAK: 0.30, // 30% - tight for weak trends
-    EROSION_CAP_MODERATE: 0.50, // 50% - standard for moderate trends
-    EROSION_CAP_STRONG: 0.50, // 50% - let strong trends run
+    EROSION_CAP_CHOPPY: 0.20, // 20% - very tight for scalping in chop
+    EROSION_CAP_WEAK: 0.25, // 25% - tight for weak trends
+    EROSION_CAP_MODERATE: 0.30, // 30% - tighter for moderate trends
+    EROSION_CAP_STRONG: 0.40, // 40% - let strong trends run but protect
     EROSION_MIN_PROFIT_TO_CLOSE: 0.005, // 0.5% - min profit to close via erosion (covers fees)
     PROFIT_LOCK_CHOPPY_MIN_PEAK: 0.001,
     PROFIT_LOCK_CHOPPY_LOCK_PCT: 0.60,

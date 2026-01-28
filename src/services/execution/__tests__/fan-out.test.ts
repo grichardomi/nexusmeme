@@ -23,6 +23,7 @@ describe('ExecutionFanOut', () => {
     amount: 0.1,
     reason: 'Test trade',
     timestamp: new Date(),
+    signalConfidence: 80, // 0-100: AI's trade confidence
     regime: {
       type: 'strong',
       confidence: 0.8,

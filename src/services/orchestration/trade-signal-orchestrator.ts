@@ -467,6 +467,7 @@ class TradeSignalOrchestrator {
               takeProfit: analysis.signal.takeProfit, // Dynamic profit target based on regime
               reason: `AI signal (strength: ${analysis.signal.strength}, confidence: ${analysis.signal.confidence}%, regime: ${analysis.regime.regime}) - matching /nexus`,
               timestamp: new Date(),
+              signalConfidence: analysis.signal.confidence, // 0-100: AI's trade confidence for position sizing
               regime: {
                 type: analysis.regime.regime as any,
                 confidence: analysis.regime.confidence / 100, // Convert 0-100 to 0-1
