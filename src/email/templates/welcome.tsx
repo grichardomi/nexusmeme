@@ -44,7 +44,7 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
             <p>NexusMeme is your AI-powered trading bot platform designed to help you execute profitable trades across multiple exchanges with intelligent risk management.</p>
             <p><strong>You've been assigned to our live trading trial:</strong></p>
             <ul style="margin: 15px 0;">
-              <li>10-day live trading trial with $200 capital</li>
+              <li>10-day live trading trial - no capital limits</li>
               <li>1 trading bot with real market data</li>
               <li>Trade up to 5 cryptocurrency pairs</li>
               <li>Full AI-powered market regime detection</li>

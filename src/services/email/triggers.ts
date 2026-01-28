@@ -375,6 +375,29 @@ export async function sendFeeRefundEmail(
 }
 
 /**
+ * Send upcoming billing reminder email
+ */
+export async function sendUpcomingBillingEmail(
+  email: string,
+  name: string,
+  totalPendingFees: number,
+  tradeCount: number,
+  billingDate: string
+): Promise<string> {
+  const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://nexusmeme.com'}/dashboard/billing`;
+
+  const context: EmailContext = {
+    name,
+    totalPendingFees,
+    tradeCount,
+    billingDate,
+    billingUrl,
+  };
+
+  return queueEmail('upcoming_billing', email, context);
+}
+
+/**
  * Send bot suspended email (payment failure)
  */
 export async function sendBotSuspendedEmail(

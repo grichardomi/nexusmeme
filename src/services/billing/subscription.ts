@@ -39,11 +39,11 @@ export async function initializeSubscription(
       userId,
     ]);
 
-    // Create free subscription
+    // Create live_trial subscription (free plan no longer exists)
     const subscription = await createStripeSubscription(
       userId,
       stripeCustomerId,
-      'free',
+      'live_trial',
       'monthly'
     );
 
@@ -157,25 +157,25 @@ export async function checkActionAllowed(
 
   const subscription = await getUserSubscription(userId);
 
-  // If no subscription, assume free tier
-  const plan = subscription?.plan || 'free';
+  // If no subscription, assume live_trial tier (free plan no longer exists)
+  const plan = subscription?.plan || 'live_trial';
   const planConfig = PRICING_PLANS[plan];
 
-  // Safety check: if plan doesn't exist in PRICING_PLANS, default to free plan config
+  // Safety check: if plan doesn't exist in PRICING_PLANS, default to live_trial config
   if (!planConfig) {
-    const freeConfig = PRICING_PLANS['free'] || { limits: { botsPerUser: 1, tradingPairsPerBot: 5 } };
+    const fallbackConfig = PRICING_PLANS['live_trial'] || { limits: { botsPerUser: 1, tradingPairsPerBot: 5 } };
 
     switch (action) {
       case 'createBot':
         return {
           allowed: true,
-          limit: freeConfig.limits.botsPerUser,
+          limit: fallbackConfig.limits.botsPerUser,
           reason: undefined,
         };
       case 'addPair':
         return {
           allowed: true,
-          limit: freeConfig.limits.tradingPairsPerBot,
+          limit: fallbackConfig.limits.tradingPairsPerBot,
           reason: undefined,
         };
       default:
@@ -218,18 +218,26 @@ export async function getPlanUsage(userId: string) {
 
   try {
     const subscription = await getUserSubscription(userId);
-    const plan = subscription?.plan || 'free';
+    // Default to 'live_trial' since 'free' plan no longer exists in PRICING_PLANS
+    const plan = subscription?.plan || 'live_trial';
     const planConfig = PRICING_PLANS[plan];
 
-    // Safety check: if plan doesn't exist in PRICING_PLANS, default to free plan config
+    // Safety check: if plan doesn't exist in PRICING_PLANS, default to live_trial config
     if (!planConfig) {
-      const freeConfig = PRICING_PLANS['free'] || { limits: { botsPerUser: 1, tradingPairsPerBot: 5 }, features: {} };
+      const fallbackConfig = PRICING_PLANS['live_trial'] || { limits: { botsPerUser: 1, tradingPairsPerBot: 5 }, features: [] };
+      // Determine trading mode from environment (no hardcoding)
+      const isPaperTrading = process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
+      const tradingMode = isPaperTrading ? 'paper' : 'live';
+      console.log('[BILLING] Plan not found, using fallback. KRAKEN_BOT_PAPER_TRADING:', process.env.KRAKEN_BOT_PAPER_TRADING, 'tradingMode:', tradingMode);
       return {
         plan,
         subscription: subscription || null,
-        limits: freeConfig.limits,
+        limits: {
+          ...fallbackConfig.limits,
+          tradingMode, // Include trading mode from environment
+        },
         usage: { bots: 0, apiCalls: 0, trades: 0 },
-        features: freeConfig.features,
+        features: fallbackConfig.features,
       };
     }
 
@@ -261,10 +269,50 @@ export async function getPlanUsage(userId: string) {
       tradeCount = 0;
     }
 
+    // Determine actual trading mode from environment (no hardcoding)
+    // Read directly from process.env to avoid any caching issues
+    const isPaperTradingEnv = process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
+    let actualTradingMode: 'live' | 'paper' = isPaperTradingEnv ? 'paper' : 'live';
+
+    // Debug logging
+    console.log('[BILLING] Trading mode detection:', {
+      KRAKEN_BOT_PAPER_TRADING: process.env.KRAKEN_BOT_PAPER_TRADING,
+      BINANCE_BOT_PAPER_TRADING: process.env.BINANCE_BOT_PAPER_TRADING,
+      isPaperTradingEnv,
+      initialMode: actualTradingMode,
+    });
+
+    // Check user's bot for exchange-specific setting
+    try {
+      const botConfigResult = await client.query(
+        `SELECT exchange FROM bot_instances WHERE user_id = $1 LIMIT 1`,
+        [userId]
+      );
+
+      console.log('[BILLING] Bot config query result:', botConfigResult.rows[0]);
+
+      if (botConfigResult.rows[0]) {
+        const exchange = botConfigResult.rows[0].exchange?.toLowerCase() || 'kraken';
+        const isPaperTrading = exchange === 'binance'
+          ? process.env.BINANCE_BOT_PAPER_TRADING === 'true'
+          : process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
+        actualTradingMode = isPaperTrading ? 'paper' : 'live';
+        console.log('[BILLING] Exchange-specific mode:', { exchange, isPaperTrading, finalMode: actualTradingMode });
+      }
+    } catch (err) {
+      // Use default from env
+      console.log('[BILLING] Error checking bot config:', err);
+    }
+
+    console.log('[BILLING] Final trading mode:', actualTradingMode);
+
     return {
       plan,
       subscription: subscription || null,
-      limits: planConfig.limits,
+      limits: {
+        ...planConfig.limits,
+        tradingMode: actualTradingMode, // Override with actual trading mode
+      },
       usage: {
         bots: botCount,
         apiCalls: 0, // Not tracking separately

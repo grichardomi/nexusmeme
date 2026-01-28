@@ -28,7 +28,8 @@ export type EmailTemplateType =
   | 'performance_fee_adjustment'
   | 'performance_fee_refund'
   | 'bot_suspended_payment_failure'
-  | 'bot_resumed';
+  | 'bot_resumed'
+  | 'upcoming_billing';
 
 export interface EmailTemplate {
   subject: string;
@@ -185,6 +186,14 @@ export interface PerformanceFeeRefundContext {
   reason: string;
 }
 
+export interface UpcomingBillingContext {
+  name?: string;
+  totalPendingFees: number;
+  tradeCount: number;
+  billingDate: string;
+  billingUrl: string;
+}
+
 export interface BotSuspensionContext {
   name?: string;
   botInstanceId: string;
@@ -220,6 +229,7 @@ export type EmailContext =
   | PerformanceFeeDunningContext
   | PerformanceFeeAdjustmentContext
   | PerformanceFeeRefundContext
+  | UpcomingBillingContext
   | BotSuspensionContext
   | BotResumedContext;
 

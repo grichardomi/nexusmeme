@@ -9,11 +9,42 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { riskManager } from '@/services/risk/risk-manager';
+import { marketDataAggregator } from '@/services/market-data/aggregator';
+
+/**
+ * Parse entry_time correctly from PostgreSQL 'timestamp without time zone'
+ * CRITICAL: JavaScript's Date() treats timestamps without timezone as local time.
+ * We must append 'Z' to force correct UTC interpretation.
+ */
+function parseEntryTimeUTC(entryTime: any): number {
+  if (typeof entryTime === 'number') return entryTime;
+  if (entryTime instanceof Date) {
+    // CRITICAL: pg driver converts 'timestamp without time zone' to local Date
+    // DB stores UTC values but pg interprets as local time
+    // Extract LOCAL components (which match the original DB values) and build UTC timestamp
+    return Date.UTC(
+      entryTime.getFullYear(),
+      entryTime.getMonth(),
+      entryTime.getDate(),
+      entryTime.getHours(),
+      entryTime.getMinutes(),
+      entryTime.getSeconds(),
+      entryTime.getMilliseconds()
+    );
+  }
+  const timeStr = String(entryTime);
+  if (!timeStr.includes('Z') && !timeStr.match(/[+-]\d{2}:\d{2}$/)) {
+    return new Date(timeStr.replace(' ', 'T') + 'Z').getTime();
+  }
+  return new Date(entryTime).getTime();
+}
 
 interface PositionHealth {
   id: string;
   pair: string;
   entryPrice: number;
+  currentPrice: number;
+  quantity: number;
   currentProfit: number;
   currentProfitPct: number;
   peakProfitPct: number;
@@ -74,14 +105,55 @@ export async function GET(req: NextRequest) {
       peakProfitPct: 0,
     };
 
+    // Fetch live market prices for all unique pairs
+    const uniquePairs = Array.from(new Set(trades.map((t: any) => t.pair)));
+    let marketPrices = new Map<string, number>();
+
+    if (uniquePairs.length > 0) {
+      try {
+        const marketData = await marketDataAggregator.getMarketData(uniquePairs);
+        for (const [pair, data] of marketData.entries()) {
+          marketPrices.set(pair, data.price);
+        }
+        logger.debug('Position health: fetched live prices', {
+          pairs: uniquePairs,
+          pricesFound: marketPrices.size,
+        });
+      } catch (priceError) {
+        logger.warn('Position health: failed to fetch live prices, using stored values', {
+          error: priceError instanceof Error ? priceError.message : String(priceError),
+        });
+      }
+    }
+
     for (const trade of trades) {
       const entryPrice = parseFloat(String(trade.entry_price));
-      const currentProfitPct = parseFloat(String(trade.profit_loss_percent || 0));
+      const quantity = parseFloat(String(trade.quantity || 0));
+
+      // Use live price if available, otherwise fall back to entry price (which means 0% P&L)
+      const currentPrice = marketPrices.get(trade.pair) || entryPrice;
+
+      // Calculate P&L based on LIVE price (not stale database values)
+      const currentProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const currentProfit = (currentPrice - entryPrice) * quantity;
+
       const peakProfitPct = parseFloat(String(trade.peak_profit_percent || 0));
-      const ageMinutes = (Date.now() - new Date(trade.entry_time).getTime()) / (1000 * 60);
-      const currentProfit = parseFloat(String(trade.profit_loss || 0));
+      const ageMinutes = (Date.now() - parseEntryTimeUTC(trade.entry_time)) / (1000 * 60);
       const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
       const regime = botConfig?.regime || 'moderate';
+
+      // Update database with fresh P&L values (async, don't block response)
+      if (marketPrices.has(trade.pair)) {
+        query(
+          `UPDATE trades SET profit_loss = $1, profit_loss_percent = $2 WHERE id = $3`,
+          [currentProfit, currentProfitPct, trade.id]
+        ).catch((updateErr) => {
+          logger.debug('Position health: failed to update P&L in DB', {
+            tradeId: trade.id,
+            error: updateErr instanceof Error ? updateErr.message : String(updateErr),
+          });
+        });
+      }
 
       // Fix stale peak: if current > peak and current is positive, update peak in DB
       // This catches cases where the orchestrator's DB update may have failed
@@ -114,20 +186,48 @@ export async function GET(req: NextRequest) {
 
       // Erosion calculations (align with position tracker logic)
       // IMPORTANT: If current >= peak, erosion is 0 (no erosion has occurred, profit increased)
-      // PARITY WITH /NEXUS: If trade is underwater (current <= 0), skip erosion entirely
-      // Underwater trades are handled by underwater timeout, not erosion cap
       // Use effectivePeakPct which may have been corrected above
       const erosionCapFraction = riskManager.getErosionCap(regime, effectivePeakPct); // fraction of peak allowed to erode
 
-      // Skip erosion for underwater trades - produces meaningless huge numbers
-      const isUnderwater = currentProfitPct <= 0;
-      const erosionAbsolutePct = effectivePeakPct > 0 && !isUnderwater
-        ? Math.max(0, effectivePeakPct - currentProfitPct)
-        : 0;
-      const erosionUsedFraction = effectivePeakPct > 0 && currentProfitPct < effectivePeakPct && !isUnderwater
-        ? (effectivePeakPct - currentProfitPct) / effectivePeakPct
-        : 0; // If current >= peak OR underwater, no erosion
-      const erosionRatioPct = erosionCapFraction > 0 ? Math.max(0, (erosionUsedFraction / erosionCapFraction) * 100) : 0;
+      // Calculate erosion when position HAD profit (peak > 0) and has since dropped
+      // This includes cases where position went underwater after having profit - that's meaningful erosion!
+      // Only skip erosion if peak <= 0 (position never had profit to erode)
+
+      // CRITICAL FIX: Explicit guard - if current >= peak, erosion MUST be 0
+      // This prevents floating point comparison issues and stale data bugs
+      let erosionAbsolutePct = 0;
+      let erosionUsedFraction = 0;
+      let erosionRatioPct = 0;
+
+      if (effectivePeakPct > 0 && currentProfitPct < effectivePeakPct) {
+        // Position has eroded from peak - calculate how much
+        erosionAbsolutePct = Math.max(0, effectivePeakPct - currentProfitPct);
+        erosionUsedFraction = erosionAbsolutePct / effectivePeakPct;
+
+        // Calculate ratio of erosion cap used (capped at 100% for display sanity)
+        if (erosionCapFraction > 0) {
+          erosionRatioPct = Math.min(100, Math.max(0, (erosionUsedFraction / erosionCapFraction) * 100));
+        }
+
+        logger.debug('Position erosion calculated', {
+          tradeId: trade.id,
+          pair: trade.pair,
+          currentProfitPct: currentProfitPct.toFixed(4),
+          effectivePeakPct: effectivePeakPct.toFixed(4),
+          erosionAbsolutePct: erosionAbsolutePct.toFixed(4),
+          erosionUsedFraction: (erosionUsedFraction * 100).toFixed(2) + '%',
+          erosionCapFraction: (erosionCapFraction * 100).toFixed(2) + '%',
+          erosionRatioPct: erosionRatioPct.toFixed(2) + '%',
+        });
+      } else if (effectivePeakPct > 0 && currentProfitPct >= effectivePeakPct) {
+        // Current >= Peak means NO erosion (profit increasing or stable)
+        logger.debug('Position at or above peak - no erosion', {
+          tradeId: trade.id,
+          pair: trade.pair,
+          currentProfitPct: currentProfitPct.toFixed(4),
+          effectivePeakPct: effectivePeakPct.toFixed(4),
+        });
+      }
 
       // Check underwater condition
       if (currentProfitPct < 0 && effectivePeakPct <= 0) {
@@ -173,6 +273,8 @@ export async function GET(req: NextRequest) {
         id: trade.id,
         pair: trade.pair,
         entryPrice,
+        currentPrice,
+        quantity,
         currentProfit,
         currentProfitPct,
         peakProfitPct: effectivePeakPct,
@@ -200,6 +302,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
+      pricesLive: marketPrices.size > 0,
       summary,
       positions,
     });

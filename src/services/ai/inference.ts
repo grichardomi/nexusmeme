@@ -17,6 +17,12 @@ import {
 
 const OPENAI_API_KEY = getEnv('OPENAI_API_KEY');
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
+// COST OPTIMIZATION: Use env var to select model
+// gpt-4: $0.03/1K input, $0.06/1K output (expensive)
+// gpt-4-turbo: $0.01/1K input, $0.03/1K output (3x cheaper)
+// gpt-4o-mini: $0.00015/1K input, $0.0006/1K output (200x cheaper - RECOMMENDED)
+// gpt-3.5-turbo: $0.0005/1K input, $0.0015/1K output (60x cheaper)
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 /**
  * Call OpenAI API for market analysis
@@ -26,8 +32,18 @@ async function callOpenAI(
   maxTokens = 500
 ): Promise<string> {
   if (!OPENAI_API_KEY) {
+    logger.error('🚫 OpenAI API key not configured - AI calls will fail');
     throw new Error('OPENAI_API_KEY not configured');
   }
+
+  const startTime = Date.now();
+  const promptPreview = prompt.slice(0, 100).replace(/\n/g, ' ');
+
+  logger.info('🤖 OpenAI API call starting', {
+    model: OPENAI_MODEL,
+    maxTokens,
+    promptPreview: `${promptPreview}...`,
+  });
 
   try {
     const response = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
@@ -37,7 +53,7 @@ async function callOpenAI(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4',
+        model: OPENAI_MODEL,
         messages: [
           {
             role: 'system',
@@ -54,16 +70,38 @@ async function callOpenAI(
       }),
     });
 
+    const durationMs = Date.now() - startTime;
+
     if (!response.ok) {
+      logger.error('🚫 OpenAI API error', null, {
+        status: response.status,
+        statusText: response.statusText,
+        durationMs,
+      });
       throw new Error(`OpenAI API error: ${response.statusText}`);
     }
 
     const data = (await response.json()) as {
       choices: Array<{ message: { content: string } }>;
+      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
     };
+
+    logger.info('✅ OpenAI API call completed', {
+      model: OPENAI_MODEL,
+      durationMs,
+      promptTokens: data.usage?.prompt_tokens,
+      completionTokens: data.usage?.completion_tokens,
+      totalTokens: data.usage?.total_tokens,
+      responsePreview: data.choices[0].message.content.slice(0, 100).replace(/\n/g, ' ') + '...',
+    });
+
     return data.choices[0].message.content;
   } catch (error) {
-    logger.error('OpenAI inference error', error instanceof Error ? error : null);
+    const durationMs = Date.now() - startTime;
+    logger.error('🚫 OpenAI inference error', error instanceof Error ? error : null, {
+      durationMs,
+      model: OPENAI_MODEL,
+    });
     throw error;
   }
 }

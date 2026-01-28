@@ -4,6 +4,8 @@ import { getEnv } from '@/config/environment';
 /**
  * PostgreSQL connection pool
  * Single instance shared across the application
+ *
+ * RAILWAY-OPTIMIZED: Handles proxy connection drops and latency
  */
 let pool: Pool | null = null;
 
@@ -16,14 +18,35 @@ export function getPool(): Pool {
 
     pool = new Pool({
       connectionString: databaseUrl,
-      max: isProduction ? 20 : 5, // Fewer connections in development
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      // Connection pool sizing
+      max: isProduction ? 20 : 10, // More connections for dev to handle parallel requests
+      min: 2, // Keep minimum connections warm
+
+      // Timeout settings - Railway proxy needs more time
+      connectionTimeoutMillis: 10000, // 10s to establish connection (was 5s)
+      idleTimeoutMillis: 60000, // 60s idle before closing (was 30s)
+
+      // Statement timeout - prevent queries hanging forever
+      statement_timeout: 30000, // 30s max query time
+      query_timeout: 30000, // 30s max query time (alias)
+
+      // Keepalive settings - prevent Railway proxy from dropping idle connections
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000, // Start keepalive after 10s idle
     });
 
     // Log pool errors but don't crash
     pool.on('error', error => {
-      console.error('Unexpected error on idle client', error);
+      console.error('Pool error on idle client - will reconnect', error.message);
+    });
+
+    // Log connection events for debugging
+    pool.on('connect', () => {
+      console.log('Pool: New client connected');
+    });
+
+    pool.on('remove', () => {
+      console.log('Pool: Client removed');
     });
   }
 
@@ -31,21 +54,60 @@ export function getPool(): Pool {
 }
 
 /**
- * Execute a single query
+ * Execute a single query with automatic retry on connection failures
  * Automatically returns connection to pool
+ *
+ * Retries on: connection timeout, connection terminated, connection refused
+ * Does NOT retry on: syntax errors, constraint violations, etc.
  */
 export async function query<T = any>(
   text: string,
-  values?: (string | number | boolean | null | Date | string[] | number[])[]
+  values?: (string | number | boolean | null | Date | string[] | number[])[],
+  maxRetries = 2
 ): Promise<T[]> {
-  const client = await getPool().connect();
+  let lastError: Error | null = null;
 
-  try {
-    const result = await client.query(text, values);
-    return result.rows as T[];
-  } finally {
-    client.release();
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    let client: PoolClient | null = null;
+
+    try {
+      client = await getPool().connect();
+      const result = await client.query(text, values);
+      return result.rows as T[];
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const errorMsg = lastError.message.toLowerCase();
+
+      // Only retry on connection-related errors
+      const isConnectionError =
+        errorMsg.includes('connection timeout') ||
+        errorMsg.includes('connection terminated') ||
+        errorMsg.includes('connection refused') ||
+        errorMsg.includes('econnreset') ||
+        errorMsg.includes('econnrefused') ||
+        errorMsg.includes('etimedout');
+
+      if (isConnectionError && attempt < maxRetries) {
+        console.warn(`DB query failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`, {
+          error: lastError.message,
+          query: text.slice(0, 50),
+        });
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
+        continue;
+      }
+
+      // Non-connection error or max retries reached - throw
+      throw lastError;
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
   }
+
+  // Should never reach here, but TypeScript needs it
+  throw lastError || new Error('Query failed after retries');
 }
 
 /**

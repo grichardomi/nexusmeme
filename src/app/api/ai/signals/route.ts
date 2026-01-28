@@ -95,12 +95,14 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as SignalRequest;
 
+    // COST OPTIMIZATION: Default expensive calls to FALSE (opt-in only)
+    // Prediction and Sentiment each make separate OpenAI calls
     const analysis = await analyzeMarket({
       pair: body.pair,
       timeframe: body.timeframe as '1m' | '5m' | '15m' | '1h' | '4h' | '1d',
       includeRegime: body.includeRegime !== false,
-      includePrediction: body.includePrediction !== false,
-      includeSentiment: body.includeSentiment !== false,
+      includePrediction: body.includePrediction === true, // Opt-in (was defaulting to true)
+      includeSentiment: body.includeSentiment === true,   // Opt-in (was defaulting to true)
       includeSignal: body.includeSignal !== false,
     });
 

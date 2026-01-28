@@ -66,7 +66,7 @@ export function TrialEndingEmailTemplate({
             <ul>
               <li>1 trading bot with live market data</li>
               <li>Trade up to 5 cryptocurrency pairs</li>
-              <li>$200 trading capital</li>
+              <li>No capital limits - trade with your own funds</li>
               <li>Full AI-powered market regime detection</li>
               <li>Real trading with real market conditions</li>
             </ul>

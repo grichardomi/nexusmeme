@@ -10,6 +10,7 @@ import { getEnvironmentConfig } from '@/config/environment';
 import {
   sendPerformanceFeeChargedEmail,
   sendPerformanceFeeFailedEmail,
+  sendUpcomingBillingEmail,
 } from '@/services/email/triggers';
 import Stripe from 'stripe';
 
@@ -377,4 +378,79 @@ export async function runBillingJobForMonth(year: number, month: number): Promis
     failed,
     totalUsers: pendingFees.length,
   };
+}
+
+/**
+ * Send upcoming billing notification emails
+ * Runs on 28th of each month to warn users about upcoming charges on the 1st
+ */
+export async function sendUpcomingBillingNotifications(): Promise<{
+  success: boolean;
+  notificationsSent: number;
+  errors: string[];
+}> {
+  logger.info('Starting upcoming billing notifications');
+  const errors: string[] = [];
+  let notificationsSent = 0;
+
+  try {
+    const pendingFees = await getPendingFeesPerUser();
+
+    if (pendingFees.length === 0) {
+      logger.info('No users with pending fees for upcoming billing notification');
+      return { success: true, notificationsSent: 0, errors: [] };
+    }
+
+    // Billing date is the 1st of next month
+    const now = new Date();
+    const billingDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const billingDateStr = billingDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    for (const userFees of pendingFees) {
+      try {
+        await sendUpcomingBillingEmail(
+          userFees.email,
+          userFees.name || 'Trader',
+          userFees.total_fees,
+          userFees.fee_count,
+          billingDateStr
+        );
+        notificationsSent++;
+
+        logger.info('Upcoming billing notification sent', {
+          userId: userFees.user_id,
+          amount: userFees.total_fees,
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        logger.warn('Failed to send upcoming billing notification', {
+          userId: userFees.user_id,
+          error: errorMsg,
+        });
+        errors.push(`User ${userFees.user_id}: ${errorMsg}`);
+      }
+    }
+
+    logger.info('Upcoming billing notifications completed', {
+      notificationsSent,
+      errorCount: errors.length,
+    });
+
+    return {
+      success: errors.length === 0,
+      notificationsSent,
+      errors,
+    };
+  } catch (error) {
+    logger.error('Upcoming billing notifications failed', error instanceof Error ? error : null);
+    return {
+      success: false,
+      notificationsSent,
+      errors: [error instanceof Error ? error.message : 'Unknown error'],
+    };
+  }
 }

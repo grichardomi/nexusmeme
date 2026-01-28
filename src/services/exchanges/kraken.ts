@@ -2,6 +2,7 @@ import { BaseExchangeAdapter } from './adapter';
 import { logger, logApiCall } from '@/lib/logger';
 import type { ApiKeys, Order, Balance, Ticker, OrderResult } from '@/types/exchange';
 import crypto from 'crypto';
+import { getEnvironmentConfig } from '@/config/environment';
 
 /**
  * Kraken Exchange Adapter
@@ -54,7 +55,36 @@ export class KrakenAdapter extends BaseExchangeAdapter {
     this.validatePair(order.pair);
     this.validateAmount(order.amount);
 
+    const env = getEnvironmentConfig();
     const startTime = Date.now();
+
+    // PAPER TRADING MODE - Simulate order without hitting exchange API
+    if (env.KRAKEN_BOT_PAPER_TRADING) {
+      const paperOrderId = `PAPER-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const estimatedFee = order.amount * order.price * 0.0026; // ~0.26% taker fee
+
+      logger.info('📝 PAPER TRADE: Simulating Kraken order (not sent to exchange)', {
+        orderId: paperOrderId,
+        pair: order.pair,
+        side: order.side,
+        amount: order.amount,
+        price: order.price,
+        estimatedFee: estimatedFee.toFixed(4),
+        mode: 'PAPER_TRADING',
+      });
+
+      return {
+        orderId: paperOrderId,
+        pair: order.pair,
+        side: order.side,
+        amount: order.amount,
+        price: order.price,
+        avgPrice: order.price, // Paper trade fills at requested price
+        timestamp: new Date(),
+        status: 'filled', // Paper trades are instantly "filled"
+        fee: estimatedFee,
+      };
+    }
 
     try {
       logger.info('Placing Kraken order', {

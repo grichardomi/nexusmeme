@@ -6,7 +6,7 @@ import { getTrialInfo } from '@/services/billing/trial-notifications';
 /**
  * GET /api/billing/trial-info
  * Returns trial information for the current user
- * Includes: trial status, days remaining, capital limit/usage
+ * Includes: trial status, days remaining
  */
 
 export async function GET() {

@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
         subscriptionInitialized,
         onboardingUrl: '/api/onboarding/initialize',
         note: subscriptionInitialized
-          ? 'Live trading trial with 10-day duration activated ($200 capital)'
+          ? 'Live trading trial with 10-day duration activated (no capital limits)'
           : 'Please complete onboarding to activate your live trading trial',
       },
       { status: 201 }

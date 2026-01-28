@@ -147,7 +147,7 @@ export function PricingPlans({ currentPlan, onSelectPlan, userCanUpgrade = true 
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">Is there a free trial?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Yes! Everyone starts with a 10-day live trading trial with $200 capital. No payment required. After the trial, pay only 5% on profits.
+              Yes! Everyone starts with a 10-day live trading trial. No capital limits - trade with your own funds. No payment required. After the trial, pay only 5% on profits.
             </p>
           </div>
           <div>

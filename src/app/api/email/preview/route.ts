@@ -164,6 +164,13 @@ export async function GET(req: NextRequest) {
       botInstanceId: 'bot_123',
       message: 'Your trading bot has been resumed after payment was successfully processed',
     },
+    upcoming_billing: {
+      name: 'John Trader',
+      totalPendingFees: 42.75,
+      tradeCount: 8,
+      billingDate: 'February 1, 2025',
+      billingUrl: 'https://nexusmeme.com/dashboard/billing',
+    },
     trial_ending_performance_fees: {
       name: 'John Trader',
       trialEndsDate: '2024-02-15',
@@ -288,6 +295,7 @@ export async function POST() {
     'performance_fee_refund',
     'bot_suspended_payment_failure',
     'bot_resumed',
+    'upcoming_billing',
   ];
 
   return NextResponse.json({

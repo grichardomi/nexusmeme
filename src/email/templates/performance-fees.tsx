@@ -107,6 +107,111 @@ The NexusMeme Team
 }
 
 /**
+ * Upcoming Billing Email
+ * Sent ~3 days before monthly billing (28th of month)
+ */
+interface UpcomingBillingProps {
+  name?: string;
+  totalPendingFees: number;
+  tradeCount: number;
+  billingDate: string;
+  billingUrl: string;
+}
+
+export function UpcomingBillingEmailTemplate({
+  name = 'Trader',
+  totalPendingFees,
+  tradeCount,
+  billingDate,
+  billingUrl,
+}: UpcomingBillingProps): EmailTemplate {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #007bff 0%, #00b4d8 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .logo-container { text-align: center; padding: 20px 0; }
+          .logo-box { background: white; border-radius: 12px; padding: 16px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          .logo { max-width: 150px; width: 150px; height: auto; display: block; }
+          .content { background: #f9f9f9; padding: 40px 20px; }
+          .footer { background: #333; color: white; padding: 20px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px; }
+          .fee-box { background: white; border-left: 4px solid #007bff; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .amount { font-size: 32px; font-weight: bold; color: #007bff; }
+          .btn { display: inline-block; background: #007bff; color: white; padding: 12px 30px; border-radius: 4px; text-decoration: none; margin: 20px 0; font-weight: 600; }
+          h1 { margin: 0; font-size: 28px; }
+          h3 { margin: 15px 0 10px 0; }
+          p { margin: 10px 0; }
+          .details { background: #f0f0f0; padding: 15px; border-radius: 4px; margin: 15px 0; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="logo-container">
+              <div class="logo-box">
+                <img src="${getLogoUrl()}" alt="NexusMeme Logo" class="logo" width="150" height="150" style="max-width: 150px; width: 150px; height: auto; display: block;" />
+              </div>
+            </div>
+            <h1>Upcoming Billing Notice</h1>
+          </div>
+          <div class="content">
+            <p>Hi ${name},</p>
+            <p>This is a reminder that your monthly performance fees will be charged on <strong>${billingDate}</strong>.</p>
+            <div class="fee-box">
+              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (5% of Profits)</p>
+              <div class="amount">$${totalPendingFees.toFixed(2)}</div>
+              <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${tradeCount} profitable trade(s)</p>
+            </div>
+            <div class="details">
+              <p><strong>Billing Date:</strong> ${billingDate}</p>
+              <p style="margin-bottom: 0;"><strong>Payment Method:</strong> Card on file (auto-charge)</p>
+            </div>
+            <p>Your card on file will be charged automatically. If you need to update your payment method, please do so before the billing date.</p>
+            <a href="${billingUrl}" class="btn" style="background-color: #007bff; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Manage Billing</a>
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+            <h3>How Performance Fees Work</h3>
+            <p>You only pay when your bot generates profits. We charge 5% of your realized profits each month. No profits = no charge.</p>
+          </div>
+          <div class="footer">
+            <p>&copy; 2024 NexusMeme. All rights reserved.</p>
+            <p><a href="https://nexusmeme.com/support" style="color: #007bff; text-decoration: none;">Contact Support</a></p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return {
+    subject: `Upcoming Billing - $${totalPendingFees.toFixed(2)} due on ${billingDate}`,
+    html,
+    text: `
+Upcoming Billing Notice
+
+Hi ${name},
+
+This is a reminder that your monthly performance fees will be charged on ${billingDate}.
+
+Pending Performance Fees (5% of Profits): $${totalPendingFees.toFixed(2)}
+From: ${tradeCount} profitable trade(s)
+
+Billing Date: ${billingDate}
+Payment Method: Card on file (auto-charge)
+
+Your card on file will be charged automatically. If you need to update your payment method, please do so before the billing date.
+
+Manage billing: ${billingUrl}
+
+Best regards,
+The NexusMeme Team
+    `,
+  };
+}
+
+/**
  * Performance Fee Failed Email
  * Sent when payment fails
  */
@@ -210,6 +315,97 @@ Attempt: ${retryCount} of 3
 ${actionText}
 
 Update your payment method: https://nexusmeme.com/billing
+
+Best regards,
+The NexusMeme Team
+    `,
+  };
+}
+
+/**
+ * Performance Fee Refund Email
+ * Sent when a fee is refunded to the user
+ */
+interface PerformanceFeeRefundProps {
+  name?: string;
+  refundAmount: number;
+  reason: string;
+}
+
+export function PerformanceFeeRefundEmailTemplate({
+  name = 'Trader',
+  refundAmount,
+  reason,
+}: PerformanceFeeRefundProps): EmailTemplate {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #007bff 0%, #00b4d8 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .logo-container { text-align: center; padding: 20px 0; }
+          .logo-box { background: white; border-radius: 12px; padding: 16px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          .logo { max-width: 150px; width: 150px; height: auto; display: block; }
+          .content { background: #f9f9f9; padding: 40px 20px; }
+          .footer { background: #333; color: white; padding: 20px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px; }
+          .refund-box { background: white; border-left: 4px solid #28a745; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .amount { font-size: 32px; font-weight: bold; color: #28a745; }
+          h1 { margin: 0; font-size: 28px; }
+          h3 { margin: 15px 0 10px 0; }
+          p { margin: 10px 0; }
+          .details { background: #f0f0f0; padding: 15px; border-radius: 4px; margin: 15px 0; font-size: 14px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="logo-container">
+              <div class="logo-box">
+                <img src="${getLogoUrl()}" alt="NexusMeme Logo" class="logo" width="150" height="150" style="max-width: 150px; width: 150px; height: auto; display: block;" />
+              </div>
+            </div>
+            <h1>Performance Fee Refunded</h1>
+          </div>
+          <div class="content">
+            <p>Hi ${name},</p>
+            <p>We've processed a refund to your payment method.</p>
+            <div class="refund-box">
+              <p style="margin: 0; color: #666; font-size: 14px;">Refund Amount</p>
+              <div class="amount">+$${refundAmount.toFixed(2)}</div>
+            </div>
+            <div class="details">
+              <p><strong>Reason:</strong> ${reason}</p>
+              <p style="margin-bottom: 0;"><strong>Timeline:</strong> 5-10 business days to appear on your statement</p>
+            </div>
+            <p>If you have any questions about this refund, please contact our support team.</p>
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+            <p><a href="https://nexusmeme.com/dashboard/billing" style="color: #007bff; text-decoration: none; font-weight: 600;">View your billing details &rarr;</a></p>
+          </div>
+          <div class="footer">
+            <p>&copy; 2024 NexusMeme. All rights reserved.</p>
+            <p><a href="https://nexusmeme.com/support" style="color: #007bff; text-decoration: none;">Contact Support</a></p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return {
+    subject: `Performance Fee Refunded - $${refundAmount.toFixed(2)}`,
+    html,
+    text: `
+Performance Fee Refunded
+
+Hi ${name},
+
+We've processed a refund of $${refundAmount.toFixed(2)} to your payment method.
+
+Reason: ${reason}
+
+The refund should appear within 5-10 business days.
 
 Best regards,
 The NexusMeme Team

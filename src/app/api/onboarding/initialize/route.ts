@@ -91,13 +91,11 @@ function getFeatureLimits(plan: string): Record<string, any> {
     live_trial: {
       botsPerUser: 1,
       tradingPairsPerBot: 5,
-      maxCapitalPerBot: 200,
       tradingMode: 'live',
     },
     performance_fees: {
       botsPerUser: 1,
       tradingPairsPerBot: 5,
-      maxCapitalPerBot: -1, // unlimited
       tradingMode: 'live',
     },
   };

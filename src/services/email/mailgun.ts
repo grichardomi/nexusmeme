@@ -5,7 +5,6 @@
 
 import { SendEmailOptions } from '@/types/email';
 
-const FROM_EMAIL = 'noreply@nexusmeme.com';
 const FROM_NAME = 'NexusMeme';
 
 /**
@@ -15,6 +14,19 @@ function getCredentials() {
   const apiKey = process.env.MAILGUN_API_KEY;
   const domain = process.env.MAILGUN_DOMAIN;
   return { apiKey, domain };
+}
+
+/**
+ * Get FROM email address derived from MAILGUN_DOMAIN
+ * Mailgun requires the sender domain to match the verified sending domain.
+ * e.g. MAILGUN_DOMAIN=mg.nexusmeme.com → noreply@mg.nexusmeme.com
+ */
+function getFromEmail(): string {
+  const domain = process.env.MAILGUN_DOMAIN;
+  if (domain) {
+    return `noreply@${domain}`;
+  }
+  return 'noreply@nexusmeme.com';
 }
 
 /**
@@ -31,7 +43,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<{ id: string
   try {
     // Build form data using URLSearchParams
     const formData = new URLSearchParams();
-    formData.append('from', `${FROM_NAME} <${options.from || FROM_EMAIL}>`);
+    formData.append('from', `${FROM_NAME} <${options.from || getFromEmail()}>`);
     formData.append('to', options.to);
     formData.append('subject', options.subject);
     formData.append('html', options.html);

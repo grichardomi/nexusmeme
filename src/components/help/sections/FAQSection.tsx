@@ -11,7 +11,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
   const questions = [
     {
       question: 'What is the minimum capital required?',
-      answer: `During your 10-day trial, you get $200 to test with. After the trial:\n\n- No minimum capital requirement\n- You can trade with any amount you choose\n- The more capital you have, the more you can potentially trade\n- It's recommended to start with capital you can afford to lose`,
+      answer: `During your 10-day trial and after:\n\n- No capital limits - trade with your own funds\n- No minimum capital requirement\n- You can trade with any amount you choose\n- The more capital you have, the more you can potentially trade\n- It's recommended to start with capital you can afford to lose`,
     },
     {
       question: 'Can I run multiple bots?',
@@ -27,7 +27,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What if I want to test before going live with my own capital?',
-      answer: `Your 10-day live trading trial with $200 capital is your testing period:\n- You get to trade with real market conditions\n- Real orders execute and you see real P&L\n- This gives you confidence before trading with your own capital\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, you can continue with your own capital and only pay 5% on profits.`,
+      answer: `Your 10-day live trading trial is your testing period:\n- You trade with your own funds in real market conditions\n- Real orders execute and you see real P&L\n- No capital limits during trial\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, continue trading and only pay 5% on profits.`,
     },
     {
       question: 'Why did my trade lose money?',

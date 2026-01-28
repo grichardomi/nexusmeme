@@ -318,16 +318,13 @@ export async function getTrialInfo(userId: string) {
     const now = new Date();
     const trialEndsAt = new Date(sub.trial_ends_at);
     const daysRemaining = Math.ceil((trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    const isTrialActive = daysRemaining > 0 && (sub.trial_capital_used ?? 0) < TRIAL_CONFIG.LIVE_TRADING_CAPITAL_LIMIT_USD;
+    const isTrialActive = daysRemaining > 0;
 
     return {
       isTrialActive,
       plan: sub.plan_tier,
       trialEndsAt,
       daysRemaining: Math.max(0, daysRemaining),
-      capitalUsed: sub.trial_capital_used ?? 0,
-      capitalLimit: TRIAL_CONFIG.LIVE_TRADING_CAPITAL_LIMIT_USD,
-      capitalRemaining: Math.max(0, TRIAL_CONFIG.LIVE_TRADING_CAPITAL_LIMIT_USD - (sub.trial_capital_used ?? 0)),
     };
   } finally {
     client.release();

@@ -27,12 +27,17 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
 
-  /* Stripe */
+  /* Stripe (legacy - being replaced by Coinbase Commerce) */
   STRIPE_SECRET_KEY: z.string().min(1),
   STRIPE_PUBLISHABLE_KEY: z.string().min(1),
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
   STRIPE_WEBHOOK_SECRET_BILLING: z.string().min(1).optional().transform(v => v?.trim() || undefined),
   STRIPE_API_VERSION: z.string().default('2025-02-24.acacia'),
+
+  /* Coinbase Commerce - Crypto payments for performance fees */
+  COINBASE_COMMERCE_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
+  COINBASE_COMMERCE_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
+  COINBASE_COMMERCE_ENABLED: z.string().transform(val => val === 'true').default('false'),
 
   /* Exchange APIs */
   KRAKEN_API_BASE_URL: z.string().url().default('https://api.kraken.com'),
@@ -77,6 +82,10 @@ const envSchema = z.object({
   ENABLE_TRADE_ALERTS: z.string().transform(val => val === 'true').default('true'),
   ENABLE_BACKTESTING: z.string().transform(val => val === 'true').default('false'),
   LLM_PROVIDER: z.enum(['openai', 'claude']).default('openai'),
+
+  /* Paper Trading Mode - Simulate orders without hitting exchange API */
+  KRAKEN_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
+  BINANCE_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
 
   /* Creeping Uptrend Mode - Catches slow steady trends in low-volume conditions */
   CREEPING_UPTREND_ENABLED: z.string().transform(val => val === 'true').default('false'),
@@ -137,20 +146,40 @@ const envSchema = z.object({
   UNDERWATER_EXIT_MIN_TIME_MINUTES: z.string().transform(Number).default('15'), // 15 minutes - don't exit too early
 
   /* Minimum peak profit before aggressive collapse protection kicks in */
-  /* Per CLAUDE.md: "Profitable trades turning negative is a design failure" */
-  /* Lowered to protect virtually ALL profits, not just large ones */
-  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - parity with /nexus
+  /* Minimum peak profit before collapse protection kicks in (decimal form) */
+  /* Only protect meaningful profits - let small fluctuations play out */
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.01'), // 1% - only protect meaningful profits
 
   /* Minimum peak profit before erosion cap kicks in (decimal form) */
-  /* Per CLAUDE.md: Lock gains faster, never let profit slip away */
-  /* Lowered to protect virtually ALL profits */
-  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.003'), // 0.3% - avoid noise-level peaks triggering erosion
+  /* Only protect meaningful profits - let small fluctuations play out */
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.01'), // 1% - only protect meaningful profits
 
   /* Peak-Relative Erosion (from /nexus - catches small profits after time gate) */
   /* Secondary check: exit if profit drops X% from peak, after holding Y minutes */
   /* This catches small profits that the absolute erosion cap might miss */
   EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.40'), // 40% - exit if profit drops 40% from peak
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('30'), // 30 minutes minimum hold before this check applies
+
+  /* Regime-based Erosion Caps - How much giveback allowed before exit (as fraction of peak) */
+  /* Lower = tighter protection (keep more profit), Higher = let trends run */
+  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.30'), // 30% - tight for scalping in chop
+  EROSION_CAP_WEAK: z.string().transform(Number).default('0.30'), // 30% - tight for weak trends
+  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.50'), // 50% - standard for moderate trends
+  EROSION_CAP_STRONG: z.string().transform(Number).default('0.50'), // 50% - let strong trends run
+  EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.005'), // 0.5% - min profit to close (covers fees)
+
+  /* Regime-based Profit Lock - Lock in minimum profit before it disappears */
+  /* Philosophy: In choppy markets, lock profits fast. In strong trends, let winners run */
+  /* MIN_PEAK = minimum peak % before profit lock applies (decimal form) */
+  /* LOCK_PCT = fraction of peak to lock in (0.6 = lock 60% of peak profit) */
+  PROFIT_LOCK_CHOPPY_MIN_PEAK: z.string().transform(Number).default('0.003'), // 0.3% min peak
+  PROFIT_LOCK_CHOPPY_LOCK_PCT: z.string().transform(Number).default('0.60'), // Lock 60% of peak
+  PROFIT_LOCK_WEAK_MIN_PEAK: z.string().transform(Number).default('0.004'), // 0.4% min peak
+  PROFIT_LOCK_WEAK_LOCK_PCT: z.string().transform(Number).default('0.50'), // Lock 50% of peak
+  PROFIT_LOCK_MODERATE_MIN_PEAK: z.string().transform(Number).default('0.005'), // 0.5% min peak
+  PROFIT_LOCK_MODERATE_LOCK_PCT: z.string().transform(Number).default('0.40'), // Lock 40% of peak
+  PROFIT_LOCK_STRONG_MIN_PEAK: z.string().transform(Number).default('0.008'), // 0.8% min peak
+  PROFIT_LOCK_STRONG_LOCK_PCT: z.string().transform(Number).default('0.25'), // Lock only 25% (let it run!)
 
   /* Stale flat trade exit - prevents trades from running indefinitely with ~0% P&L */
   STALE_FLAT_TRADE_HOURS: z.string().transform(Number).default('6'), // Exit if flat for 6+ hours
@@ -220,6 +249,9 @@ function getDefaultEnvironment(): Environment {
     STRIPE_WEBHOOK_SECRET: 'whsec_build',
     STRIPE_WEBHOOK_SECRET_BILLING: undefined,
     STRIPE_API_VERSION: '2025-02-24.acacia',
+    COINBASE_COMMERCE_API_KEY: undefined,
+    COINBASE_COMMERCE_WEBHOOK_SECRET: undefined,
+    COINBASE_COMMERCE_ENABLED: false,
     KRAKEN_API_BASE_URL: 'https://api.kraken.com',
     BINANCE_API_BASE_URL: 'https://api.binance.com',
     COINBASE_API_BASE_URL: 'https://api.coinbase.com',
@@ -238,6 +270,8 @@ function getDefaultEnvironment(): Environment {
     ENABLE_TRADE_ALERTS: true,
     ENABLE_BACKTESTING: false,
     LLM_PROVIDER: 'openai',
+    KRAKEN_BOT_PAPER_TRADING: false,
+    BINANCE_BOT_PAPER_TRADING: false,
     CREEPING_UPTREND_ENABLED: false,
     CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
     CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
@@ -283,10 +317,23 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
-    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005, // 0.5% - parity with /nexus
-    EROSION_MIN_PEAK_PCT: 0.003, // 0.3% - avoid noise-level peaks triggering erosion
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.01, // 1% - only protect meaningful profits (was 0.5%)
+    EROSION_MIN_PEAK_PCT: 0.01, // 1% - only protect meaningful profits (was 0.3%)
     EROSION_PEAK_RELATIVE_THRESHOLD: 0.40, // 40% - exit if profit drops 40% from peak
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 30, // 30 minutes minimum hold before peak-relative check
+    EROSION_CAP_CHOPPY: 0.30, // 30% - tight for scalping in chop
+    EROSION_CAP_WEAK: 0.30, // 30% - tight for weak trends
+    EROSION_CAP_MODERATE: 0.50, // 50% - standard for moderate trends
+    EROSION_CAP_STRONG: 0.50, // 50% - let strong trends run
+    EROSION_MIN_PROFIT_TO_CLOSE: 0.005, // 0.5% - min profit to close via erosion (covers fees)
+    PROFIT_LOCK_CHOPPY_MIN_PEAK: 0.001,
+    PROFIT_LOCK_CHOPPY_LOCK_PCT: 0.60,
+    PROFIT_LOCK_WEAK_MIN_PEAK: 0.0015,
+    PROFIT_LOCK_WEAK_LOCK_PCT: 0.50,
+    PROFIT_LOCK_MODERATE_MIN_PEAK: 0.003,
+    PROFIT_LOCK_MODERATE_LOCK_PCT: 0.40,
+    PROFIT_LOCK_STRONG_MIN_PEAK: 0.005,
+    PROFIT_LOCK_STRONG_LOCK_PCT: 0.25,
     STALE_FLAT_TRADE_HOURS: 6,
     STALE_FLAT_TRADE_BAND_PCT: 0.5,
     PYRAMID_L1_MIN_ADX: 35,

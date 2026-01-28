@@ -27,6 +27,7 @@ import type {
   PerformanceFeeDunningContext,
   PerformanceFeeAdjustmentContext,
   PerformanceFeeRefundContext,
+  UpcomingBillingContext,
   BotSuspensionContext,
   BotResumedContext,
 } from '@/types/email';
@@ -53,8 +54,14 @@ import {
 import {
   PerformanceFeeChargedEmailTemplate,
   PerformanceFeeFailedEmailTemplate,
+  PerformanceFeeRefundEmailTemplate,
   FeeAdjustmentEmailTemplate,
+  UpcomingBillingEmailTemplate,
 } from './templates/performance-fees';
+import {
+  BotSuspendedEmailTemplate,
+  BotResumedEmailTemplate,
+} from './templates/bot-lifecycle';
 
 /**
  * Render email template based on type
@@ -307,59 +314,42 @@ export function renderEmailTemplate(
 
     case 'performance_fee_refund': {
       const ctx = context as PerformanceFeeRefundContext;
-      return {
-        subject: 'Performance Fee Refunded',
-        html: `
-          <html>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;">
-              <p>Hi ${ctx.name || 'Trader'},</p>
-              <p>We've processed a refund of <strong>$${ctx.refundAmount.toFixed(2)}</strong> to your payment method.</p>
-              <p><strong>Reason:</strong> ${ctx.reason}</p>
-              <p>The refund should appear within 5-10 business days.</p>
-              <p>Best regards,<br>The NexusMeme Team</p>
-            </body>
-          </html>
-        `,
-        text: `Hi ${ctx.name || 'Trader'},\n\nWe've refunded $${ctx.refundAmount.toFixed(2)} to your payment method.\n\nReason: ${ctx.reason}\n\nBest regards,\nThe NexusMeme Team`,
-      };
+      return PerformanceFeeRefundEmailTemplate({
+        name: ctx.name,
+        refundAmount: ctx.refundAmount,
+        reason: ctx.reason,
+      });
     }
 
     case 'bot_suspended_payment_failure': {
       const ctx = context as BotSuspensionContext;
-      return {
-        subject: 'Trading Bot Suspended - Payment Issue',
-        html: `
-          <html>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;">
-              <p>Hi ${ctx.name || 'Trader'},</p>
-              <p>Your trading bot has been suspended due to payment failures.</p>
-              <p><strong>Reason:</strong> ${ctx.reason || 'Multiple payment attempts failed'}</p>
-              <p><strong>Action Required:</strong> ${ctx.action || 'Please update your payment method to restore trading'}</p>
-              <p><a href="${ctx.billingUrl || `${process.env.NEXTAUTH_URL}/dashboard/billing`}" style="background-color: #ff6b6b; color: white; padding: 10px 20px; text-decoration: none; display: inline-block;">Update Payment Method</a></p>
-              <p>Best regards,<br>The NexusMeme Team</p>
-            </body>
-          </html>
-        `,
-        text: `Hi ${ctx.name || 'Trader'},\n\nYour trading bot has been suspended due to payment failures.\n\nReason: ${ctx.reason || 'Multiple payment attempts failed'}\n\nAction: ${ctx.action || 'Please update your payment method'}\n\nBest regards,\nThe NexusMeme Team`,
-      };
+      return BotSuspendedEmailTemplate({
+        name: ctx.name,
+        botInstanceId: ctx.botInstanceId,
+        reason: ctx.reason,
+        action: ctx.action,
+        billingUrl: ctx.billingUrl,
+      });
+    }
+
+    case 'upcoming_billing': {
+      const ctx = context as UpcomingBillingContext;
+      return UpcomingBillingEmailTemplate({
+        name: ctx.name,
+        totalPendingFees: ctx.totalPendingFees,
+        tradeCount: ctx.tradeCount,
+        billingDate: ctx.billingDate,
+        billingUrl: ctx.billingUrl,
+      });
     }
 
     case 'bot_resumed': {
       const ctx = context as BotResumedContext;
-      return {
-        subject: 'Trading Bot Resumed',
-        html: `
-          <html>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;">
-              <p>Hi ${ctx.name || 'Trader'},</p>
-              <p>${ctx.message || 'Your trading bot has been resumed after payment was successfully processed.'}</p>
-              <p>Your bot is now actively trading again.</p>
-              <p>Best regards,<br>The NexusMeme Team</p>
-            </body>
-          </html>
-        `,
-        text: `Hi ${ctx.name || 'Trader'},\n\n${ctx.message || 'Your trading bot has been resumed.'}\n\nYour bot is now actively trading again.\n\nBest regards,\nThe NexusMeme Team`,
-      };
+      return BotResumedEmailTemplate({
+        name: ctx.name,
+        botInstanceId: ctx.botInstanceId,
+        message: ctx.message,
+      });
     }
 
     default:

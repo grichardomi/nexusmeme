@@ -62,7 +62,7 @@ const faqSchema = {
       name: 'Is there a free trial?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes! Everyone gets a 10-day live trading trial with $200 capital. No payment required during the trial. After the trial, you pay only 5% on profits if you want to continue trading.',
+        text: 'Yes! Everyone gets a 10-day live trading trial with no capital limits. No payment required during the trial. After the trial, you pay only 5% on profits if you want to continue trading.',
       },
     },
     {
@@ -86,7 +86,7 @@ const faqSchema = {
       name: 'What is the minimum capital required?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'During your 10-day trial, you get $200 to test with. After the trial, there is no minimum capital requirement - you can trade with any amount. The more capital you have, the more you can trade.',
+        text: 'During your 10-day trial and after, there are no capital limits. You trade with your own funds. No minimum capital requirement - trade with any amount you choose.',
       },
     },
     {

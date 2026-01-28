@@ -8,6 +8,7 @@ import { PerformanceFeesSummary } from '@/components/billing/PerformanceFeesSumm
 import { RecentTransactions } from '@/components/billing/RecentTransactions';
 import { ChargeHistory } from '@/components/billing/ChargeHistory';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
+import { CryptoPayButton } from '@/components/billing/CryptoPayButton';
 
 /**
  * Billing & Plan Page
@@ -20,7 +21,6 @@ interface UserPlan {
   tradingMode: 'paper' | 'live';
   botsPerUser: number;
   tradingPairsPerBot: number;
-  maxCapitalPerBot: number;
 }
 
 export default function BillingPage() {
@@ -46,7 +46,6 @@ export default function BillingPage() {
             tradingMode: planUsage?.limits?.tradingMode || 'live',
             botsPerUser: planUsage?.limits?.botsPerUser || 1,
             tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 5,
-            maxCapitalPerBot: planUsage?.limits?.maxCapitalPerBot || 200,
           });
         }
       } catch (error) {
@@ -108,80 +107,80 @@ export default function BillingPage() {
 
   return (
     <DashboardLayout title="Billing & Plans">
-      <div className="space-y-8">
+      <div className="space-y-4 sm:space-y-6">
         {/* Trial Warning Banner (if applicable) */}
         <TrialWarningBanner />
 
-        {/* Current Plan Section */}
-        <section className={`rounded-lg border p-8 ${colors.bg} ${colors.border}`}>
-          <div className="flex justify-between items-start gap-4">
+        {/* Current Plan Section - Compact on mobile */}
+        <section className={`rounded-xl border p-4 sm:p-6 ${colors.bg} ${colors.border}`}>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h2 className={`text-2xl font-bold ${colors.text}`}>{getPlanName()}</h2>
-                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${colors.badge}`}>
-                  {userPlan?.plan === 'live_trial'
-                    ? 'Active'
-                    : userPlan?.plan === 'performance_fees'
-                    ? 'Active'
-                    : 'Default'}
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className={`text-lg sm:text-xl font-bold ${colors.text}`}>{getPlanName()}</h2>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${colors.badge}`}>
+                  Active
                 </span>
               </div>
-              <p className={`text-sm mb-4 ${colors.text}`}>{getPlanDescription()}</p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <p className={`text-xs font-semibold uppercase mb-1 ${colors.text}`}>Trading Mode</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                    {userPlan?.tradingMode === 'live' ? '🔴 Real Money' : '📊 Paper Trading'}
-                  </p>
-                </div>
-                <div>
-                  <p className={`text-xs font-semibold uppercase mb-1 ${colors.text}`}>Bots Allowed</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                    {userPlan?.botsPerUser} Bot{userPlan?.botsPerUser !== 1 ? 's' : ''}
-                  </p>
-                </div>
-                <div>
-                  <p className={`text-xs font-semibold uppercase mb-1 ${colors.text}`}>Pairs Per Bot</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                    Up to {userPlan?.tradingPairsPerBot}
-                  </p>
-                </div>
-                <div>
-                  <p className={`text-xs font-semibold uppercase mb-1 ${colors.text}`}>Capital</p>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
-                    {userPlan?.maxCapitalPerBot === -1 ? 'Unlimited' : `$${userPlan?.maxCapitalPerBot}`}
-                  </p>
-                </div>
-              </div>
-
-              {userPlan?.plan === 'live_trial' && (
-                <div className="mt-4 pt-4 border-t border-slate-300 dark:border-slate-600">
-                  <p className={`text-sm mb-3 ${colors.text}`}>Your trial includes:</p>
-                  <ul className={`text-sm space-y-1 ${colors.text}`}>
-                    <li>✓ 10 days to test live trading</li>
-                    <li>✓ $200 USD capital limit</li>
-                    <li>✓ No payment required during trial</li>
-                    <li>✓ After trial: 5% fee on profits only</li>
-                  </ul>
-                </div>
-              )}
+              <p className={`text-sm ${colors.text}`}>{getPlanDescription()}</p>
             </div>
           </div>
+
+          {/* Plan Stats - Horizontal on mobile */}
+          <div className="flex items-center justify-between gap-2 mt-4 pt-4 border-t border-slate-200/50 dark:border-slate-700/50">
+            <div className="text-center flex-1">
+              <p className={`text-xs font-medium ${colors.text}`}>Mode</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                {userPlan?.tradingMode === 'live' ? '🔴 Live' : '📊 Paper'}
+              </p>
+            </div>
+            <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+            <div className="text-center flex-1">
+              <p className={`text-xs font-medium ${colors.text}`}>Bots</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                {userPlan?.botsPerUser}
+              </p>
+            </div>
+            <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+            <div className="text-center flex-1">
+              <p className={`text-xs font-medium ${colors.text}`}>Pairs</p>
+              <p className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
+                {userPlan?.tradingPairsPerBot}
+              </p>
+            </div>
+          </div>
+
+          {/* Trial Details - Collapsible on mobile */}
+          {userPlan?.plan === 'live_trial' && (
+            <details className="mt-4 group">
+              <summary className={`cursor-pointer text-sm font-medium ${colors.text} flex items-center gap-2`}>
+                <span>Trial includes</span>
+                <svg className="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <ul className={`text-sm space-y-1 mt-2 ${colors.text}`}>
+                <li>✓ 10 days to test live trading</li>
+                <li>✓ No capital limits</li>
+                <li>✓ No payment required</li>
+                <li>✓ After trial: 5% on profits</li>
+              </ul>
+            </details>
+          )}
         </section>
 
-        {/* Info Section */}
-        <section className="bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800 p-6">
-          <p className="text-sm text-blue-700 dark:text-blue-300 font-semibold">
-            💡 <strong>How Our Pricing Works:</strong> No monthly subscriptions. No hidden fees. You pay 5% only on profits from closed trades.{' '}
-            <a href="/help/performance-fees" className="underline hover:text-blue-800 dark:hover:text-blue-200">
-              Learn more →
-            </a>
+        {/* Info Banner - Compact */}
+        <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
+          <p className="text-sm text-blue-700 dark:text-blue-300">
+            💡 <strong>No subscriptions.</strong> Pay 5% only on profits.{' '}
+            <a href="/help/performance-fees" className="underline">Learn more →</a>
           </p>
         </section>
 
-        {/* Performance Fees Summary */}
+        {/* Performance Fees - Full width on mobile, priority position */}
         <PerformanceFeesSummary />
+
+        {/* Crypto Payment - Below fees on mobile */}
+        <CryptoPayButton />
 
         {/* Recent Transactions */}
         <RecentTransactions />
@@ -189,20 +188,24 @@ export default function BillingPage() {
         {/* Charge History */}
         <ChargeHistory />
 
-        {/* Payment Methods Section */}
-        <section className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-8">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6">Payment Methods</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-            Manage your payment methods for live trading fees and trial extensions.
-          </p>
-          <button
-            onClick={() => {
-              window.location.href = '/api/billing/customer-portal';
-            }}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm transition"
-          >
-            Open Stripe Portal →
-          </button>
+        {/* Payment Methods Section - Compact */}
+        <section className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Payment Methods</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                Manage cards and payment options
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                window.location.href = '/api/billing/customer-portal';
+              }}
+              className="px-4 py-2 bg-blue-600 active:bg-blue-700 text-white rounded-lg font-semibold text-sm shrink-0"
+            >
+              Manage
+            </button>
+          </div>
         </section>
       </div>
     </DashboardLayout>

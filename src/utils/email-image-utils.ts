@@ -28,15 +28,10 @@ export function getLogoDataUrl(): string {
 
 /**
  * Get the image reference for use in email HTML
- * Returns a data URL that displays the image inline in the email body
+ * Always uses base64 data URL embedding for maximum compatibility.
+ * Gmail blocks non-HTTPS image URLs, so base64 is the most reliable
+ * approach across all environments (dev, staging, production).
  */
 export function getLogoSrcForEmail(): string {
-  const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_ORIGIN;
-  if (origin) {
-    const normalizedOrigin = origin.replace(/\/$/, '');
-    return `${normalizedOrigin}/logo.png`;
-  }
-
-  // Fallback to embedded data URL if no public origin is configured
   return getLogoDataUrl();
 }

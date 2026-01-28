@@ -44,13 +44,37 @@ class TradeSignalOrchestrator {
 
   /**
    * Helper: Parse entry_time correctly (handle string or Date object from database)
+   * CRITICAL: PostgreSQL returns 'timestamp without time zone' as strings without timezone info.
+   * JavaScript's Date() treats these as local time, causing incorrect offsets.
+   * We must append 'Z' (UTC indicator) to force correct UTC interpretation.
    */
   private parseEntryTime(entryTime: any): number {
     if (typeof entryTime === 'number') {
       return entryTime;
     }
     if (entryTime instanceof Date) {
-      return entryTime.getTime();
+      // CRITICAL: pg driver converts 'timestamp without time zone' to local Date
+      // DB stores UTC values but pg interprets as local time
+      // Extract LOCAL components (which match the original DB values) and build UTC timestamp
+      return Date.UTC(
+        entryTime.getFullYear(),
+        entryTime.getMonth(),
+        entryTime.getDate(),
+        entryTime.getHours(),
+        entryTime.getMinutes(),
+        entryTime.getSeconds(),
+        entryTime.getMilliseconds()
+      );
+    }
+    // Convert to string and check if it already has timezone info
+    const timeStr = String(entryTime);
+    // If no timezone indicator (Z, +, or -HH:MM), append 'Z' to force UTC interpretation
+    // PostgreSQL 'timestamp without time zone' returns formats like: "2026-01-27 01:30:35.549"
+    // or "2026-01-27T01:30:35.549" - neither has timezone, so Date() treats as local time
+    if (!timeStr.includes('Z') && !timeStr.match(/[+-]\d{2}:\d{2}$/)) {
+      // Replace space with 'T' if needed (PostgreSQL format) and append 'Z' for UTC
+      const isoStr = timeStr.replace(' ', 'T') + 'Z';
+      return new Date(isoStr).getTime();
     }
     return new Date(entryTime).getTime();
   }
@@ -1105,6 +1129,32 @@ class TradeSignalOrchestrator {
             }
           }
 
+          // CHECK 1A: Profit Lock - Lock in minimum profit before it disappears
+          // Regime-aware: Choppy locks 60%, Strong locks only 25% (let winners run)
+          // IMPORTANT: Only applies to GREEN trades - underwater has separate handling
+          if (!shouldClose && currentProfitPct > 0) {
+            const profitLockCheck = positionTracker.checkProfitLock(
+              trade.id,
+              trade.pair,
+              currentProfitPct,
+              regime
+            );
+
+            if (profitLockCheck.shouldExit) {
+              shouldClose = true;
+              exitReason = 'profit_locked';
+              logger.info('🔒 Profit lock exit - locking gains before they disappear', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                regime,
+                peakProfitPct: profitLockCheck.peakProfitPct.toFixed(4),
+                currentProfitPct: currentProfitPct.toFixed(4),
+                lockedProfitPct: profitLockCheck.lockedProfitPct.toFixed(4),
+                reason: profitLockCheck.reason,
+              });
+            }
+          }
+
           // CHECK 1B: Erosion Cap Exceeded (from /nexus - protect pyramid profits)
           // Check BEFORE profit target so erosion exits take priority
           // CRITICAL: Check if peak was profitable (not current), so trades that were profitable
@@ -1126,19 +1176,53 @@ class TradeSignalOrchestrator {
               regime,
             });
 
-            // Only apply erosion cap if peak profit was positive (trade was ever profitable)
-            if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0) {
+            // Only apply erosion cap if:
+            // 1. Peak profit was positive (trade was ever profitable)
+            // 2. Peak profit exceeds minimum threshold (avoid noise-level exits)
+            // PARITY: env.EROSION_MIN_PEAK_PCT is in decimal form (0.003 = 0.3%)
+            //         erosionCheck.peakProfitPct is in percent form (0.3 = 0.3%)
+            const erosionMinPeakPct = (env.EROSION_MIN_PEAK_PCT || 0.003) * 100; // Convert to percent form
+            const peakExceedsMinimum = erosionCheck.peakProfitPct >= erosionMinPeakPct;
+
+            // SAFEGUARD: Only close via erosion cap if trade covers fees
+            // Prevents "protecting profits" into a loss after fees are deducted
+            // Typical round-trip fees: ~0.4% (0.2% entry + 0.2% exit)
+            const minProfitToClose = (env.EROSION_MIN_PROFIT_TO_CLOSE || 0.005) * 100; // 0.5% default
+            const stillProfitableAfterFees = currentProfitPct >= minProfitToClose;
+
+            if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0 && peakExceedsMinimum && stillProfitableAfterFees) {
               shouldClose = true;
               exitReason = 'erosion_cap_protected'; // Protecting winner from eroding away
-              logger.info('Erosion cap triggered - exiting to protect peak profit', {
+              logger.info('🛡️ Erosion cap triggered - exiting to protect peak profit', {
                 tradeId: trade.id,
                 pair: trade.pair,
                 peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
                 currentProfitPct: erosionCheck.currentProfitPct.toFixed(4),
+                minProfitToClose: minProfitToClose.toFixed(2),
                 erosionUsed: erosionCheck.erosionUsed.toFixed(4),
                 erosionCap: erosionCheck.erosionCap.toFixed(4),
                 erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(2),
                 status: `Trade peaked at +${(erosionCheck.peakProfitPct * 100).toFixed(2)}% but eroded ${(erosionCheck.erosionUsed * 100).toFixed(2)}% - exiting`,
+              });
+            } else if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0 && peakExceedsMinimum && !stillProfitableAfterFees) {
+              // Trade eroded below fee threshold - let underwater timeout handle it
+              logger.info('⚠️ Erosion cap exceeded but profit below fee threshold - deferring to underwater timeout', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
+                currentProfitPct: currentProfitPct.toFixed(4),
+                minProfitToClose: minProfitToClose.toFixed(2),
+                note: 'Will not close into a loss after fees',
+              });
+            } else if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0 && !peakExceedsMinimum) {
+              // Log when erosion exit is BLOCKED due to tiny peak (noise-level protection)
+              logger.debug('Erosion exit BLOCKED - peak below minimum threshold (noise protection)', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
+                erosionMinPeakPct: erosionMinPeakPct.toFixed(4),
+                currentProfitPct: currentProfitPct.toFixed(4),
+                note: `Peak +${erosionCheck.peakProfitPct.toFixed(2)}% < min ${erosionMinPeakPct.toFixed(2)}% - letting trade run`,
               });
             }
           }

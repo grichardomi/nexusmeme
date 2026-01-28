@@ -54,7 +54,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             setSubscription({
               id: '',
               plan: 'live_trial',
-              status: 'active',
+              status: 'trialing',
               daysRemaining: null,
             });
           }
@@ -65,7 +65,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         setSubscription({
           id: '',
           plan: 'live_trial',
-          status: 'active',
+          status: 'trialing',
           daysRemaining: null,
         });
       } finally {
@@ -178,7 +178,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             {/* Center: Plan Badge - Prominent display */}
             {!isLoadingSubscription && subscription && (
               <>
-                {subscription.status === 'trialing' && (
+                {(subscription.status === 'trialing' || subscription.plan === 'live_trial') && (
                   <Link
                     href="/dashboard/billing"
                     className="hidden sm:flex items-center bg-amber-100 rounded-full border border-amber-200 hover:bg-amber-200 transition-colors overflow-hidden flex-shrink-0"
@@ -195,7 +195,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                 )}
 
                 {/* Mobile Trial Badge */}
-                {subscription.status === 'trialing' && (
+                {(subscription.status === 'trialing' || subscription.plan === 'live_trial') && (
                   <Link
                     href="/dashboard/billing"
                     className="sm:hidden px-2 py-1 bg-amber-700 text-white rounded-full text-xs font-bold flex-shrink-0"
@@ -204,12 +204,12 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {subscription.status === 'active' && subscription.plan !== 'free' && (
+                {subscription.status === 'active' && subscription.plan !== 'free' && subscription.plan !== 'live_trial' && (
                   <Link
                     href="/dashboard/billing"
                     className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-semibold border border-green-200 hover:bg-green-200 transition-colors flex-shrink-0"
                   >
-                    ✓ {subscription.plan === 'pro' ? 'Standard' : 'Pro'}
+                    ✓ Active
                   </Link>
                 )}
 

@@ -3,7 +3,7 @@
  * Subscription and pricing related types
  *
  * Plans:
- * - live_trial: 10-day/$200 live trading trial (new users start here)
+ * - live_trial: 10-day live trading trial (new users start here)
  * - performance_fees: Unlimited live trading with 5% fee on profits (after trial)
  * - free: (legacy, deprecated - no longer used)
  */
@@ -16,7 +16,7 @@ export type SubscriptionStatus = 'active' | 'cancelled' | 'past_due' | 'unpaid' 
 
 export type TradingMode = 'paper' | 'live';
 
-export type TrialType = 'none' | 'live_trading_limited';
+export type TrialType = 'none' | 'live_trading';
 
 export interface PricingPlan {
   id: SubscriptionPlan;
@@ -28,14 +28,12 @@ export interface PricingPlan {
   features: string[];
   limits: {
     botsPerUser: number;
-    maxCapitalPerBot: number;
     tradingPairsPerBot: number;
     tradingMode: TradingMode;
   };
   highlight?: string;
   trialType: TrialType;
   trialDurationDays?: number;
-  trialCapitalLimit?: number;
   performanceFeePercent?: number;
 }
 

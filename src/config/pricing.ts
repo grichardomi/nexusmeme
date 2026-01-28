@@ -6,7 +6,7 @@
  * MODEL: Performance-Based Pricing
  * - No monthly subscriptions, no setup fees
  * - Only pay 5% of profits from closed trades
- * - Everyone starts with Live Trading Trial (7-10 days OR $100-200 capital)
+ * - Everyone starts with 10-day Live Trading Trial
  * - No legacy "paper trading forever" - encourages conversion
  */
 
@@ -26,11 +26,11 @@ export { STRIPE_PRICE_IDS };
 /**
  * Pricing Plans
  *
- * LIVE TRADING TRIAL (10 days OR $200, whichever hits first):
+ * LIVE TRADING TRIAL (10 days):
  * - Real money live trading execution
  * - AI-powered regime detection & market analysis
  * - 1 trading bot with up to 5 pairs
- * - $200 USD equivalent capital limit for testing
+ * - No capital limits - trade with your own funds
  * - 10-day trial period (no upfront payment needed)
  * - Free to use during trial
  * - After trial: Only pay 5% on profitable closed trades
@@ -48,7 +48,7 @@ export const PRICING_PLANS = {
   live_trial: {
     id: 'live_trial' as SubscriptionPlan,
     name: 'Live Trading Trial',
-    description: 'Trade with real money for 10 days or $200, whichever limit hits first',
+    description: 'Trade with real money free for 10 days',
     monthlyPrice: 0,
     yearlyPrice: 0,
     stripePriceId: undefined,
@@ -60,8 +60,8 @@ export const PRICING_PLANS = {
       'Automated trade execution on regime signals',
       'Dynamic profit targeting based on market conditions',
       'Full access to all exchanges (Kraken, Binance, Coinbase)',
-      'Limited to $200 USD equivalent capital',
       '10-day trial period (no payment required)',
+      'No capital limits - trade with your own funds',
       'Real-time market data & price feeds',
       'Complete trade history & performance analytics',
       'Email notifications for trade alerts',
@@ -69,14 +69,12 @@ export const PRICING_PLANS = {
     ],
     limits: {
       botsPerUser: 1,
-      maxCapitalPerBot: 200, // $200 USD equivalent
       tradingPairsPerBot: 5,
-      tradingMode: 'live',
+      tradingMode: 'dynamic', // Determined at runtime from bot config
     },
     highlight: 'Start trading immediately',
-    trialType: 'live_trading_limited',
-    trialDurationDays: 10,
-    trialCapitalLimit: 200, // USD
+    trialType: 'live_trading',
+    trialDurationDays: 10
   },
 
   performance_fees: {
@@ -101,9 +99,8 @@ export const PRICING_PLANS = {
     ],
     limits: {
       botsPerUser: 1,
-      maxCapitalPerBot: -1, // Unlimited
       tradingPairsPerBot: 5,
-      tradingMode: 'live',
+      tradingMode: 'dynamic', // Determined at runtime from bot config
     },
     highlight: 'Unlimited profitable trading',
     trialType: 'none',
@@ -123,7 +120,6 @@ export function getPricingPlan(planId: string) {
  */
 export const TRIAL_CONFIG = {
   LIVE_TRADING_DURATION_DAYS: 10,
-  LIVE_TRADING_CAPITAL_LIMIT_USD: 200,
   PERFORMANCE_FEE_PERCENT: 5,
   BILLING_DAY_OF_MONTH: 1,
   BILLING_HOUR_UTC: 2,
@@ -134,14 +130,12 @@ export const TRIAL_CONFIG = {
  *
  * Priority:
  * 1. If trial active and not expired: live_trial
- * 2. If trial expired and user has payment method: performance_fees
- * 3. If trial expired and NO payment method: performance_fees (but can't trade until payment added)
- * 4. If no trial started: live_trial (new user, auto-enroll)
+ * 2. If trial expired: performance_fees (must add payment to continue trading)
+ * 3. If no trial started: live_trial (new user, auto-enroll)
  */
 export function determineUserPlan(userStatus: {
   trialStartedAt: Date | null;
   trialEndsAt: Date | null;
-  trialCapitalUsed: number;
   hasPaymentMethod: boolean;
 }): SubscriptionPlan {
   const now = new Date();
@@ -149,13 +143,12 @@ export function determineUserPlan(userStatus: {
   // Check if user has active trial
   if (userStatus.trialStartedAt && userStatus.trialEndsAt) {
     const isTrialExpired = now > userStatus.trialEndsAt;
-    const isCapitalLimitExceeded = userStatus.trialCapitalUsed >= TRIAL_CONFIG.LIVE_TRADING_CAPITAL_LIMIT_USD;
 
-    if (!isTrialExpired && !isCapitalLimitExceeded) {
+    if (!isTrialExpired) {
       return 'live_trial';
     }
 
-    // Trial expired - user moves to performance fees (whether they have payment method or not)
+    // Trial expired - user moves to performance fees
     // If they don't have payment method, they'll see a message to add one before trading
     return 'performance_fees';
   }

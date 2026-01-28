@@ -434,41 +434,18 @@ class RiskManager {
    * CRITICAL: Trade must still be green (positive) to exit via erosion cap
    * Losses are handled by underwater timeout, not erosion cap
    */
-  getErosionCap(regime: string, peakProfitPct?: number): number {
-    // Base tolerance by regime - now more conservative (50% vs old 75%)
-    const baseToleranceByRegime: Record<string, number> = {
-      choppy: 0.50,
-      weak: 0.50,
-      moderate: 0.50,
-      strong: 0.50,
+  getErosionCap(regime: string, _peakProfitPct?: number): number {
+    // Erosion cap by regime - fully configurable via env
+    // Philosophy: Lock profits, re-enter if conditions warrant
+    const env = getEnvironmentConfig();
+    const toleranceByRegime: Record<string, number> = {
+      choppy: env.EROSION_CAP_CHOPPY,     // tight for scalping
+      weak: env.EROSION_CAP_WEAK,         // tight for weak trends
+      moderate: env.EROSION_CAP_MODERATE, // balanced
+      strong: env.EROSION_CAP_STRONG,     // let trends run
     };
-    const baseTolerance = baseToleranceByRegime[regime] || 0.50;
 
-    // If no peak profit provided, use base tolerance
-    if (peakProfitPct === undefined || peakProfitPct <= 0) {
-      return baseTolerance;
-    }
-
-    // Scale tolerance based on trade size (peak profit %)
-    // Smaller trades = tighter protection to avoid whittling away small gains
-    // Larger trades = still protected (50% max) to honor "never let profit slip away"
-    let scaledTolerance = baseTolerance;
-
-    if (peakProfitPct < 0.5) {
-      // Tiny profits: very tight
-      scaledTolerance = 0.25;
-    } else if (peakProfitPct < 1.0) {
-      // Small profits: tight
-      scaledTolerance = 0.35;
-    } else if (peakProfitPct < 2.0) {
-      // Medium profits: balanced
-      scaledTolerance = 0.45;
-    } else {
-      // Large profits: protect 50% of gains (was 75%)
-      scaledTolerance = baseTolerance; // 50%
-    }
-
-    return scaledTolerance;
+    return toleranceByRegime[regime] || env.EROSION_CAP_MODERATE || 0.30;
   }
 
   /**

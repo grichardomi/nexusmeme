@@ -7,7 +7,7 @@
  */
 
 import { logger } from '@/lib/logger';
-import { runMonthlyBillingJob } from '@/services/billing/monthly-billing-job';
+import { runMonthlyBillingJob, sendUpcomingBillingNotifications } from '@/services/billing/monthly-billing-job';
 
 interface ScheduledJob {
   id: string;
@@ -38,6 +38,9 @@ class MonthlyBillingScheduler {
 
       // Schedule the monthly billing job
       await this.scheduleMonthlyBilling();
+
+      // Schedule the upcoming billing reminder (28th of each month)
+      await this.scheduleUpcomingBillingReminder();
 
       this.isInitialized = true;
       logger.info('Monthly billing scheduler initialized successfully');
@@ -78,26 +81,62 @@ class MonthlyBillingScheduler {
   }
 
   /**
-   * Calculate next run time based on cron expression
-   * Currently only supports: "0 2 1 * *" (1st of month, 2 AM UTC)
+   * Schedule upcoming billing reminder to run on 28th of each month at 2 AM UTC
    */
-  private calculateNextRun(now: Date, cronExpression: string): Date {
-    if (cronExpression !== '0 2 1 * *') {
-      throw new Error(`Unsupported cron expression: ${cronExpression}`);
-    }
+  private async scheduleUpcomingBillingReminder(): Promise<void> {
+    const jobId = 'upcoming_billing_reminder';
+    const jobName = 'Upcoming Billing Reminder';
+    const cronExpression = '0 2 28 * *'; // 28th of month, 2 AM UTC
 
+    const job: ScheduledJob = {
+      id: jobId,
+      name: jobName,
+      cronExpression,
+      lastRun: null,
+      nextRun: this.calculateNextRunForDay(new Date(), 28),
+      isRunning: false,
+    };
+
+    this.scheduledJobs.set(jobId, job);
+
+    logger.info('Upcoming billing reminder scheduled', {
+      jobId,
+      cronExpression,
+      nextRun: job.nextRun.toISOString(),
+    });
+
+    this.scheduleNextRun(jobId);
+  }
+
+  /**
+   * Calculate next run time for a specific day of month at 2 AM UTC
+   */
+  private calculateNextRunForDay(now: Date, dayOfMonth: number): Date {
     const nextRun = new Date(now);
-
-    // Move to next month's 1st at 2 AM UTC
-    nextRun.setUTCDate(1);
+    nextRun.setUTCDate(dayOfMonth);
     nextRun.setUTCHours(2, 0, 0, 0);
 
-    // If we're already past 2 AM on the 1st this month, move to next month
+    // If we're already past this day/time this month, move to next month
     if (nextRun <= now) {
       nextRun.setUTCMonth(nextRun.getUTCMonth() + 1);
+      nextRun.setUTCDate(dayOfMonth);
     }
 
     return nextRun;
+  }
+
+  /**
+   * Calculate next run time based on cron expression
+   * Supports: "0 2 1 * *" (1st of month) and "0 2 28 * *" (28th of month)
+   */
+  private calculateNextRun(now: Date, cronExpression: string): Date {
+    const match = cronExpression.match(/^0 2 (\d+) \* \*$/);
+    if (!match) {
+      throw new Error(`Unsupported cron expression: ${cronExpression}`);
+    }
+
+    const dayOfMonth = parseInt(match[1], 10);
+    return this.calculateNextRunForDay(now, dayOfMonth);
   }
 
   /**
@@ -158,7 +197,7 @@ class MonthlyBillingScheduler {
         jobName: job.name,
       });
 
-      // Execute the monthly billing job
+      // Execute the appropriate job
       if (jobId === 'monthly_billing') {
         const result = await runMonthlyBillingJob();
         const duration = Date.now() - startTime;
@@ -168,6 +207,15 @@ class MonthlyBillingScheduler {
           successCount: result.successCount,
           failureCount: result.failureCount,
           totalBilled: result.totalBilled,
+        });
+      } else if (jobId === 'upcoming_billing_reminder') {
+        const result = await sendUpcomingBillingNotifications();
+        const duration = Date.now() - startTime;
+
+        logger.info('Upcoming billing reminder completed', {
+          duration,
+          notificationsSent: result.notificationsSent,
+          errorCount: result.errors.length,
         });
       }
 

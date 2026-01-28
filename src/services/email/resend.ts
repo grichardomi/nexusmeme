@@ -8,8 +8,19 @@ import { SendEmailOptions } from '@/types/email';
 
 const RESEND_API_BASE = 'https://api.resend.com';
 const RESEND_API_KEY = getEnv('RESEND_API_KEY');
-const FROM_EMAIL = 'noreply@nexusmeme.com';
 const FROM_NAME = 'NexusMeme';
+
+/**
+ * Get FROM email address derived from MAILGUN_DOMAIN for sender domain consistency.
+ * Falls back to nexusmeme.com if MAILGUN_DOMAIN is not set.
+ */
+function getFromEmail(): string {
+  const domain = process.env.MAILGUN_DOMAIN;
+  if (domain) {
+    return `noreply@${domain}`;
+  }
+  return 'noreply@nexusmeme.com';
+}
 
 /**
  * Send email via Resend
@@ -28,12 +39,12 @@ export async function sendEmail(options: SendEmailOptions): Promise<{ id: string
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: `${FROM_NAME} <${options.from || FROM_EMAIL}>`,
+        from: `${FROM_NAME} <${options.from || getFromEmail()}>`,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text: options.text,
-        replyTo: options.replyTo || FROM_EMAIL,
+        replyTo: options.replyTo || getFromEmail(),
       }),
     });
 

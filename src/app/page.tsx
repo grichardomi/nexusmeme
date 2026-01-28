@@ -52,7 +52,7 @@ export default function Home() {
                   </h1>
 
                   <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed mb-2">
-                    AI-powered bots that trade up to 5 crypto pairs across Kraken, Binance, and Coinbase. 10-day free trial with $200 capital.
+                    AI-powered bots that trade up to 5 crypto pairs across Kraken, Binance, and Coinbase. 10-day free trial with no capital limits.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
                     No subscriptions. Just 5% when your bot makes profit. Zero fees when it loses.
@@ -330,7 +330,7 @@ export default function Home() {
                     <h3 className="text-2xl font-bold text-slate-900 dark:text-white">10-Day Free Trial</h3>
                   </div>
                   <p className="text-slate-700 dark:text-slate-300 mb-8 leading-relaxed font-semibold">
-                    $200 capital to test live trading. No credit card required.
+                    no capital limits to test live trading. No credit card required.
                   </p>
                   <ul className="space-y-3">
                     {[
@@ -386,7 +386,7 @@ export default function Home() {
             {/* Info Banner */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6 text-center">
               <p className="text-slate-700 dark:text-slate-300 mb-2">
-                <strong>Everyone starts with the same 10-day free crypto trading trial</strong> and $200 capital on Kraken, Binance, or Coinbase.
+                <strong>Everyone starts with the same 10-day free crypto trading trial</strong> and no capital limits on Kraken, Binance, or Coinbase.
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 After trial ends, you automatically scale to our performance fee model. Pay 5% on crypto profits, nothing when you lose.
@@ -411,7 +411,7 @@ export default function Home() {
               Join traders on Kraken, Binance, and Coinbase earning passive income with AI-powered bots.
             </p>
             <p className="text-base text-blue-200 mb-10">
-              Your 10-day free crypto trading trial starts today. $200 capital. No credit card needed.
+              Your 10-day free crypto trading trial starts today. no capital limits. No credit card needed.
             </p>
 
             {/* CTA Buttons */}

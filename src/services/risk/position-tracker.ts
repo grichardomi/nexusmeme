@@ -44,11 +44,52 @@ export interface UnderwaterCheckResult {
   minTimeMinutes: number;
 }
 
+export interface ProfitLockResult {
+  shouldExit: boolean;
+  reason?: string;
+  currentProfitPct: number;
+  peakProfitPct: number;
+  lockedProfitPct: number;
+  regime: string;
+}
+
 class PositionTracker {
   // In-memory tracking of peak profits by trade ID
   // Backed by database (peak_profit_percent column) for persistence across restarts
   private peakProfits = new Map<string, { peak: number; peakPct: number; entryTime?: number }>();
   private isInitialized = false;
+
+  /**
+   * Parse entry_time correctly (handle string or Date object from database)
+   * CRITICAL: PostgreSQL returns 'timestamp without time zone' as strings without timezone info.
+   * JavaScript's Date() treats these as local time, causing incorrect offsets.
+   * We must append 'Z' (UTC indicator) to force correct UTC interpretation.
+   */
+  private parseEntryTime(entryTime: any): number {
+    if (typeof entryTime === 'number') {
+      return entryTime;
+    }
+    if (entryTime instanceof Date) {
+      // CRITICAL: pg driver converts 'timestamp without time zone' to local Date
+      // DB stores UTC values but pg interprets as local time
+      // Extract LOCAL components (which match the original DB values) and build UTC timestamp
+      return Date.UTC(
+        entryTime.getFullYear(),
+        entryTime.getMonth(),
+        entryTime.getDate(),
+        entryTime.getHours(),
+        entryTime.getMinutes(),
+        entryTime.getSeconds(),
+        entryTime.getMilliseconds()
+      );
+    }
+    const timeStr = String(entryTime);
+    if (!timeStr.includes('Z') && !timeStr.match(/[+-]\d{2}:\d{2}$/)) {
+      const isoStr = timeStr.replace(' ', 'T') + 'Z';
+      return new Date(isoStr).getTime();
+    }
+    return new Date(entryTime).getTime();
+  }
 
   /**
    * Initialize position tracker from open trades in database
@@ -73,7 +114,7 @@ class PositionTracker {
           this.peakProfits.set(trade.id, {
             peak: peakPct,
             peakPct: peakPct,
-            entryTime: new Date(trade.entry_time).getTime(),
+            entryTime: this.parseEntryTime(trade.entry_time),
           });
         }
       }
@@ -188,6 +229,16 @@ class PositionTracker {
   ): ErosionCheckResult {
     const existing = this.peakProfits.get(tradeId);
 
+    // DEBUG: Log erosion check inputs
+    logger.info('🔍 EROSION CHECK START', {
+      tradeId,
+      pair,
+      currentProfitPct: currentProfitPct.toFixed(4),
+      regime,
+      hasPeakData: !!existing,
+      peakPct: existing?.peakPct?.toFixed(4) || 'N/A',
+    });
+
     // Default result (no exit)
     const result: ErosionCheckResult = {
       shouldExit: false,
@@ -202,6 +253,7 @@ class PositionTracker {
 
     // If no peak recorded yet, no erosion check possible
     if (!existing) {
+      logger.info('⚠️ EROSION CHECK: No peak data - skipping', { tradeId, pair });
       return result;
     }
 
@@ -213,13 +265,27 @@ class PositionTracker {
     // PARITY WITH /NEXUS: Don't exit via erosion cap if trade is underwater
     // Underwater timeout will handle negative positions
     // This prevents exits on noise-level fluctuations (e.g., +0.02% peak → -0.01%)
-    if (currentProfitPct <= 0) {
+    // CRITICAL FIX: Use < 0 (not <= 0) so trades at exactly breakeven (0%) get erosion protection
+    // Without this fix, trades at exactly 0% fall through both checks (erosion skips <=0, underwater skips >=0)
+    if (currentProfitPct < 0) {
       logger.debug('Erosion check: trade is underwater - skip erosion cap (handled by underwater timeout)', {
         tradeId,
         pair,
         currentProfitPct: currentProfitPct.toFixed(2),
         peakProfitPct: existing.peakPct.toFixed(4),
-        note: 'Parity with /nexus - erosion cap only applies to green trades',
+        note: 'Parity with /nexus - erosion cap only applies to green trades (including breakeven)',
+      });
+      return result;
+    }
+
+    // CRITICAL FIX: If current >= peak, no erosion is possible
+    // This guards against stale peak data or floating point issues
+    if (currentProfitPct >= existing.peakPct) {
+      logger.debug('Erosion check: current >= peak - no erosion possible', {
+        tradeId,
+        pair,
+        currentProfitPct: currentProfitPct.toFixed(4),
+        peakProfitPct: existing.peakPct.toFixed(4),
       });
       return result;
     }
@@ -237,7 +303,21 @@ class PositionTracker {
 
     result.erosionUsed = erosionAbsolute;
     result.erosionCap = erosionCapPercent;
-    result.erosionUsedPct = erosionPct;
+    // Cap erosionUsedPct at 1.0 (100%) for sanity - can't erode more than 100% of peak
+    result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
+
+    // DEBUG: Log erosion calculation
+    logger.info('📊 EROSION CALC', {
+      tradeId,
+      pair,
+      regime,
+      peakPct: existing.peakPct.toFixed(4),
+      currentProfitPct: currentProfitPct.toFixed(4),
+      erosionPct: (erosionPct * 100).toFixed(2) + '%',
+      erosionCapPercent: (erosionCapPercent * 100).toFixed(2) + '%',
+      erosionMinPeakPct: erosionMinPeakPct.toFixed(4),
+      shouldTrigger: erosionPct > erosionCapPercent,
+    });
 
     // CHECK 1 (PRIMARY): Regime-based erosion cap for larger peaks
     // Only apply to peaks above minimum threshold (avoids over-protecting noise)
@@ -303,6 +383,126 @@ class PositionTracker {
   }
 
   /**
+   * Check if profit should be locked based on regime
+   * REGIME-AWARE PROFIT PROTECTION:
+   * - Choppy: Lock 60% of peak when peak >= 0.3% (quick scalps)
+   * - Weak: Lock 50% of peak when peak >= 0.4%
+   * - Moderate: Lock 40% of peak when peak >= 0.5%
+   * - Strong: Lock only 25% of peak when peak >= 0.8% (let winners run!)
+   *
+   * This ensures we NEVER give back ALL profit - we always lock some.
+   * In strong trends we lock less to let the trade run.
+   */
+  checkProfitLock(
+    tradeId: string,
+    pair: string,
+    currentProfitPct: number,
+    regime: string
+  ): ProfitLockResult {
+    const existing = this.peakProfits.get(tradeId);
+
+    // Default result (no exit)
+    const result: ProfitLockResult = {
+      shouldExit: false,
+      currentProfitPct,
+      peakProfitPct: existing?.peakPct || 0,
+      lockedProfitPct: 0,
+      regime,
+    };
+
+    // No peak recorded = nothing to lock
+    if (!existing || existing.peakPct <= 0) {
+      return result;
+    }
+
+    // Trade must still be green for profit lock (underwater has separate handling)
+    if (currentProfitPct < 0) {
+      return result;
+    }
+
+    const { getEnvironmentConfig } = require('@/config/environment');
+    const env = getEnvironmentConfig();
+
+    // Get regime-specific thresholds
+    // MIN_PEAK is in decimal (0.003 = 0.3%), peakPct is in percent (0.3 = 0.3%)
+    let minPeakDecimal: number;
+    let lockPct: number;
+
+    switch (regime.toLowerCase()) {
+      case 'choppy':
+        minPeakDecimal = env.PROFIT_LOCK_CHOPPY_MIN_PEAK || 0.003;
+        lockPct = env.PROFIT_LOCK_CHOPPY_LOCK_PCT || 0.60;
+        break;
+      case 'weak':
+        minPeakDecimal = env.PROFIT_LOCK_WEAK_MIN_PEAK || 0.004;
+        lockPct = env.PROFIT_LOCK_WEAK_LOCK_PCT || 0.50;
+        break;
+      case 'moderate':
+        minPeakDecimal = env.PROFIT_LOCK_MODERATE_MIN_PEAK || 0.005;
+        lockPct = env.PROFIT_LOCK_MODERATE_LOCK_PCT || 0.40;
+        break;
+      case 'strong':
+        minPeakDecimal = env.PROFIT_LOCK_STRONG_MIN_PEAK || 0.008;
+        lockPct = env.PROFIT_LOCK_STRONG_LOCK_PCT || 0.25;
+        break;
+      default:
+        // Default to moderate settings
+        minPeakDecimal = env.PROFIT_LOCK_MODERATE_MIN_PEAK || 0.005;
+        lockPct = env.PROFIT_LOCK_MODERATE_LOCK_PCT || 0.40;
+    }
+
+    // Convert min peak to percent form for comparison with peakPct
+    const minPeakPct = minPeakDecimal * 100;
+
+    // Peak must exceed regime's minimum before profit lock applies
+    if (existing.peakPct < minPeakPct) {
+      logger.debug('Profit lock: peak below regime minimum - no lock yet', {
+        tradeId,
+        pair,
+        regime,
+        peakProfitPct: existing.peakPct.toFixed(4),
+        minPeakPct: minPeakPct.toFixed(4),
+      });
+      return result;
+    }
+
+    // Calculate locked profit level
+    const lockedProfitPct = existing.peakPct * lockPct;
+    result.lockedProfitPct = lockedProfitPct;
+
+    // Check if current profit dropped below locked level
+    if (currentProfitPct <= lockedProfitPct) {
+      logger.info('🔒 Profit lock triggered - locking in gains', {
+        tradeId,
+        pair,
+        regime,
+        peakProfitPct: existing.peakPct.toFixed(4),
+        lockedProfitPct: lockedProfitPct.toFixed(4),
+        currentProfitPct: currentProfitPct.toFixed(4),
+        lockPct: (lockPct * 100).toFixed(0) + '%',
+        profitLocked: `+${lockedProfitPct.toFixed(2)}% of +${existing.peakPct.toFixed(2)}% peak`,
+      });
+
+      result.shouldExit = true;
+      result.reason = `Profit Lock (${regime}): Locking +${currentProfitPct.toFixed(2)}% (peak was +${existing.peakPct.toFixed(2)}%, locked at ${(lockPct * 100).toFixed(0)}%)`;
+      return result;
+    }
+
+    // Log that trade is above lock level
+    logger.debug('Profit lock: trade above lock level - letting it run', {
+      tradeId,
+      pair,
+      regime,
+      peakProfitPct: existing.peakPct.toFixed(4),
+      currentProfitPct: currentProfitPct.toFixed(4),
+      lockedProfitPct: lockedProfitPct.toFixed(4),
+      headroom: (currentProfitPct - lockedProfitPct).toFixed(4),
+    });
+
+    return result;
+  }
+
+  /**
    * Check if position is underwater and should be closed
    * Handles TWO scenarios:
    * 1. Trades that never went positive: close if loss > threshold (original /nexus behavior)
@@ -313,7 +513,7 @@ class PositionTracker {
     tradeId: string,
     pair: string,
     currentProfitPct: number,
-    entryTime: Date | number,
+    entryTime: Date | number | string,
     underwaterThresholdPct: number = -0.008, // -0.8% default for never-profitable
     minTimeMinutes: number = 15 // 15 minutes default
   ): UnderwaterCheckResult {
@@ -345,7 +545,8 @@ class PositionTracker {
       : parseFloat(String(existing.peakPct))) : 0;
 
     // Check time threshold (avoid premature exits from entry slippage)
-    const entryTimeMs = typeof entryTime === 'number' ? entryTime : entryTime.getTime();
+    // Use parseEntryTime to handle PostgreSQL 'timestamp without time zone' correctly
+    const entryTimeMs = this.parseEntryTime(entryTime);
     const ageMinutes = (Date.now() - entryTimeMs) / (1000 * 60);
     result.ageMinutes = ageMinutes;
 

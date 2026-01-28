@@ -8,9 +8,6 @@ interface TrialInfo {
   plan: string;
   trialEndsAt: Date;
   daysRemaining: number;
-  capitalUsed: number;
-  capitalLimit: number;
-  capitalRemaining: number;
 }
 
 interface TrialWarningBannerProps {
@@ -124,36 +121,6 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
               day: 'numeric',
             })}
           </p>
-
-          {/* Capital Usage */}
-          <div className="mb-4">
-            <p className={`text-sm font-semibold mb-2 ${
-              isEndingTomorrow
-                ? 'text-red-700 dark:text-red-300'
-                : isEnding
-                ? 'text-yellow-700 dark:text-yellow-300'
-                : 'text-blue-700 dark:text-blue-300'
-            }`}>
-              Capital Used During Trial
-            </p>
-            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full transition-all ${
-                  trialInfo.capitalUsed / trialInfo.capitalLimit > 0.8
-                    ? 'bg-red-500'
-                    : trialInfo.capitalUsed / trialInfo.capitalLimit > 0.5
-                    ? 'bg-yellow-500'
-                    : 'bg-green-500'
-                }`}
-                style={{
-                  width: `${(trialInfo.capitalUsed / trialInfo.capitalLimit) * 100}%`,
-                }}
-              />
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-              ${trialInfo.capitalUsed.toFixed(2)} / ${trialInfo.capitalLimit.toFixed(2)} USD used
-            </p>
-          </div>
 
           <p className={`text-sm mb-4 ${
             isEndingTomorrow

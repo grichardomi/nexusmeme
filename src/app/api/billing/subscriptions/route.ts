@@ -11,6 +11,7 @@ import {
 import { getUserInvoices } from '@/services/billing/stripe';
 import { Invoice, Subscription } from '@/types/billing';
 import { z } from 'zod';
+import { getEnvironmentConfig } from '@/config/environment';
 
 /**
  * Subscription Management API
@@ -44,13 +45,19 @@ export async function GET() {
     let planUsage: Awaited<ReturnType<typeof getPlanUsage>> | null = null;
     try {
       planUsage = await getPlanUsage(session.user.id);
+      // Debug: log trading mode
+      console.log('[BILLING DEBUG] tradingMode from getPlanUsage:', planUsage?.limits?.tradingMode);
     } catch (err) {
       console.error('Error fetching plan usage:', err);
       // Provide default usage if retrieval fails (default to live_trial)
+      // Determine trading mode from environment (no hardcoding)
+      const env = getEnvironmentConfig();
+      const defaultTradingMode = env.KRAKEN_BOT_PAPER_TRADING ? 'paper' : 'live';
+
       planUsage = {
         plan: 'live_trial',
         subscription,
-        limits: { botsPerUser: 1, tradingPairsPerBot: 5, maxCapitalPerBot: 200, tradingMode: 'live' },
+        limits: { botsPerUser: 1, tradingPairsPerBot: 5, tradingMode: defaultTradingMode },
         usage: { bots: 0, apiCalls: 0, trades: 0 },
         features: [],
       };
