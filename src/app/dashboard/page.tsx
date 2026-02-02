@@ -135,7 +135,7 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <DashboardLayout title="Dashboard">
+      <DashboardLayout title="Overview">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-8">
           {[...Array(4)].map((_, i) => (
             <div key={i} className="bg-slate-100 dark:bg-slate-700 rounded-lg h-24 animate-pulse" />
@@ -146,7 +146,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <DashboardLayout title="Dashboard">
+    <DashboardLayout title="Overview">
       {/* Trial Warning Banner */}
       <div className="mb-8">
         <TrialWarningBanner minimal={false} />

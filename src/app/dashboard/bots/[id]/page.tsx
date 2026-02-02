@@ -65,6 +65,7 @@ export default function BotDetailPage() {
   const [showLiveTradeConfirm, setShowLiveTradeConfirm] = useState(false);
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
   const [openTradesCount, setOpenTradesCount] = useState(0);
+  const [unpaidFeesError, setUnpaidFeesError] = useState<{ amount: number; count: number } | null>(null);
 
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
@@ -253,11 +254,22 @@ export default function BotDetailPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Failed to update trading mode');
+        // Handle unpaid fees error with clear guidance
+        if (data.code === 'UNPAID_FEES') {
+          setUnpaidFeesError({
+            amount: Number(data.unpaidAmount),
+            count: data.feeCount,
+          });
+          setError(null); // Clear generic error, use specific unpaid fees banner
+        } else {
+          setError(data.error || 'Failed to update trading mode');
+          setUnpaidFeesError(null);
+        }
         return;
       }
 
       setError(null);
+      setUnpaidFeesError(null);
 
       // Refetch the bot to ensure fresh data
       await fetchBot();
@@ -518,6 +530,39 @@ export default function BotDetailPage() {
           ← Back to Bots
         </Link>
       </div>
+
+      {/* Unpaid Fees Warning Banner */}
+      {unpaidFeesError && (
+        <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">💰</span>
+            <div className="flex-1">
+              <h4 className="font-semibold text-amber-800 dark:text-amber-200">
+                Cannot Switch to Paper Trading
+              </h4>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                You have <strong>${unpaidFeesError.amount.toFixed(2)}</strong> in unpaid performance fees
+                from {unpaidFeesError.count} profitable trade{unpaidFeesError.count !== 1 ? 's' : ''}.
+                Pay your outstanding fees to switch to paper trading mode.
+              </p>
+              <div className="flex gap-3 mt-3">
+                <Link
+                  href="/dashboard/billing"
+                  className="inline-flex items-center px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition"
+                >
+                  Pay Fees →
+                </Link>
+                <button
+                  onClick={() => setUnpaidFeesError(null)}
+                  className="px-4 py-2 text-amber-700 dark:text-amber-300 text-sm font-medium hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg transition"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Bot Settings Card */}

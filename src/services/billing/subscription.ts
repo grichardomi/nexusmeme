@@ -146,14 +146,52 @@ export async function cancelUserSubscription(
 }
 
 /**
- * Check if user's action is allowed by plan limits
+ * Check if user's action is allowed by plan limits and subscription status
+ *
+ * @param userId - User ID
+ * @param action - Action to check
+ * @param options - Optional: tradingMode for paper/live awareness
  */
 export async function checkActionAllowed(
   userId: string,
-  action: 'createBot' | 'addPair' | 'makeApiCall'
-): Promise<{ allowed: boolean; reason?: string; limit?: number }> {
-  // Block bot creation/startup if billing is suspended
-  if (action === 'createBot') {
+  action: 'createBot' | 'addPair' | 'makeApiCall' | 'startBot',
+  options?: { tradingMode?: 'paper' | 'live' }
+): Promise<{ allowed: boolean; reason?: string; limit?: number; requiresPaymentMethod?: boolean; isPaperTrading?: boolean }> {
+  // For bot creation and startup, check if user can trade first
+  if (action === 'createBot' || action === 'startBot') {
+    // Check subscription status (trial expired, payment required, etc.)
+    // Paper trading bypasses payment requirements
+    const tradingStatus = await canUserTrade(userId, options?.tradingMode);
+
+    // Paper trading is always allowed
+    if (tradingStatus.isPaperTrading) {
+      // Still check plan limits for bot creation
+      if (action === 'createBot') {
+        const subscription = await getUserSubscription(userId);
+        const plan = subscription?.plan || 'live_trial';
+        const planConfig = PRICING_PLANS[plan];
+        const limits = planConfig?.limits || { botsPerUser: 1 };
+        const limitCheck = await checkPlanLimits(userId, plan as SubscriptionPlan, 'botsPerUser');
+        if (limitCheck.exceeded) {
+          return {
+            allowed: false,
+            reason: `You've reached the maximum of ${limits.botsPerUser} bot(s) for your plan.`,
+            limit: limits.botsPerUser,
+          };
+        }
+      }
+      return { allowed: true, isPaperTrading: true };
+    }
+
+    if (!tradingStatus.canTrade) {
+      return {
+        allowed: false,
+        reason: tradingStatus.reason,
+        requiresPaymentMethod: tradingStatus.requiresPaymentMethod,
+      };
+    }
+
+    // For live trading, also check billing suspension status
     const billingResult = await query(
       `SELECT billing_status FROM user_stripe_billing WHERE user_id = $1`,
       [userId]
@@ -162,6 +200,7 @@ export async function checkActionAllowed(
       return {
         allowed: false,
         reason: 'Your billing is suspended due to failed payments. Please update your payment method to resume trading.',
+        requiresPaymentMethod: true,
       };
     }
   }
@@ -383,11 +422,99 @@ export function getAvailablePlans() {
 }
 
 /**
- * Validate subscription is active
+ * Validate subscription is active (allows trading)
+ * Returns false for payment_required status (expired trial without payment method)
  */
 export async function isSubscriptionActive(userId: string): Promise<boolean> {
   const subscription = await getUserSubscription(userId);
-  return subscription?.status === 'active' || subscription?.status === 'trialing' || !subscription; // Free tier always active
+  if (!subscription) return false; // No subscription = no trading
+
+  // Active statuses that allow trading
+  const activeStatuses = ['active', 'trialing'];
+  return activeStatuses.includes(subscription.status);
+}
+
+/**
+ * Check if user can trade (comprehensive check)
+ * Returns detailed status for UI and enforcement
+ *
+ * @param userId - User ID to check
+ * @param tradingMode - Optional: 'paper' or 'live'. Paper trading bypasses payment requirements.
+ */
+export async function canUserTrade(userId: string, tradingMode?: 'paper' | 'live'): Promise<{
+  canTrade: boolean;
+  reason?: string;
+  subscription?: Subscription | null;
+  requiresPaymentMethod?: boolean;
+  isPaperTrading?: boolean;
+}> {
+  // Paper trading always allowed - no real money, no fees
+  if (tradingMode === 'paper') {
+    const subscription = await getUserSubscription(userId);
+    return {
+      canTrade: true,
+      subscription,
+      isPaperTrading: true,
+    };
+  }
+
+  const subscription = await getUserSubscription(userId);
+
+  // No subscription at all
+  if (!subscription) {
+    return {
+      canTrade: false,
+      reason: 'No active subscription found. Please contact support.',
+      subscription: null,
+    };
+  }
+
+  // Check for payment_required status (expired trial without payment)
+  if (subscription.status === 'payment_required') {
+    return {
+      canTrade: false,
+      reason: 'Your trial has expired. Please add a payment method to continue live trading.',
+      subscription,
+      requiresPaymentMethod: true,
+    };
+  }
+
+  // Check for cancelled/past_due statuses
+  if (subscription.status === 'cancelled') {
+    return {
+      canTrade: false,
+      reason: 'Your subscription has been cancelled.',
+      subscription,
+    };
+  }
+
+  if (subscription.status === 'past_due') {
+    return {
+      canTrade: false,
+      reason: 'Your subscription payment is past due. Please update your payment method.',
+      subscription,
+      requiresPaymentMethod: true,
+    };
+  }
+
+  // Check for expired trial that hasn't been transitioned yet
+  if (subscription.status === 'trialing' && subscription.trial_ends_at) {
+    const trialEndDate = new Date(subscription.trial_ends_at);
+    if (trialEndDate < new Date()) {
+      return {
+        canTrade: false,
+        reason: 'Your trial has expired. Please add a payment method to continue trading.',
+        subscription,
+        requiresPaymentMethod: true,
+      };
+    }
+  }
+
+  // All checks passed - user can trade
+  return {
+    canTrade: true,
+    subscription,
+  };
 }
 
 /**
@@ -427,6 +554,83 @@ export async function getUserSubscriptionHistory(userId: string, limit = 10) {
     );
 
     return result.rows as Subscription[];
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Activate subscription after payment method is added
+ * Called when a user with payment_required status adds a payment method
+ * This re-enables trading for users whose trial expired without payment
+ */
+export async function activateSubscriptionAfterPayment(userId: string): Promise<{
+  activated: boolean;
+  subscription?: Subscription;
+  resumedBots?: number;
+}> {
+  const client = await getPool().connect();
+
+  try {
+    // Get current subscription
+    const subResult = await client.query(
+      `SELECT * FROM subscriptions
+       WHERE user_id = $1 AND status = 'payment_required'
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (subResult.rows.length === 0) {
+      // No subscription in payment_required state
+      return { activated: false };
+    }
+
+    // Update subscription to active
+    await client.query(
+      `UPDATE subscriptions
+       SET status = 'active',
+           updated_at = NOW()
+       WHERE user_id = $1 AND status = 'payment_required'`,
+      [userId]
+    );
+
+    // Resume any bots that were paused due to trial expiration
+    const botsResult = await client.query(
+      `UPDATE bot_instances
+       SET status = 'stopped',
+           updated_at = NOW()
+       WHERE user_id = $1 AND status = 'paused'
+       RETURNING id`,
+      [userId]
+    );
+
+    const resumedCount = botsResult.rows?.length || 0;
+
+    // Log the resumption
+    if (resumedCount > 0) {
+      await client.query(
+        `INSERT INTO bot_suspension_log (bot_instance_id, user_id, reason, resumed_at)
+         SELECT id, $1, 'payment_method_added', NOW()
+         FROM bot_instances
+         WHERE user_id = $1 AND status = 'stopped'`,
+        [userId]
+      );
+    }
+
+    // Get updated subscription
+    const updatedSub = await client.query(
+      `SELECT *, plan_tier as plan FROM subscriptions
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+
+    return {
+      activated: true,
+      subscription: updatedSub.rows[0] as Subscription,
+      resumedBots: resumedCount,
+    };
   } finally {
     client.release();
   }

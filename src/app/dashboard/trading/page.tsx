@@ -43,12 +43,21 @@ export default function TradingPage() {
 
   // Fetch bots and refresh periodically
   useEffect(() => {
+    let isInitialLoad = true;
+
     async function fetchBots() {
       try {
         const response = await fetch('/api/bots');
         if (!response.ok) return;
         const data = await response.json();
-        setBots(data);
+
+        // Only update if data actually changed (prevents flickering re-renders)
+        setBots(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(data)) {
+            return prev; // No change, keep same reference
+          }
+          return data;
+        });
 
         // Preserve user selection; only set default if none or missing
         if (data.length > 0) {
@@ -65,7 +74,11 @@ export default function TradingPage() {
       } catch (err) {
         console.error('Failed to fetch bots:', err);
       } finally {
-        setIsLoading(false);
+        // Only set loading false on initial load (prevents flickering)
+        if (isInitialLoad) {
+          setIsLoading(false);
+          isInitialLoad = false;
+        }
       }
     }
 

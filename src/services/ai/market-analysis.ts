@@ -227,7 +227,8 @@ function calculateOBV(closes: number[], volumes: number[]): number {
  * Uses proper True Range + DI smoothing (not simplified version)
  */
 function calculateADX(candles: OHLCCandle[], period = 14): number {
-  if (candles.length < period + 1) return 20; // Default weak trend if insufficient data
+  // Need at least period * 2 candles for proper ADX calculation
+  if (candles.length < period * 2) return 15; // Return LOW value to block entries when insufficient data
 
   const trueRanges: number[] = [];
   const plusDMs: number[] = [];
@@ -264,37 +265,43 @@ function calculateADX(candles: OHLCCandle[], period = 14): number {
     minusDMs.push(minusDM);
   }
 
-  // Smooth the values using rolling sum (matching Nexus implementation)
-  let sumTR = trueRanges.slice(0, period).reduce((a, b) => a + b, 0);
-  let sumPlusDM = plusDMs.slice(0, period).reduce((a, b) => a + b, 0);
-  let sumMinusDM = minusDMs.slice(0, period).reduce((a, b) => a + b, 0);
+  // Use Wilder's smoothing (standard ADX calculation - matches /nexus)
+  // Initial sums for first period
+  let smoothedTR = trueRanges.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothedPlusDM = plusDMs.slice(0, period).reduce((a, b) => a + b, 0);
+  let smoothedMinusDM = minusDMs.slice(0, period).reduce((a, b) => a + b, 0);
 
   const dxValues: number[] = [];
 
-  for (let i = period; i < candles.length; i++) {
-    sumTR += trueRanges[i];
-    sumPlusDM += plusDMs[i];
-    sumMinusDM += minusDMs[i];
+  for (let i = period; i < trueRanges.length; i++) {
+    // Wilder's smoothing: smoothed = prev - (prev/period) + current
+    smoothedTR = smoothedTR - (smoothedTR / period) + trueRanges[i];
+    smoothedPlusDM = smoothedPlusDM - (smoothedPlusDM / period) + plusDMs[i];
+    smoothedMinusDM = smoothedMinusDM - (smoothedMinusDM / period) + minusDMs[i];
 
-    const atrValue = sumTR / period;
-    const plusDIValue = (sumPlusDM / atrValue) * 100;
-    const minusDIValue = (sumMinusDM / atrValue) * 100;
+    // Calculate +DI and -DI
+    const plusDI = smoothedTR > 0 ? (smoothedPlusDM / smoothedTR) * 100 : 0;
+    const minusDI = smoothedTR > 0 ? (smoothedMinusDM / smoothedTR) * 100 : 0;
 
-    const diDiff = Math.abs(plusDIValue - minusDIValue);
-    const diSum = plusDIValue + minusDIValue;
-
+    // Calculate DX
+    const diDiff = Math.abs(plusDI - minusDI);
+    const diSum = plusDI + minusDI;
     const dx = diSum === 0 ? 0 : (diDiff / diSum) * 100;
     dxValues.push(dx);
   }
 
-  if (dxValues.length === 0) return 20;
+  if (dxValues.length === 0) return 15; // Return LOW value to block entries
 
-  // Calculate ADX as average of recent DX values
-  const adx = dxValues.slice(-period).reduce((a, b) => a + b, 0) / period;
+  // ADX is the smoothed average of DX values (use last 'period' values)
+  // Apply Wilder's smoothing to DX to get ADX
+  let adx = dxValues.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < dxValues.length; i++) {
+    adx = ((adx * (period - 1)) + dxValues[i]) / period;
+  }
 
-  // Validate result - return default if NaN or invalid
+  // Validate result - return LOW value if NaN or invalid (to block entries)
   if (!isFinite(adx)) {
-    return 25; // Default to neutral/weak trend if calculation fails
+    return 15; // Low ADX blocks entries via Health Gate
   }
 
   return Math.min(100, Math.max(0, adx));
@@ -335,36 +342,52 @@ export function detectMarketRegime(
   const sma50 = indicators.movingAverages.sma50;
   const trendVsSMA50 = ((currentPrice - sma50) / sma50) * 100;
 
-  // PRIORITY: Use momentum1h (1-hour trend) for direction
-  // 1h momentum captures recent movement better than 4-candle window
-  // Only fall back to SMA50 if momentum is very flat
-  const isBullish = Math.abs(momentum1h) > 0.05 ? momentum1h > 0 : trendVsSMA50 > 0;
+  // STRICTER BULLISH CLASSIFICATION - Prevent entries in falling markets
+  // Require BOTH 1h AND 4h momentum to be positive for true bullish
+  // Single timeframe positive in falling market = dead cat bounce, NOT bullish
+  const momentum1hPositive = momentum1h > 0.5; // Require meaningful positive momentum (0.5%+)
+  const momentum4hPositive = momentum4h > 0; // 4h must also be positive
+  const bothMomentumPositive = momentum1hPositive && momentum4hPositive;
+
+  // Only truly bullish if BOTH timeframes agree
+  const isBullish = bothMomentumPositive || (momentum1h > 1.0 && trendVsSMA50 > 0); // Strong 1h (1%+) + above SMA50
   const trendScore = Math.abs(momentum1h) > 0.05 ? momentum1h : trendVsSMA50;
 
   // Generate confidence based on regime strength and trend alignment
+  // CRITICAL: If either momentum is negative, significantly reduce confidence
   let confidence = 0;
   const env = getEnvironmentConfig();
 
-  if (regime === 'strong') {
-    // Strong trend (ADX >= 35): High base confidence
-    // Further increase if trend is bullish (price above SMA50)
-    confidence = isBullish ? 75 : 65;
-  } else if (regime === 'moderate') {
-    // Moderate trend (ADX 30-35): Medium confidence
-    confidence = isBullish ? 68 : 58;
-  } else if (regime === 'weak') {
-    // Weak trend (ADX 20-30): Lower confidence
-    // Require momentum alignment for higher confidence
-    confidence = isBullish && momentum1h > 0 ? 62 : 55;
+  // Penalty for misaligned momentum (one positive, one negative = market uncertainty)
+  const momentumMisaligned = (momentum1h > 0 && momentum4h < 0) || (momentum1h < 0 && momentum4h > 0);
+  const bothMomentumNegative = momentum1h < 0 && momentum4h < 0;
+
+  if (bothMomentumNegative) {
+    // BOTH momentums negative = clearly falling market, very low confidence for buys
+    confidence = 35; // Below threshold, will NOT trigger buy
+  } else if (momentumMisaligned) {
+    // Mixed signals = uncertainty, reduce confidence
+    confidence = 50; // Below threshold
+  } else if (regime === 'strong' && bothMomentumPositive) {
+    // Strong trend (ADX >= 35) + both momentums positive: High confidence
+    confidence = 78;
+  } else if (regime === 'moderate' && bothMomentumPositive) {
+    // Moderate trend (ADX 30-35) + both momentums positive: Good confidence
+    confidence = 72;
+  } else if (regime === 'weak' && bothMomentumPositive) {
+    // Weak trend (ADX 20-30) + both momentums positive: Moderate confidence
+    confidence = 65;
 
     // Creeping uptrend mode: Boost confidence for slow steady uptrends
-    if (env.CREEPING_UPTREND_ENABLED && isBullish && momentum1h > 0) {
+    if (env.CREEPING_UPTREND_ENABLED) {
       confidence = env.CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE;
     }
+  } else if (regime === 'choppy') {
+    // Choppy regime (ADX < 20): Only trade with strong momentum alignment
+    confidence = bothMomentumPositive && momentum1h > 0.5 ? 62 : 45;
   } else {
-    // Choppy regime (ADX < 20): Low confidence, only trade if extreme momentum
-    // Need strong 1h momentum to justify a trade in choppy markets
-    confidence = Math.abs(momentum1h) > 0.5 ? 60 : 50;
+    // Default: insufficient bullish conditions
+    confidence = 50;
   }
 
   // Volatility analysis
@@ -373,17 +396,22 @@ export function detectMarketRegime(
 
   // Excessive volatility reduces confidence (but doesn't change regime classification)
   if (volatilityPercent > 3) {
-    confidence = Math.max(45, confidence - 10); // Cap at 45% minimum in high volatility
+    confidence = Math.max(35, confidence - 15); // Stronger penalty for high volatility
   }
+
+  const momentumStatus = bothMomentumNegative ? 'BOTH NEGATIVE (falling)' :
+    momentumMisaligned ? 'MISALIGNED (uncertain)' :
+    bothMomentumPositive ? 'BOTH POSITIVE (rising)' : 'WEAK';
 
   const analysis = `
 Market is in ${regime} regime (ADX-based classification matching Nexus).
 ADX: ${isFinite(indicators.adx) ? indicators.adx.toFixed(2) : 'N/A'} (${regime === 'strong' ? 'Strong' : regime === 'moderate' ? 'Moderate' : regime === 'weak' ? 'Weak' : 'Choppy'} trend strength)
-Momentum: 1h=${momentum1h.toFixed(3)}% | 4h=${momentum4h.toFixed(3)}% | SMA50=${trendVsSMA50.toFixed(2)}%
-Trend Direction: ${isBullish ? 'BULLISH' : 'BEARISH'} (${Math.abs(momentum1h) > 0.05 ? 'Momentum-driven' : 'SMA50-driven'})
+Momentum: 1h=${momentum1h.toFixed(3)}% | 4h=${momentum4h.toFixed(3)}% | Status: ${momentumStatus}
+SMA50: ${trendVsSMA50.toFixed(2)}% (price vs 50-period MA)
+Trend Direction: ${isBullish ? 'BULLISH' : 'BEARISH'} (requires BOTH 1h AND 4h positive)
 RSI: ${indicators.rsi.toFixed(2)} (Momentum indicator)
 ATR: ${volatilityPercent.toFixed(2)}% (Volatility)
-AI Confidence for ${isBullish ? 'BUY' : 'SELL'}: ${confidence.toFixed(0)}% (${regime} regime + ${isBullish ? 'bullish' : 'bearish'} trend)
+AI Confidence for ${isBullish ? 'BUY' : 'HOLD/SELL'}: ${confidence.toFixed(0)}% (${regime} regime + ${momentumStatus})
   `.trim();
 
   return {

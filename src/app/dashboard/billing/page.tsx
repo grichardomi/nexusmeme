@@ -93,6 +93,11 @@ export default function BillingPage() {
   };
 
   const getPlanDescription = () => {
+    // Paper trading doesn't require payment
+    if (userPlan?.tradingMode === 'paper') {
+      return 'Paper trading mode - practice with simulated trades. No payment required. Switch to live trading when ready.';
+    }
+
     switch (userPlan?.plan) {
       case 'live_trial':
         return 'You have a limited-time trial to trade with real money. Add a payment method to continue after the trial ends.';
@@ -108,8 +113,8 @@ export default function BillingPage() {
   return (
     <DashboardLayout title="Billing & Plans">
       <div className="space-y-4 sm:space-y-6">
-        {/* Trial Warning Banner (if applicable) */}
-        <TrialWarningBanner />
+        {/* Trial Warning Banner (if applicable - not for paper trading) */}
+        <TrialWarningBanner tradingMode={userPlan?.tradingMode} />
 
         {/* Current Plan Section - Compact on mobile */}
         <section className={`rounded-xl border p-4 sm:p-6 ${colors.bg} ${colors.border}`}>
@@ -169,18 +174,39 @@ export default function BillingPage() {
         </section>
 
         {/* Info Banner - Compact */}
-        <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
-          <p className="text-sm text-blue-700 dark:text-blue-300">
-            💡 <strong>No subscriptions.</strong> Pay 5% only on profits.{' '}
-            <a href="/help/performance-fees" className="underline">Learn more →</a>
-          </p>
-        </section>
+        {userPlan?.tradingMode === 'paper' ? (
+          <section className="bg-slate-50 dark:bg-slate-900/10 rounded-xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-700 dark:text-slate-300">
+                  📊 <strong>Paper Trading Mode.</strong> Practice with simulated trades - no real money, no fees.
+                </p>
+              </div>
+              <a
+                href="/dashboard/bots"
+                className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition whitespace-nowrap"
+              >
+                Switch to Live Trading →
+              </a>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+              Go to your bot settings to enable live trading with real funds.
+            </p>
+          </section>
+        ) : (
+          <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
+            <p className="text-sm text-blue-700 dark:text-blue-300">
+              💡 <strong>No subscriptions.</strong> Pay 5% only on profits.{' '}
+              <a href="/help/performance-fees" className="underline">Learn more →</a>
+            </p>
+          </section>
+        )}
 
         {/* Performance Fees - Full width on mobile, priority position */}
-        <PerformanceFeesSummary />
+        <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} />
 
         {/* Crypto Payment - Below fees on mobile */}
-        <CryptoPayButton />
+        <CryptoPayButton tradingMode={userPlan?.tradingMode} />
 
         {/* Recent Transactions */}
         <RecentTransactions />

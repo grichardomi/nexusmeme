@@ -12,7 +12,7 @@ export type SubscriptionPlan = 'free' | 'live_trial' | 'performance_fees';
 
 export type BillingPeriod = 'monthly' | 'yearly';
 
-export type SubscriptionStatus = 'active' | 'cancelled' | 'past_due' | 'unpaid' | 'trialing';
+export type SubscriptionStatus = 'active' | 'cancelled' | 'past_due' | 'unpaid' | 'trialing' | 'payment_required';
 
 export type TradingMode = 'paper' | 'live';
 
@@ -49,6 +49,7 @@ export interface Subscription {
   currentPeriodEnd: Date;
   cancelledAt: Date | null;
   trialEndsAt: Date | null;
+  trial_ends_at?: Date | null; // Database column name (snake_case)
   createdAt: Date;
   updatedAt: Date;
 }

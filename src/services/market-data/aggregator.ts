@@ -196,6 +196,9 @@ class MarketDataAggregator {
                 change24h: ticker.priceChangePercent ?? 0, // % change over 24h
                 high24h: ticker.highPrice ?? ticker.last, // 24h high price, fallback to current
                 low24h: ticker.lowPrice ?? ticker.last, // 24h low price, fallback to current
+                // Include bid/ask for spread calculation (blocks entry if spread too wide)
+                bid: ticker.bid,
+                ask: ticker.ask,
               };
 
               // Store in Redis cache (TTL: 15 seconds as per config)

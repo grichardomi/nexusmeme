@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     });
 
     const botResult = await query(
-      `SELECT id, user_id FROM bot_instances WHERE id = $1`,
+      `SELECT id, user_id, config FROM bot_instances WHERE id = $1`,
       [data.botInstanceId]
     );
 
@@ -104,6 +104,8 @@ export async function POST(req: NextRequest) {
 
     const bot = botResult[0];
     const userId = bot.user_id;
+    const botConfig = bot.config || {};
+    const tradingMode = (botConfig.tradingMode as 'paper' | 'live') || 'paper';
 
     // Fetch the original trade to get quantity
     const tradeData = await query(
@@ -355,7 +357,10 @@ export async function POST(req: NextRequest) {
     });
 
     // STEP 3: Record performance fee if profitable (separate from transaction)
-    if (actualProfitLoss > 0) {
+    // Skip fee recording for paper trading - no real profits, no real fees
+    const isPaperTrading = tradingMode === 'paper';
+
+    if (actualProfitLoss > 0 && !isPaperTrading) {
       try {
         await recordPerformanceFee(
           userId,
@@ -379,6 +384,13 @@ export async function POST(req: NextRequest) {
         });
         // Continue - trade is already closed, fee can be retried later
       }
+    } else if (isPaperTrading && actualProfitLoss > 0) {
+      logger.info('Skipping fee recording for paper trading (simulated profit)', {
+        userId,
+        tradeId: data.tradeId,
+        simulatedProfit: actualProfitLoss,
+        tradingMode,
+      });
     }
 
     logger.info('Trade close request processed successfully', {
@@ -399,8 +411,10 @@ export async function POST(req: NextRequest) {
         exitPrice: actualExitPrice,
         profitLoss: actualProfitLoss,
         profitLossPercent: actualProfitLossPercent,
-        feeRecorded: actualProfitLoss > 0,
-        feeAmount: actualProfitLoss > 0 ? (actualProfitLoss * 0.05).toFixed(2) : null,
+        tradingMode,
+        feeRecorded: actualProfitLoss > 0 && !isPaperTrading,
+        feeAmount: actualProfitLoss > 0 && !isPaperTrading ? (actualProfitLoss * 0.05).toFixed(2) : null,
+        paperTrading: isPaperTrading,
       },
       { status: 200 }
     );

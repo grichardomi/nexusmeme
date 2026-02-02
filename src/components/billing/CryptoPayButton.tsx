@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 
 interface CryptoPayButtonProps {
   onPaymentCreated?: (chargeUrl: string) => void;
+  tradingMode?: 'paper' | 'live';
 }
 
 interface PendingCharge {
@@ -30,11 +31,42 @@ interface ChargeStatus {
   };
 }
 
-export function CryptoPayButton({ onPaymentCreated }: CryptoPayButtonProps) {
+export function CryptoPayButton({ onPaymentCreated, tradingMode }: CryptoPayButtonProps) {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [status, setStatus] = useState<ChargeStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Paper trading - no real fees
+  if (tradingMode === 'paper') {
+    return (
+      <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
+            <svg className="w-6 h-6 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="font-semibold text-slate-900 dark:text-white">Paper Trading Mode</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              No fees for simulated trades
+            </p>
+          </div>
+        </div>
+        <div className="text-center py-4 text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
+          <p className="font-medium">No payment required</p>
+          <p className="text-sm mt-2">Ready to trade with real money?</p>
+          <a
+            href="/dashboard/bots"
+            className="inline-flex items-center justify-center px-4 py-2 mt-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition"
+          >
+            Switch to Live Trading →
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // Check for pending fees on mount
   useEffect(() => {

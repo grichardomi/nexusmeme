@@ -6,6 +6,8 @@ export interface MarketData {
   change24h?: number;
   high24h?: number;
   low24h?: number;
+  bid?: number;  // Best bid price (for spread calculation)
+  ask?: number;  // Best ask price (for spread calculation)
 }
 
 export interface OHLCV {

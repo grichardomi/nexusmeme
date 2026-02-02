@@ -477,6 +477,60 @@ export async function PATCH(request: NextRequest) {
         );
       }
 
+      const currentConfig = bot[0].config || {};
+      const currentTradingMode = currentConfig.tradingMode || 'paper';
+
+      // Switching from LIVE to PAPER requires no unpaid fees
+      // This prevents users from avoiding fees by switching to paper mode
+      if (currentTradingMode === 'live' && tradingMode === 'paper') {
+        // Check for pending or billed (unpaid) fees
+        const unpaidFeesResult = await query(
+          `SELECT
+             COALESCE(SUM(fee_amount), 0)::DECIMAL as total_unpaid,
+             COUNT(*)::INT as fee_count
+           FROM performance_fees
+           WHERE user_id = $1
+             AND status IN ('pending_billing', 'billed')`,
+          [session.user.id]
+        );
+
+        const unpaidFees = unpaidFeesResult[0];
+        const totalUnpaid = Number(unpaidFees?.total_unpaid || 0);
+        const feeCount = unpaidFees?.fee_count || 0;
+
+        if (totalUnpaid > 0) {
+          logger.warn('Live to paper switch blocked - unpaid fees', {
+            userId: session.user.id,
+            botId,
+            unpaidAmount: totalUnpaid,
+            feeCount,
+          });
+
+          return NextResponse.json(
+            {
+              error: `Cannot switch to paper trading while you have $${totalUnpaid.toFixed(2)} in unpaid performance fees. Please pay your outstanding fees first.`,
+              code: 'UNPAID_FEES',
+              unpaidAmount: totalUnpaid,
+              feeCount,
+            },
+            { status: 403 }
+          );
+        }
+
+        logger.info('Live to paper switch allowed - no unpaid fees', {
+          userId: session.user.id,
+          botId,
+        });
+      }
+
+      // Paper to live switch is always allowed (user opting into fees)
+      if (currentTradingMode === 'paper' && tradingMode === 'live') {
+        logger.info('Paper to live switch - user opting into performance fees', {
+          userId: session.user.id,
+          botId,
+        });
+      }
+
       // Update config with new trading mode
       const config = bot[0].config || {};
       config.tradingMode = tradingMode;
@@ -492,6 +546,43 @@ export async function PATCH(request: NextRequest) {
           { error: 'Invalid status. Must be "running", "stopped", or "paused"' },
           { status: 400 }
         );
+      }
+
+      // Check subscription status before allowing bot to start
+      if (status === 'running') {
+        // Get bot's trading mode - paper trading bypasses payment requirements
+        const botConfig = bot[0].config || {};
+        const botTradingMode = (botConfig.tradingMode as 'paper' | 'live') || 'paper';
+
+        const startCheck = await checkActionAllowed(session.user.id, 'startBot', {
+          tradingMode: botTradingMode,
+        });
+
+        if (!startCheck.allowed) {
+          logger.warn('Bot start blocked - subscription issue', {
+            userId: session.user.id,
+            botId,
+            tradingMode: botTradingMode,
+            reason: startCheck.reason,
+            requiresPaymentMethod: startCheck.requiresPaymentMethod,
+          });
+          return NextResponse.json(
+            {
+              error: startCheck.reason || 'Cannot start bot - subscription issue',
+              code: startCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED' : 'SUBSCRIPTION_INACTIVE',
+              requiresPaymentMethod: startCheck.requiresPaymentMethod,
+            },
+            { status: 403 }
+          );
+        }
+
+        // Log if paper trading is being used
+        if (startCheck.isPaperTrading) {
+          logger.info('Paper trading bot started - no payment required', {
+            userId: session.user.id,
+            botId,
+          });
+        }
       }
 
       updates.push(`status = $${paramCount}`);

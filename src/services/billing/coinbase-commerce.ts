@@ -445,6 +445,15 @@ async function handleChargeConfirmed(charge: CoinbaseChargeData): Promise<void> 
         [userId]
       );
 
+      // Activate subscription if in payment_required status (expired trial)
+      await client.query(
+        `UPDATE subscriptions
+         SET status = 'active',
+             updated_at = NOW()
+         WHERE user_id = $1 AND status = 'payment_required'`,
+        [userId]
+      );
+
       logger.info('Coinbase Commerce payment confirmed', {
         chargeId,
         userId,

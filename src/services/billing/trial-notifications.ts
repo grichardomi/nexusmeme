@@ -140,15 +140,16 @@ async function sendTrialNotificationEmail(
  * Transition user from live_trial to performance_fees plan
  *
  * Rules:
- * - Trial expired → performance_fees (regardless of payment method)
- * - Users can trade on performance_fees
- * - Fees will be charged when billing runs IF they have payment method
- * - Users without payment method will be prompted to add one
+ * - Trial expired WITH payment method → performance_fees + active (continue trading)
+ * - Trial expired WITHOUT payment method → performance_fees + payment_required (bots paused)
+ * - Users without payment method must add one to resume trading
  */
 async function transitionExpiredTrial(subscriptionId: string, userId: string, hasPaymentMethod: boolean) {
   const client = await getPool().connect();
   try {
     const newPlan = 'performance_fees';
+    // If no payment method, set status to require payment - this blocks trading
+    const newStatus = hasPaymentMethod ? 'active' : 'payment_required';
 
     // Update subscription to new plan
     await client.query(
@@ -158,15 +159,52 @@ async function transitionExpiredTrial(subscriptionId: string, userId: string, ha
          trial_ends_at = NULL,
          trial_capital_used = 0,
          trial_notification_sent_at = NULL,
-         status = CASE WHEN $1 = 'performance_fees' THEN 'active' ELSE 'active' END
-       WHERE id = $2`,
-      [newPlan, subscriptionId],
+         status = $2
+       WHERE id = $3`,
+      [newPlan, newStatus, subscriptionId],
     );
+
+    // If no payment method, pause only LIVE trading bots (paper trading can continue)
+    if (!hasPaymentMethod) {
+      const botsResult = await client.query(
+        `UPDATE bot_instances
+         SET status = 'paused',
+             updated_at = NOW()
+         WHERE user_id = $1
+           AND status IN ('running', 'active')
+           AND (config->>'tradingMode' = 'live' OR config->>'tradingMode' IS NULL)
+         RETURNING id`,
+        [userId],
+      );
+
+      const pausedCount = botsResult.rows?.length || 0;
+
+      // Log the suspension
+      if (pausedCount > 0) {
+        await client.query(
+          `INSERT INTO bot_suspension_log (bot_instance_id, user_id, reason, suspended_at)
+           SELECT id, $1, 'trial_expired_no_payment', NOW()
+           FROM bot_instances
+           WHERE user_id = $1
+             AND status = 'paused'
+             AND (config->>'tradingMode' = 'live' OR config->>'tradingMode' IS NULL)`,
+          [userId],
+        );
+      }
+
+      logger.info('Trial expired - live bots paused (no payment method)', {
+        userId,
+        subscriptionId,
+        pausedLiveBots: pausedCount,
+        note: 'Paper trading bots continue running',
+      });
+    }
 
     logger.info('Trial transition completed', {
       userId,
       subscriptionId,
       newPlan,
+      newStatus,
       hasPaymentMethod,
     });
   } finally {

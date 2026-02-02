@@ -119,26 +119,44 @@ class RiskManager {
 
   /**
    * STAGE 1: Health Gate - Check AI rate limits and choppy market detection
-   * Only checks ADX if available (matches /nexus behavior)
+   * CRITICAL: Block entries when ADX < 20 (choppy market) - matches /nexus behavior
    */
   checkHealthGate(adx: number): RiskFilterResult {
+    // PROMINENT LOG: Always show ADX value for debugging /nexus parity
+    console.log(`\n🏥 HEALTH GATE: ADX = ${adx?.toFixed(1) || 'N/A'} (threshold: ${this.config.minADXForEntry})`);
     logger.debug('RiskManager: Stage 1 - Health Gate', { adx });
 
-    // Check for choppy market (ADX < 20) - but ONLY if ADX is actually calculated
-    // If ADX is 0 or undefined, it means market data is missing, so skip this check
-    if (adx > 0 && adx < this.config.minADXForEntry) {
+    // Block if ADX is missing/invalid (0 or undefined) - be conservative
+    if (!adx || adx <= 0) {
+      console.log(`\n🚫 BLOCKED: ADX unavailable/invalid (${adx}) - no entry allowed`);
+      logger.info('RiskManager: Entry blocked - ADX unavailable (conservative block)', {
+        adx,
+        threshold: this.config.minADXForEntry,
+      });
+      return {
+        pass: false,
+        reason: `ADX unavailable or invalid (${adx}) - blocking entry`,
+        stage: 'Health Gate',
+        adx,
+      };
+    }
+
+    // Check for choppy market (ADX < 20) - /nexus parity
+    if (adx < this.config.minADXForEntry) {
+      console.log(`\n🚫 BLOCKED: Choppy market (ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry}) - no entry allowed`);
       logger.info('RiskManager: Entry blocked - choppy market detected', {
         adx,
         threshold: this.config.minADXForEntry,
       });
       return {
         pass: false,
-        reason: `Choppy market (ADX=${adx.toFixed(2)} < ${this.config.minADXForEntry})`,
+        reason: `Choppy market (ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry})`,
         stage: 'Health Gate',
         adx,
       };
     }
 
+    console.log(`\n✅ HEALTH GATE PASSED: ADX=${adx.toFixed(1)} >= ${this.config.minADXForEntry}`);
     return { pass: true, stage: 'Health Gate', adx };
   }
 

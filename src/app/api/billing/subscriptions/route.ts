@@ -7,6 +7,8 @@ import {
   cancelUserSubscription,
   getPlanUsage,
   getAvailablePlans,
+  activateSubscriptionAfterPayment,
+  canUserTrade,
 } from '@/services/billing/subscription';
 import { getRecentFeeTransactions } from '@/services/billing/performance-fee';
 import { Subscription } from '@/types/billing';
@@ -17,6 +19,7 @@ import { getEnvironmentConfig } from '@/config/environment';
  * Subscription Management API
  * GET /api/billing/subscriptions - Get user's subscription details
  * POST /api/billing/subscriptions - Create or update subscription
+ * PATCH /api/billing/subscriptions - Activate subscription after payment
  * DELETE /api/billing/subscriptions - Cancel subscription
  */
 
@@ -75,11 +78,19 @@ export async function GET() {
     // Get available plans
     const availablePlans = getAvailablePlans();
 
+    // Check if user can trade (for showing payment required prompt)
+    const tradingStatus = await canUserTrade(session.user.id);
+
     return NextResponse.json({
       subscription,
       planUsage,
       feeTransactions,
       availablePlans,
+      tradingStatus: {
+        canTrade: tradingStatus.canTrade,
+        reason: tradingStatus.reason,
+        requiresPaymentMethod: tradingStatus.requiresPaymentMethod,
+      },
     });
   } catch (error) {
     console.error('Error fetching billing data:', error);
@@ -116,6 +127,40 @@ export async function POST(req: NextRequest) {
     }
     console.error('Error updating subscription:', error);
     return NextResponse.json({ error: 'Failed to update subscription' }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH /api/billing/subscriptions
+ * Activate subscription after payment method is added (for expired trials)
+ */
+export async function PATCH() {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const result = await activateSubscriptionAfterPayment(session.user.id);
+
+    if (!result.activated) {
+      return NextResponse.json(
+        { message: 'No subscription requiring activation found' },
+        { status: 200 }
+      );
+    }
+
+    return NextResponse.json({
+      message: 'Subscription activated successfully',
+      subscription: result.subscription,
+      resumedBots: result.resumedBots,
+    });
+  } catch (error) {
+    console.error('Error activating subscription:', error);
+    return NextResponse.json(
+      { error: 'Failed to activate subscription' },
+      { status: 500 }
+    );
   }
 }
 

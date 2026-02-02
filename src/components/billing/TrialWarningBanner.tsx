@@ -12,19 +12,39 @@ interface TrialInfo {
 
 interface TrialWarningBannerProps {
   minimal?: boolean; // Show minimal version on dashboard
+  tradingMode?: 'paper' | 'live';
 }
 
-export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps) {
+export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMode }: TrialWarningBannerProps) {
   const [trialInfo, setTrialInfo] = useState<TrialInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
+  const [tradingMode, setTradingMode] = useState<'paper' | 'live' | undefined>(propTradingMode);
 
   useEffect(() => {
     const fetchTrialInfo = async () => {
       try {
-        const res = await fetch('/api/billing/trial-info');
-        if (res.ok) {
-          const data = await res.json();
+        // Fetch both trial info and trading mode
+        const [trialRes, billingRes] = await Promise.all([
+          fetch('/api/billing/trial-info'),
+          !propTradingMode ? fetch('/api/billing/subscriptions') : Promise.resolve(null),
+        ]);
+
+        // Get trading mode if not provided as prop
+        if (billingRes && billingRes.ok) {
+          const billingData = await billingRes.json();
+          const mode = billingData.planUsage?.limits?.tradingMode as 'paper' | 'live' | undefined;
+          setTradingMode(mode);
+
+          // Paper trading doesn't need trial warning
+          if (mode === 'paper') {
+            setLoading(false);
+            return;
+          }
+        }
+
+        if (trialRes.ok) {
+          const data = await trialRes.json();
           if (data.isTrialActive && data.trialInfo) {
             setTrialInfo(data.trialInfo);
             setShowBanner(true);
@@ -38,7 +58,12 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
     };
 
     fetchTrialInfo();
-  }, []);
+  }, [propTradingMode]);
+
+  // Paper trading doesn't require payment - don't show trial warning
+  if (tradingMode === 'paper') {
+    return null;
+  }
 
   if (loading || !showBanner || !trialInfo) {
     return null;

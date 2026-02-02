@@ -18,15 +18,54 @@ interface PerformanceFeesData {
   };
 }
 
+interface PerformanceFeesSummaryProps {
+  tradingMode?: 'paper' | 'live';
+}
+
 /**
  * Performance Fees Summary Component
  * Shows overview of profits, fees by status, and billing lifecycle
  * Best practice: Clear fee status progression and actionable next steps
  */
-export function PerformanceFeesSummary() {
+export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryProps) {
   const [data, setData] = useState<PerformanceFeesData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Paper trading - show simulated stats only
+  if (tradingMode === 'paper') {
+    return (
+      <section className="bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Performance Fees</h2>
+          <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded">
+            Paper Trading
+          </span>
+        </div>
+
+        <div className="bg-slate-100 dark:bg-slate-700/50 rounded-xl p-6 text-center">
+          <div className="text-4xl mb-3">📊</div>
+          <h3 className="text-lg font-semibold text-slate-700 dark:text-slate-300 mb-2">
+            Paper Trading Mode
+          </h3>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
+            You&apos;re practicing with simulated trades. No real money is involved and no fees are charged.
+          </p>
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-600">
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
+              Ready to earn real profits? You&apos;ll only pay 5% on profitable trades.
+            </p>
+            <a
+              href="/dashboard/bots"
+              className="inline-flex items-center justify-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition"
+            >
+              Go to Bots → Switch to Live
+            </a>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   useEffect(() => {
     fetchFeesSummary();

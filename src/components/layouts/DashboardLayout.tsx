@@ -20,8 +20,9 @@ interface DashboardLayoutProps {
 interface Subscription {
   id: string;
   plan: string;
-  status: 'active' | 'trialing' | 'past_due' | 'cancelled';
+  status: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'payment_required';
   trial_ends_at?: string;
+  tradingMode?: 'paper' | 'live';
 }
 
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
@@ -36,6 +37,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         const response = await fetch('/api/billing/subscriptions');
         if (response.ok) {
           const data = await response.json();
+          // Get trading mode from planUsage
+          const tradingMode = data.planUsage?.limits?.tradingMode as 'paper' | 'live' | undefined;
+
           if (data.subscription) {
             const sub = data.subscription;
             let daysRemaining: number | null = null;
@@ -48,25 +52,27 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             }
 
-            setSubscription({ ...sub, daysRemaining });
+            setSubscription({ ...sub, daysRemaining, tradingMode });
           } else {
-            // No subscription found, user on live trial
+            // No subscription found - treat as needing setup
+            // Paper trading can continue without payment
             setSubscription({
               id: '',
-              plan: 'live_trial',
-              status: 'trialing',
-              daysRemaining: null,
+              plan: tradingMode === 'paper' ? 'live_trial' : 'performance_fees',
+              status: tradingMode === 'paper' ? 'active' : 'payment_required',
+              daysRemaining: tradingMode === 'paper' ? null : 0,
+              tradingMode,
             });
           }
         }
       } catch (err) {
         console.error('Failed to fetch subscription:', err);
-        // Default to live trial if fetch fails
+        // On error, show payment required to be safe
         setSubscription({
           id: '',
-          plan: 'live_trial',
-          status: 'trialing',
-          daysRemaining: null,
+          plan: 'performance_fees',
+          status: 'payment_required',
+          daysRemaining: 0,
         });
       } finally {
         setIsLoadingSubscription(false);
@@ -83,9 +89,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   };
 
   const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: '📊' },
+    { href: '/dashboard', label: 'Overview', icon: '📊' },
     { href: '/dashboard/bots', label: 'Trading Bot', icon: '🤖' },
-    { href: '/dashboard/trading', label: 'Trading', icon: '💹' },
+    { href: '/dashboard/trading', label: 'Live Trading', icon: '💹' },
     { href: '/dashboard/portfolio', label: 'Portfolio', icon: '💼' },
     { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
 
@@ -178,7 +184,61 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             {/* Center: Plan Badge - Prominent display */}
             {!isLoadingSubscription && subscription && (
               <>
-                {(subscription.status === 'trialing' || subscription.plan === 'live_trial') && (
+                {/* Paper Trading Badge - No payment required */}
+                {subscription.tradingMode === 'paper' && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="hidden sm:flex items-center bg-slate-100 dark:bg-slate-700 rounded-full border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors overflow-hidden flex-shrink-0"
+                  >
+                    <span className="px-3 py-1.5 text-slate-700 dark:text-slate-300 text-sm font-semibold">
+                      📊 Paper Trading
+                    </span>
+                  </Link>
+                )}
+
+                {/* Mobile Paper Trading Badge */}
+                {subscription.tradingMode === 'paper' && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="sm:hidden px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full text-xs font-bold flex-shrink-0"
+                  >
+                    📊 Paper
+                  </Link>
+                )}
+
+                {/* Trial Expired - Needs Payment (only for live trading) */}
+                {subscription.tradingMode !== 'paper' && (subscription.status === 'payment_required' ||
+                  ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                    subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="hidden sm:flex items-center bg-red-100 rounded-full border border-red-200 hover:bg-red-200 transition-colors overflow-hidden flex-shrink-0 animate-pulse"
+                  >
+                    <span className="px-3 py-1.5 text-red-800 text-sm font-semibold">
+                      Trial Expired
+                    </span>
+                    <span className="px-3 py-1.5 bg-red-700 text-white text-sm font-bold">
+                      Add Payment
+                    </span>
+                  </Link>
+                )}
+
+                {/* Mobile Trial Expired Badge (only for live trading) */}
+                {subscription.tradingMode !== 'paper' && (subscription.status === 'payment_required' ||
+                  ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                    subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
+                  <Link
+                    href="/dashboard/billing"
+                    className="sm:hidden px-2 py-1 bg-red-700 text-white rounded-full text-xs font-bold flex-shrink-0 animate-pulse"
+                  >
+                    Expired
+                  </Link>
+                )}
+
+                {/* Active Trial (still has days remaining, live trading only) */}
+                {subscription.tradingMode !== 'paper' &&
+                  (subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                  subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
                     className="hidden sm:flex items-center bg-amber-100 rounded-full border border-amber-200 hover:bg-amber-200 transition-colors overflow-hidden flex-shrink-0"
@@ -186,25 +246,27 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                     <span className="px-3 py-1.5 text-amber-800 text-sm font-semibold">
                       On Trial
                     </span>
-                    {subscription.daysRemaining !== null && (
-                      <span className="px-3 py-1.5 bg-amber-700 text-white text-sm font-bold flex items-center justify-center min-w-[60px]">
-                        {subscription.daysRemaining}d left
-                      </span>
-                    )}
+                    <span className="px-3 py-1.5 bg-amber-700 text-white text-sm font-bold flex items-center justify-center min-w-[60px]">
+                      {subscription.daysRemaining}d left
+                    </span>
                   </Link>
                 )}
 
-                {/* Mobile Trial Badge */}
-                {(subscription.status === 'trialing' || subscription.plan === 'live_trial') && (
+                {/* Mobile Active Trial Badge (live trading only) */}
+                {subscription.tradingMode !== 'paper' &&
+                  (subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                  subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
                     className="sm:hidden px-2 py-1 bg-amber-700 text-white rounded-full text-xs font-bold flex-shrink-0"
                   >
-                    {subscription.daysRemaining !== null ? `${subscription.daysRemaining}d` : 'Trial'}
+                    {subscription.daysRemaining}d
                   </Link>
                 )}
 
-                {subscription.status === 'active' && subscription.plan !== 'free' && subscription.plan !== 'live_trial' && (
+                {/* Active status badge (live trading, after trial) */}
+                {subscription.tradingMode !== 'paper' &&
+                  subscription.status === 'active' && subscription.plan !== 'free' && subscription.plan !== 'live_trial' && (
                   <Link
                     href="/dashboard/billing"
                     className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-semibold border border-green-200 hover:bg-green-200 transition-colors flex-shrink-0"

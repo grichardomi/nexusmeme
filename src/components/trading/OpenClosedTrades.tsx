@@ -59,6 +59,8 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
   const isAdmin = session?.user && (session.user as any).role === 'admin';
 
   useEffect(() => {
+    let isInitialLoad = true;
+
     async function fetchTrades() {
       try {
         const response = await fetch(`/api/trades?botId=${botId}&limit=500`);
@@ -66,18 +68,31 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
           throw new Error('Failed to fetch trades');
         }
         const data = await response.json();
-        setTrades(data.trades || []);
+        const newTrades = data.trades || [];
+
+        // Only update state if data actually changed (prevents unnecessary re-renders)
+        setTrades(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(newTrades)) {
+            return prev; // No change, keep same reference
+          }
+          return newTrades;
+        });
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        // Only show error on initial load, not on refresh failures
+        if (isInitialLoad) {
+          setError(err instanceof Error ? err.message : 'An error occurred');
+        }
       } finally {
-        setIsLoading(false);
+        // Only set loading false on initial load
+        if (isInitialLoad) {
+          setIsLoading(false);
+          isInitialLoad = false;
+        }
       }
     }
 
     fetchTrades();
-    const interval = setInterval(() => {
-      fetchTrades();
-    }, 10000); // Refresh every 10 seconds
+    const interval = setInterval(fetchTrades, 10000); // Refresh every 10 seconds
     return () => clearInterval(interval);
   }, [botId]);
 
@@ -96,7 +111,8 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         const data = await response.json();
         const positions = Array.isArray(data.positions) ? data.positions : [];
 
-        const healthMap = new Map<string, PositionHealth>();
+        // Build new health map
+        const newHealthMap = new Map<string, PositionHealth>();
         positions.forEach((pos: any) => {
           const peakProfitPct = Number(pos.peakProfitPct) || 0;
           const currentProfitPct = Number(pos.currentProfitPct) || 0;
@@ -114,7 +130,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             healthStatus = 'CAUTION';
           }
 
-          const healthInfo: PositionHealth = {
+          newHealthMap.set(pos.id, {
             tradeId: pos.id,
             peakProfitPct,
             currentProfitPct,
@@ -124,12 +140,24 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             healthStatus,
             alertMessage: pos.recommendation,
             regime: (pos.regime as string) || 'moderate',
-          };
-
-          healthMap.set(pos.id, healthInfo);
+          });
         });
 
-        setHealthData(healthMap);
+        // Only update if data changed (compare by size and values)
+        setHealthData(prev => {
+          if (prev.size === newHealthMap.size) {
+            let changed = false;
+            for (const [key, val] of newHealthMap) {
+              const old = prev.get(key);
+              if (!old || old.currentProfitPct !== val.currentProfitPct || old.peakProfitPct !== val.peakProfitPct) {
+                changed = true;
+                break;
+              }
+            }
+            if (!changed) return prev;
+          }
+          return newHealthMap;
+        });
       } catch (err) {
         console.error('Failed to fetch position health', err);
       }
@@ -154,13 +182,22 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         const data = await response.json();
 
         // Convert response format to simple price object
-        const prices: CurrentPrices = {};
+        const newPrices: CurrentPrices = {};
         Object.entries(data).forEach(([pair, marketData]: [string, any]) => {
           if (marketData && marketData.price) {
-            prices[pair] = marketData.price;
+            newPrices[pair] = marketData.price;
           }
         });
-        setCurrentPrices(prices);
+
+        // Only update if prices actually changed (prevents unnecessary re-renders)
+        setCurrentPrices(prev => {
+          const keys = Object.keys(newPrices);
+          if (keys.length !== Object.keys(prev).length) return newPrices;
+          for (const key of keys) {
+            if (prev[key] !== newPrices[key]) return newPrices;
+          }
+          return prev; // No change
+        });
       } catch (err) {
         console.error('Failed to fetch prices:', err);
       }
