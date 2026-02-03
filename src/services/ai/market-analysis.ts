@@ -228,7 +228,10 @@ function calculateOBV(closes: number[], volumes: number[]): number {
  */
 function calculateADX(candles: OHLCCandle[], period = 14): number {
   // Need at least period * 2 candles for proper ADX calculation
-  if (candles.length < period * 2) return 15; // Return LOW value to block entries when insufficient data
+  if (candles.length < period * 2) {
+    console.warn(`⚠️ [ADX FALLBACK] Insufficient candles: ${candles.length} < ${period * 2} required - returning ADX=15`);
+    return 15; // Return LOW value to block entries when insufficient data
+  }
 
   const trueRanges: number[] = [];
   const plusDMs: number[] = [];
@@ -290,7 +293,10 @@ function calculateADX(candles: OHLCCandle[], period = 14): number {
     dxValues.push(dx);
   }
 
-  if (dxValues.length === 0) return 15; // Return LOW value to block entries
+  if (dxValues.length === 0) {
+    console.warn(`⚠️ [ADX FALLBACK] No DX values calculated from ${trueRanges.length} true ranges - returning ADX=15`);
+    return 15; // Return LOW value to block entries
+  }
 
   // ADX is the smoothed average of DX values (use last 'period' values)
   // Apply Wilder's smoothing to DX to get ADX

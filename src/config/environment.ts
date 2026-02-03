@@ -127,6 +127,7 @@ const envSchema = z.object({
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
   RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.005'),
+  RISK_EMA200_DOWNTREND_BLOCK_ENABLED: z.string().transform(val => val === 'true').default('false'), // Block entries when price < EMA200 (disable to catch reversals)
 
   /* Loss Streak & Cooldown - Prevents trade churn after consecutive losses */
   RISK_MAX_LOSS_STREAK: z.string().transform(Number).default('5'), // Max consecutive losses before extended cooldown
@@ -145,6 +146,9 @@ const envSchema = z.object({
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.001'), // 0.1% - protect tiny peaks
+
+  /* Underwater exit - minimum meaningful peak in dollars (/nexus port) */
+  UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
   /* Peak-Relative Erosion (VERY TIGHT - close early on pullback) */
   EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.50'), // 50% - exit if 50% of peak eroded
@@ -211,6 +215,12 @@ const envSchema = z.object({
   /* Pyramid ADX Requirements - Global (applies to all exchanges) */
   PYRAMID_L1_MIN_ADX: z.string().transform(Number).default('35'), // L1: Moderate trend minimum
   PYRAMID_L2_MIN_ADX: z.string().transform(Number).default('40'), // L2: Strong trend minimum
+
+  /* Regime-Based Profit Targets (/nexus port) - ADX-driven dynamic targets */
+  PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.015'), // 1.5% - fast exit in choppy markets
+  PROFIT_TARGET_WEAK: z.string().transform(Number).default('0.025'), // 2.5% - realistic for weak trends
+  PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.05'), // 5% - developing trends
+  PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.20'), // 20% - MAXIMIZE strong trends!
 
   /* Early Loss Time-Based Thresholds - Philosophy: More aggressive on young losing trades */
   EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.008'), // 1-5 min: -0.8% very aggressive (exit fast on momentum shift)
@@ -331,6 +341,7 @@ function getDefaultEnvironment(): Environment {
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)
     RISK_PROFIT_TARGET_MINIMUM: 0.005,
+    RISK_EMA200_DOWNTREND_BLOCK_ENABLED: false, // Allow reversal entries by default
     RISK_MAX_LOSS_STREAK: 5,
     RISK_LOSS_COOLDOWN_HOURS: 1,
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
@@ -338,6 +349,7 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.001, // 0.1% - protect tiny peaks (AGGRESSIVE)
     EROSION_MIN_PEAK_PCT: 0.001, // 0.1% - protect tiny peaks (AGGRESSIVE)
+    UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
     EROSION_PEAK_RELATIVE_THRESHOLD: 0.50, // 50% - exit if 50% eroded (AGGRESSIVE)
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_CAP_CHOPPY: 0.05, // 5% - close at 5% loss from peak
@@ -372,6 +384,10 @@ function getDefaultEnvironment(): Environment {
     STALE_FLAT_TRADE_BAND_PCT: 0.5,
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
+    PROFIT_TARGET_CHOPPY: 0.015,    // 1.5% - fast exit
+    PROFIT_TARGET_WEAK: 0.025,      // 2.5% - weak trends
+    PROFIT_TARGET_MODERATE: 0.05,   // 5% - developing trends
+    PROFIT_TARGET_STRONG: 0.20,     // 20% - MAXIMIZE strong trends!
     EARLY_LOSS_MINUTE_1_5: -0.008,
     EARLY_LOSS_MINUTE_15_30: -0.015,
     EARLY_LOSS_HOUR_1_3: -0.025,

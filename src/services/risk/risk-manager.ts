@@ -149,22 +149,19 @@ class RiskManager {
       };
     }
 
-    // Check for choppy market (ADX < 20) - /nexus parity
+    // ADX now only determines regime/targets, not entry blocking
+    // Choppy markets (ADX < 22) are tradable with smaller targets (1.5%)
     if (adx < this.config.minADXForEntry) {
-      console.log(`\n🚫 BLOCKED: Choppy market (ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry}) - no entry allowed`);
-      logger.info('RiskManager: Entry blocked - choppy market detected', {
+      console.log(`\n⚠️ CHOPPY MARKET: ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry} - will use 1.5% target`);
+      logger.info('RiskManager: Choppy market detected - using conservative targets', {
         adx,
         threshold: this.config.minADXForEntry,
+        note: 'Allowing entry with smaller profit target',
       });
-      return {
-        pass: false,
-        reason: `Choppy market (ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry})`,
-        stage: 'Health Gate',
-        adx,
-      };
+    } else {
+      console.log(`\n✅ TRENDING MARKET: ADX=${adx.toFixed(1)} >= ${this.config.minADXForEntry}`);
     }
 
-    console.log(`\n✅ HEALTH GATE PASSED: ADX=${adx.toFixed(1)} >= ${this.config.minADXForEntry}`);
     return { pass: true, stage: 'Health Gate', adx };
   }
 
@@ -239,6 +236,7 @@ class RiskManager {
   ): RiskFilterResult {
     logger.debug('RiskManager: Stage 3 - Entry Quality', { pair, price });
 
+    const env = getEnvironmentConfig();
     const recentHigh = indicators.recentHigh ?? price;
     const momentum1h = indicators.momentum1h ?? 0;
     const momentum4h = indicators.momentum4h ?? 0;
@@ -254,7 +252,6 @@ class RiskManager {
     if (this.hasCreepingUptrend || isTrending) {
       // TRENDING MODE: Allow entries near highs (trends make new highs!)
       // Only block if price has pulled back too far from high (broken trend signal)
-      const env = getEnvironmentConfig();
       const pullbackThreshold = env.CREEPING_UPTREND_PULLBACK_THRESHOLD; // default 0.95 = 5% pullback
       if (price < recentHigh * pullbackThreshold) {
         const pullbackPercent = (1 - price / recentHigh) * 100;
@@ -302,6 +299,39 @@ class RiskManager {
       }
     }
 
+    // EMA200 DOWNTREND FILTER - Prevents entries in downtrends
+    // CRITICAL: ADX measures trend STRENGTH, not DIRECTION
+    // High ADX can mean strong downtrend! Price > EMA200 confirms UPTREND
+    // CONFIGURABLE: Can be disabled to catch reversal entries when price bounces from below EMA200
+    const ema200 = (indicators as any).ema200;
+    if (env.RISK_EMA200_DOWNTREND_BLOCK_ENABLED && ema200 && price < ema200) {
+      const distanceFromEMA = ((price / ema200 - 1) * 100);
+      logger.info('RiskManager: Entry blocked - price below EMA200 (downtrend)', {
+        pair,
+        price: price.toFixed(2),
+        ema200: ema200.toFixed(2),
+        distanceFromEMA: distanceFromEMA.toFixed(2) + '%',
+        note: 'EMA200 downtrend protection - prevents false "strong" signals in falling markets',
+      });
+      console.log(`\n🚫 DOWNTREND BLOCKED: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%)`);
+      return {
+        pass: false,
+        reason: `Downtrend: Price ${distanceFromEMA.toFixed(2)}% below EMA200`,
+        stage: 'Entry Quality',
+      };
+    } else if (!env.RISK_EMA200_DOWNTREND_BLOCK_ENABLED && ema200 && price < ema200) {
+      // Log but allow entry - catching reversal opportunities
+      const distanceFromEMA = ((price / ema200 - 1) * 100);
+      logger.info('RiskManager: Price below EMA200 but entry allowed (reversal mode)', {
+        pair,
+        price: price.toFixed(2),
+        ema200: ema200.toFixed(2),
+        distanceFromEMA: distanceFromEMA.toFixed(2) + '%',
+        note: 'RISK_EMA200_DOWNTREND_BLOCK_ENABLED=false - allowing reversal entries',
+      });
+      console.log(`\n⚠️ REVERSAL MODE: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%) - entry allowed`);
+    }
+
     // Avoid extreme overbought (RSI > 85)
     if (indicators.rsi > this.config.rsiExtremeOverbought) {
       logger.info('RiskManager: Entry blocked - extreme overbought', {
@@ -326,28 +356,33 @@ class RiskManager {
       momentum1h > 0;
 
     // Creeping uptrend mode: also allow low-volume positive momentum
-    const env = getEnvironmentConfig();
     const hasCreepingUptrend =
       env.CREEPING_UPTREND_ENABLED &&
       momentum1h > 0 &&
       volumeRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
 
-    // Intrabar momentum guard (no-entry-on-red) using 1h momentum as proxy
+    // Intrabar momentum guard (no-entry-on-red) - checks CURRENT candle direction
+    // CRITICAL: Uses real-time intrabar momentum (currentPrice - currentCandleOpen)
+    // NOT historical 1h momentum - prevents entering on falling prices
+    const intrabarMomentum = indicators.intrabarMomentum !== undefined ? indicators.intrabarMomentum : momentum1h;
     const shortTermMomentumThreshold = isTrending
       ? this.config.entryMinIntrabarMomentumTrending
       : this.config.entryMinIntrabarMomentumChoppy;
 
-    if (momentum1h < shortTermMomentumThreshold) {
-      logger.info('RiskManager: Entry blocked - short-term momentum red/flat', {
+    if (intrabarMomentum < shortTermMomentumThreshold) {
+      const momentumType = indicators.intrabarMomentum !== undefined ? 'intrabar' : 'momentum1h (fallback)';
+      logger.info('RiskManager: Entry blocked - current candle is red/flat', {
         pair,
         adx: adx.toFixed(1),
-        momentum1h: momentum1h.toFixed(3),
+        intrabarMomentum: intrabarMomentum.toFixed(3),
         threshold: shortTermMomentumThreshold.toFixed(3),
         trending: isTrending,
+        momentumType,
       });
+      console.log(`\n🚫 RED CANDLE BLOCKED: ${pair} - Intrabar momentum ${intrabarMomentum.toFixed(3)}% < ${shortTermMomentumThreshold.toFixed(3)}% (price currently falling)`);
       return {
         pass: false,
-        reason: `Short-term momentum too weak (${momentum1h.toFixed(3)}% < ${shortTermMomentumThreshold.toFixed(3)}%)`,
+        reason: `Current candle is red (intrabar ${intrabarMomentum.toFixed(3)}% < ${shortTermMomentumThreshold.toFixed(3)}%)`,
         stage: 'Entry Quality',
       };
     }

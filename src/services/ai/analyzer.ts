@@ -21,6 +21,7 @@ import {
   AIAnalysisRequest,
   AIAnalysisResult,
   OHLCCandle,
+  TechnicalIndicators,
 } from '@/types/ai';
 
 // Cache disabled per CLAUDE.md: "no cached data"
@@ -62,25 +63,43 @@ export async function analyzeMarket(
   logger.debug('Starting AI market analysis (optimized - signal only)', {
     pair: request.pair,
     timeframe: request.timeframe,
+    hasProvidedPrice: !!request.currentPrice,
+    hasProvidedIndicators: !!request.indicators,
   });
 
   try {
-    // Fetch market data
-    const candles = await fetchMarketData(
-      request.pair,
-      request.timeframe,
-      50
-    );
+    // Use provided price/indicators if available (prevents stale OHLC re-fetch)
+    // Otherwise fetch fresh OHLC data
+    let candles: OHLCCandle[];
+    let currentPrice: number;
+    let indicators: TechnicalIndicators;
 
-    if (candles.length < 26) {
-      throw new Error('Insufficient historical data');
+    if (request.currentPrice && request.indicators) {
+      // FAST PATH: Use provided fresh data from orchestrator
+      currentPrice = request.currentPrice;
+      indicators = request.indicators;
+      // Still need candles for regime detection, but use shorter fetch
+      candles = await fetchMarketData(request.pair, request.timeframe, 26);
+      logger.debug('Using provided price/indicators (fresh data)', {
+        pair: request.pair,
+        currentPrice,
+        providedMomentum1h: indicators.momentum1h,
+      });
+    } else {
+      // SLOW PATH: Fetch OHLC and calculate (legacy behavior)
+      candles = await fetchMarketData(request.pair, request.timeframe, 50);
+      if (candles.length < 26) {
+        throw new Error('Insufficient historical data');
+      }
+      const closes = candles.map((c) => c.close);
+      currentPrice = closes[closes.length - 1];
+      indicators = calculateTechnicalIndicators(candles);
+      logger.debug('Fetched OHLC data and calculated indicators', {
+        pair: request.pair,
+        currentPrice,
+        candleCount: candles.length,
+      });
     }
-
-    const closes = candles.map((c) => c.close);
-    const currentPrice = closes[closes.length - 1];
-
-    // Calculate technical indicators
-    const indicators = calculateTechnicalIndicators(candles);
 
     const result: AIAnalysisResult = {
       pair: request.pair,
@@ -119,12 +138,13 @@ export async function analyzeMarket(
     if (request.includePrediction === true) { // Changed from !== false to === true (opt-in)
       logger.debug('Generating price predictions (explicitly requested)', { pair: request.pair });
       const priceTargets = generatePriceTargets(candles, indicators);
+      const recentCloses = candles.map(c => c.close).slice(-24);
       const predictions = await predictPriceAI(
         request.pair,
         currentPrice,
         indicators,
         result.regime || detectMarketRegime(candles, indicators),
-        closes.slice(-24)
+        recentCloses
       );
 
       result.prediction = {

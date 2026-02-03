@@ -278,6 +278,33 @@ export async function POST(req: NextRequest) {
       // This allows manual recovery if exchange is down
     }
 
+    // VALIDATION: ABORT profit-protection exits that went red
+    // Race condition: Exit decision made when trade was green, but execution happened in red
+    // Profit protection (erosion cap, profit lock) should NEVER close trades in red
+    const profitProtectionReasons = ['erosion_cap_profit_lock', 'profit_lock_regime', 'breakeven_protection'];
+
+    if (profitProtectionReasons.includes(data.exitReason || '') && actualProfitLossPercent < 0) {
+      logger.warn('🚫 PROFIT PROTECTION EXIT ABORTED: Trade went red during execution - letting it run', {
+        tradeId: data.tradeId,
+        pair: data.pair,
+        originalReason: data.exitReason,
+        profitLossPercent: actualProfitLossPercent.toFixed(4),
+        note: 'Price slipped from green to red - aborting exit, trade will be handled by underwater logic',
+      });
+
+      return NextResponse.json(
+        {
+          error: 'Exit aborted - trade went red',
+          reason: 'profit_protection_invalid_for_red_trade',
+          profitLossPercent: actualProfitLossPercent,
+          message: `${data.exitReason} only applies to green trades. Trade went red during execution - letting underwater exit logic handle it.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    let correctedExitReason = data.exitReason;
+
     // STEP 2: Update trade record with exit information
     logger.info('Updating trade record', {
       tradeId: data.tradeId,
@@ -299,7 +326,7 @@ export async function POST(req: NextRequest) {
              status = 'closed'
          WHERE id = $7 AND bot_instance_id = $8
          RETURNING id`,
-        [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, data.exitReason || null, totalFees || null, data.tradeId, data.botInstanceId]
+        [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, totalFees || null, data.tradeId, data.botInstanceId]
       );
     } catch (updateError) {
       // If fee column doesn't exist, try without it
@@ -315,7 +342,7 @@ export async function POST(req: NextRequest) {
                status = 'closed'
            WHERE id = $6 AND bot_instance_id = $7
            RETURNING id`,
-          [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, data.exitReason || null, data.tradeId, data.botInstanceId]
+          [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, data.tradeId, data.botInstanceId]
         );
       } else if ((updateError as any)?.message?.includes('exit_price') || (updateError as any)?.message?.includes('exit_reason')) {
         logger.debug('exit_price or exit_reason column not found, updating without them');

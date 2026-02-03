@@ -34,6 +34,7 @@ export interface TechnicalIndicators {
   momentum4h?: number; // 4-hour momentum as percentage
   volumeRatio?: number; // Volume ratio vs average (e.g., 1.5x)
   ema200?: number; // 200-period EMA (long-term trend)
+  intrabarMomentum?: number; // Current candle momentum (currentPrice - open) / open - TRUE real-time direction
   recentHigh?: number; // Recent high price (for support/resistance)
   recentLow?: number; // Recent low price
 }
@@ -106,6 +107,9 @@ export interface AIAnalysisRequest {
   includePrediction?: boolean;
   includeSentiment?: boolean;
   includeSignal?: boolean;
+  // Optional: Pass current live price + indicators to avoid re-fetching stale OHLC data
+  currentPrice?: number;
+  indicators?: TechnicalIndicators;
 }
 
 export interface AIAnalysisResult {

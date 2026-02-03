@@ -10,6 +10,7 @@
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
 import { riskManager } from './risk-manager';
+import { getEnvironmentConfig } from '@/config/environment';
 
 export interface PositionData {
   tradeId: string;
@@ -78,8 +79,22 @@ export interface TrailingStopResult {
 class PositionTracker {
   // In-memory tracking of peak profits by trade ID
   // Backed by database (peak_profit_percent column) for persistence across restarts
-  private peakProfits = new Map<string, { peak: number; peakPct: number; entryTime?: number }>();
+  // PORTED FROM /nexus: Dollar-based tracking eliminates micro-peak precision issues
+  private peakProfits = new Map<string, {
+    peak: number;           // Legacy: peak profit in percent (for backward compat)
+    peakPct: number;        // Peak profit in percent (for display/logging)
+    peakProfit: number;     // DOLLARS: absolute peak profit (PRIMARY for exit logic)
+    currentProfit: number;  // DOLLARS: current profit (updated each check)
+    entryPrice: number;     // Entry price for dollar calculations
+    quantity: number;       // Position size for dollar calculations
+    entryTime?: number;
+  }>();
   private isInitialized = false;
+
+  // LATENCY OPTIMIZATION (Priority 2): Batch database updates
+  // Queue peak updates in memory, flush at end of cycle
+  // Reduces N individual UPDATE queries to 1 batched query
+  private pendingUpdates = new Map<string, number>(); // tradeId -> peakProfitPct
 
   /**
    * Parse entry_time correctly (handle string or Date object from database)
@@ -114,6 +129,55 @@ class PositionTracker {
   }
 
   /**
+   * LATENCY OPTIMIZATION: Queue peak update for batching
+   * Instead of individual UPDATE queries, collect updates in memory
+   * and flush at end of cycle (reduces DB round-trips)
+   */
+  private queuePeakUpdate(tradeId: string, peakProfitPct: number): void {
+    this.pendingUpdates.set(tradeId, peakProfitPct);
+  }
+
+  /**
+   * LATENCY OPTIMIZATION: Flush all pending peak updates in single batch query
+   * Should be called at end of each orchestration cycle
+   * Reduces N individual UPDATEs to 1 batched UPDATE
+   */
+  async flushPendingUpdates(): Promise<void> {
+    if (this.pendingUpdates.size === 0) {
+      return; // Nothing to flush
+    }
+
+    const updates = Array.from(this.pendingUpdates.entries());
+    const tradeIds = updates.map(([id]) => id);
+    const peakPcts = updates.map(([, pct]) => pct);
+
+    try {
+      // Batch update using PostgreSQL unnest() to update multiple rows in one query
+      // UNNEST creates arrays that are zipped together row-by-row
+      await query(
+        `UPDATE trades AS t
+         SET peak_profit_percent = u.peak_pct, peak_profit_recorded_at = NOW()
+         FROM (SELECT unnest($1::text[]) AS id, unnest($2::numeric[]) AS peak_pct) AS u
+         WHERE t.id = u.id`,
+        [tradeIds, peakPcts]
+      );
+
+      logger.debug('Position: flushed peak updates (batched)', {
+        updateCount: this.pendingUpdates.size,
+        tradeIds: tradeIds.slice(0, 5), // Log first 5 IDs
+      });
+
+      // Clear queue after successful flush
+      this.pendingUpdates.clear();
+    } catch (error) {
+      logger.error('Position: failed to flush peak updates', error instanceof Error ? error : null, {
+        updateCount: this.pendingUpdates.size,
+      });
+      // Don't clear queue on error - will retry on next flush
+    }
+  }
+
+  /**
    * Initialize position tracker from open trades in database
    * Loads peak_profit_percent for all open trades
    */
@@ -133,9 +197,14 @@ class PositionTracker {
           const peakPct = typeof trade.peak_profit_percent === 'string'
             ? parseFloat(trade.peak_profit_percent)
             : trade.peak_profit_percent;
+          // Initialize with percentage data; absolute values will be calculated on first update
           this.peakProfits.set(trade.id, {
             peak: peakPct,
             peakPct: peakPct,
+            peakProfit: 0,        // Will be calculated on next update with currentPrice
+            currentProfit: 0,     // Will be calculated on next update
+            entryPrice: 0,        // Will be populated from trade data on next update
+            quantity: 0,          // Will be populated from trade data on next update
             entryTime: this.parseEntryTime(trade.entry_time),
           });
         }
@@ -151,105 +220,127 @@ class PositionTracker {
 
   /**
    * Record peak profit for a new position
-   * Matches /nexus logic: peak starts at max(0, currentProfit)
-   * For underwater trades, peak = 0 (never went positive)
-   * For profitable trades, peak = currentProfit
+   * PORTED FROM /nexus: Dollar-based tracking with percentage backup
+   * Peak starts at max(0, currentProfit) in both dollars and percent
    */
-  async recordPeak(tradeId: string, profitPct: number, entryTime?: number): Promise<void> {
+  async recordPeak(
+    tradeId: string,
+    profitPct: number,
+    entryTime?: number,
+    entryPrice?: number,
+    quantity?: number,
+    currentPrice?: number
+  ): Promise<void> {
     // Use max(0, profit) to match /nexus: peak stays 0 for losing trades
     const peakPct = Math.max(0, profitPct);
+
+    // Calculate dollar profit if we have the data
+    let peakProfit = 0;
+    let currentProfit = 0;
+    if (entryPrice && quantity && currentPrice) {
+      currentProfit = (currentPrice - entryPrice) * quantity;
+      peakProfit = Math.max(0, currentProfit);
+    }
 
     this.peakProfits.set(tradeId, {
       peak: peakPct,
       peakPct: peakPct,
+      peakProfit: peakProfit,
+      currentProfit: currentProfit,
+      entryPrice: entryPrice || 0,
+      quantity: quantity || 0,
       entryTime: entryTime || Date.now(),
     });
 
-    // Persist to database
-    try {
-      await query(
-        `UPDATE trades SET peak_profit_percent = $1, peak_profit_recorded_at = NOW() WHERE id = $2`,
-        [peakPct, tradeId]
-      );
-    } catch (error) {
-      logger.warn('Failed to persist peak profit to database', {
-        tradeId,
-        peakProfitPct: peakPct,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    // Queue update for batch flush (LATENCY OPTIMIZATION)
+    this.queuePeakUpdate(tradeId, peakPct);
 
-    logger.debug('Position: peak profit recorded', {
+    logger.debug('Position: peak profit recorded (dollar-based)', {
       tradeId,
       currentProfitPct: profitPct.toFixed(2),
       recordedPeakPct: peakPct.toFixed(2),
+      peakProfitDollars: peakProfit.toFixed(2),
+      currentProfitDollars: currentProfit.toFixed(2),
     });
   }
 
   /**
    * Update peak profit if current profit exceeds previous peak
-   * Matches /nexus logic: only update if new profit is positive
+   * PORTED FROM /nexus: Dollar-based comparison eliminates precision issues
    */
-  async updatePeakIfHigher(tradeId: string, currentProfitPct: number): Promise<void> {
+  async updatePeakIfHigher(
+    tradeId: string,
+    currentProfitPct: number,
+    currentPrice?: number
+  ): Promise<void> {
     const existing = this.peakProfits.get(tradeId);
     if (!existing) {
       await this.recordPeak(tradeId, currentProfitPct);
       return;
     }
 
-    // Only update peak if profit improved AND is positive (matches /nexus logic)
-    if (currentProfitPct > existing.peakPct && currentProfitPct > 0) {
-      const oldPeakPct = existing.peakPct;
-      existing.peakPct = currentProfitPct;
-      existing.peak = currentProfitPct; // Also update the peak field for consistency
+    // Calculate current profit in dollars if we have position data
+    let currentProfitDollars = 0;
+    if (currentPrice && existing.entryPrice && existing.quantity) {
+      currentProfitDollars = (currentPrice - existing.entryPrice) * existing.quantity;
+    }
 
-      // Persist to database
-      try {
-        await query(
-          `UPDATE trades SET peak_profit_percent = $1, peak_profit_recorded_at = NOW() WHERE id = $2`,
-          [currentProfitPct, tradeId]
-        );
-        logger.info('Position: PEAK PROFIT UPDATED in DB', {
-          tradeId,
-          oldPeakPct: oldPeakPct.toFixed(4),
-          newPeakPct: currentProfitPct.toFixed(4),
-        });
-      } catch (error) {
-        logger.warn('Failed to update peak profit in database', {
-          tradeId,
-          newPeakPct: currentProfitPct,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    } else if (currentProfitPct > 0) {
+    // Update current profit tracker
+    existing.currentProfit = currentProfitDollars;
+
+    // Only update peak if profit improved AND is positive (matches /nexus logic)
+    // Use DOLLAR comparison as primary (eliminates precision issues)
+    const shouldUpdate = currentProfitDollars > existing.peakProfit && currentProfitDollars > 0;
+
+    if (shouldUpdate) {
+      const oldPeakPct = existing.peakPct;
+      const oldPeakProfit = existing.peakProfit;
+
+      existing.peakPct = currentProfitPct;
+      existing.peak = currentProfitPct;
+      existing.peakProfit = currentProfitDollars;
+
+      // Queue update for batch flush (LATENCY OPTIMIZATION)
+      this.queuePeakUpdate(tradeId, currentProfitPct);
+
+      logger.info('Position: PEAK PROFIT UPDATED (dollar-based)', {
+        tradeId,
+        oldPeakPct: oldPeakPct.toFixed(4),
+        newPeakPct: currentProfitPct.toFixed(4),
+        oldPeakProfit: oldPeakProfit.toFixed(2),
+        newPeakProfit: currentProfitDollars.toFixed(2),
+      });
+    } else if (currentProfitDollars > 0) {
       // Log when peak is NOT updated (for debugging)
       logger.debug('Position: peak not updated (current <= peak)', {
         tradeId,
         currentProfitPct: currentProfitPct.toFixed(4),
         existingPeakPct: existing.peakPct.toFixed(4),
-        comparisonResult: `${currentProfitPct.toFixed(4)} > ${existing.peakPct.toFixed(4)} = ${currentProfitPct > existing.peakPct}`,
+        currentProfitDollars: currentProfitDollars.toFixed(2),
+        peakProfitDollars: existing.peakProfit.toFixed(2),
       });
     }
   }
 
   /**
    * Check if position has exceeded erosion cap
-   * TWO CHECKS (matching /nexus for full profit protection):
-   * 1. PRIMARY: Regime-based erosion cap (scales with peak profit size)
-   * 2. SECONDARY: Peak-relative erosion after time gate (catches small profits)
+   * PORTED FROM /nexus: Dollar-based erosion tracking
    *
-   * Example: 50% tolerance means trade can erode to 50% of peak before exiting
-   * - Trade peaks at +2% → can drop to +1% before exiting
-   * - Trade peaks at +0.08% → can drop to +0.04% before exiting (after time gate)
-   * CRITICAL: Only exits if trade has eroded beyond threshold AND is still green
+   * Eliminates precision issues with micro-peaks (+$0.07 = 0.001% rounds to 0.00%)
+   * Uses absolute dollar comparison: if (erosionUsed > erosionCapDollars) → EXIT
+   *
+   * Philosophy: Lock profits faster in uptrends, don't let gains slip away
+   * Example: $20 peak with 10% cap = exit at $18 (lost $2, locked $18)
    */
   checkErosionCap(
     tradeId: string,
     pair: string,
     currentProfitPct: number,
-    regime: string
+    regime: string,
+    currentPrice?: number
   ): ErosionCheckResult {
     const existing = this.peakProfits.get(tradeId);
+    const env = getEnvironmentConfig();
 
     // DEBUG: Log erosion check inputs
     logger.info('🔍 EROSION CHECK START', {
@@ -284,65 +375,89 @@ class PositionTracker {
       return result;
     }
 
-    // Erosion cap is a profit-protection exit; skip if already underwater
-    if (currentProfitPct <= 0) {
+    // ABSOLUTE VALUE EROSION CHECK (ported from /nexus)
+    // Works for USD, USDT, EUR - any quote currency
+    // Eliminates micro-peak precision issues
+
+    // Calculate current profit in absolute value (quote currency)
+    let currentProfitAbsolute = existing.currentProfit;
+    if (currentPrice && existing.entryPrice && existing.quantity) {
+      currentProfitAbsolute = (currentPrice - existing.entryPrice) * existing.quantity;
+      existing.currentProfit = currentProfitAbsolute; // Update tracker
+    }
+
+    // Check 1: Must have positive peak in ABSOLUTE VALUE (not just percentage)
+    if (existing.peakProfit <= 0) {
+      logger.debug('Erosion check: no absolute peak recorded yet', {
+        tradeId,
+        pair,
+        peakProfitAbsolute: existing.peakProfit.toFixed(2),
+      });
       return result;
     }
 
-    // If current >= peak, no erosion has occurred (profit still growing)
-    if (currentProfitPct >= existing.peakPct) {
+    // Check 2: If current >= peak, no erosion (profit still growing)
+    if (currentProfitAbsolute >= existing.peakProfit) {
       return result;
     }
 
-    // Calculate erosion as percentage of peak (scales with trade size)
-    const erosionAbsolute = existing.peakPct - currentProfitPct;
-    const erosionPct = erosionAbsolute / existing.peakPct; // As % of peak profit
+    // Calculate erosion in ABSOLUTE VALUE and as percentage of peak
+    // CRITICAL: This works even if trade went NEGATIVE (100%+ erosion)
+    // Example: Peak +$19.24, Current -$0.34 → erosion = $19.58 (102% of peak)
+    const erosionAbsolute = existing.peakProfit - currentProfitAbsolute;
+    const erosionPct = erosionAbsolute / existing.peakProfit; // What % of peak profit was lost
 
-    const { getEnvironmentConfig } = require('@/config/environment');
-    const env = getEnvironmentConfig();
-    const minExitProfitPct = env.EROSION_MIN_EXIT_PROFIT_PCT ?? 0;
-
-    // Get regime-based erosion cap (e.g., 20% for choppy, 30% for strong)
+    // Get regime-based erosion cap percentage (e.g., 10% for uptrends, 20% for choppy)
     const erosionCapPercent = riskManager.getErosionCap(regime, existing.peakPct);
 
-    result.erosionUsed = erosionAbsolute;
-    result.erosionCap = erosionCapPercent;
-    // Cap erosionUsedPct at 1.0 (100%) for sanity - can't erode more than 100% of peak
-    result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
+    // Convert erosion cap to ABSOLUTE VALUE (this is the /nexus approach)
+    // Example: $20 peak * 10% cap = $2 allowed erosion = exit at $18
+    const erosionCapAbsolute = existing.peakProfit * erosionCapPercent;
 
-    // DEBUG: Log erosion calculation
-    logger.info('📊 EROSION CALC', {
+    // Update result metrics
+    result.erosionUsed = erosionAbsolute;
+    result.erosionCap = erosionCapAbsolute;
+    result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
+    result.peakProfit = existing.peakProfit;
+    result.currentProfit = currentProfitAbsolute;
+
+    // DEBUG: Log erosion calculation (ABSOLUTE VALUE)
+    logger.info('📊 EROSION CALC (absolute value)', {
       tradeId,
       pair,
       regime,
-      peakPct: existing.peakPct.toFixed(4),
-      currentProfitPct: currentProfitPct.toFixed(4),
+      peakProfitAbsolute: existing.peakProfit.toFixed(2),
+      currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
+      erosionAbsolute: erosionAbsolute.toFixed(2),
+      erosionCapAbsolute: erosionCapAbsolute.toFixed(2),
       erosionPct: (erosionPct * 100).toFixed(2) + '%',
       erosionCapPercent: (erosionCapPercent * 100).toFixed(2) + '%',
-      shouldTrigger: erosionPct > erosionCapPercent,
+      shouldTrigger: erosionAbsolute > erosionCapAbsolute,
     });
 
-    // EROSION CAP CHECK: If trade eroded beyond cap while still green → EXIT
-    if (erosionPct > erosionCapPercent) {
-      const status = currentProfitPct >= 0 ? 'still green' : 'went underwater';
-      // Ensure we stay green by requiring small positive cushion
-      if (currentProfitPct < minExitProfitPct) {
-        return result;
-      }
-      logger.info('🚨 EROSION CAP EXCEEDED - closing trade', {
+    // PRIMARY EXIT CHECK: Absolute erosion exceeds cap (matches /nexus)
+    if (erosionAbsolute > erosionCapAbsolute) {
+      // Determine exit reason based on whether still profitable (/nexus pattern)
+      const isStillGreen = currentProfitAbsolute > 0;
+      const exitReason = isStillGreen
+        ? 'erosion_cap_protected'  // Still positive when exiting
+        : 'underwater_small_peak_timeout';  // Went negative (profit collapsed)
+
+      logger.info(`🚨 EROSION CAP EXCEEDED - ${exitReason}`, {
         tradeId,
         pair,
         regime,
-        peakProfitPct: existing.peakPct.toFixed(4),
-        currentProfitPct: currentProfitPct.toFixed(4),
-        erosionPercent: (erosionPct * 100).toFixed(2),
-        erosionCapPercent: (erosionCapPercent * 100).toFixed(2),
-        minExitProfitPct: minExitProfitPct.toFixed(4),
-        status,
+        peakProfitAbsolute: existing.peakProfit.toFixed(2),
+        currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
+        erosionAbsolute: erosionAbsolute.toFixed(2),
+        erosionCapAbsolute: erosionCapAbsolute.toFixed(2),
+        erosionPercent: (erosionPct * 100).toFixed(2) + '%',
+        isStillGreen,
+        exitReason,
       });
 
       result.shouldExit = true;
-      result.reason = `Erosion Cap Exceeded (eroded ${(erosionPct * 100).toFixed(1)}% > ${(erosionCapPercent * 100).toFixed(0)}% cap, trade ${status})`;
+      result.reason = exitReason;
       return result;
     }
 
@@ -408,7 +523,6 @@ class PositionTracker {
       return result;
     }
 
-    const { getEnvironmentConfig } = require('@/config/environment');
     const env = getEnvironmentConfig();
 
     // Get regime-specific thresholds
@@ -516,7 +630,6 @@ class PositionTracker {
     ageMinutes: number,
     momentum1h: number
   ): TimeProfitLockResult {
-    const { getEnvironmentConfig } = require('@/config/environment');
     const env = getEnvironmentConfig();
 
     // Get configurable thresholds
@@ -623,7 +736,6 @@ class PositionTracker {
     currentProfitPct: number,
     profitTargetPct: number
   ): TrailingStopResult {
-    const { getEnvironmentConfig } = require('@/config/environment');
     const env = getEnvironmentConfig();
 
     // Get configurable thresholds
@@ -760,7 +872,6 @@ class PositionTracker {
       return result;
     }
 
-    const { getEnvironmentConfig } = require('@/config/environment');
     const env = getEnvironmentConfig();
 
     // Get erosion threshold - breakeven protection only applies to peaks BELOW this
@@ -808,16 +919,22 @@ class PositionTracker {
 
   /**
    * Check if position is underwater and should be closed
-   * Handles TWO scenarios:
-   * 1. Trades that never went positive: close if loss > threshold (original /nexus behavior)
-   * 2. Trades that WERE profitable but collapsed: close if loss > (peak + buffer)
-   *    Prevents profitable trades from turning into big losses
+   * PORTED FROM /nexus: TWO scenarios (absolute value tracking)
+   *
+   * 1. PROFIT COLLAPSE: Had meaningful peak → went negative → EXIT IMMEDIATELY
+   *    - Example: BTC peaked at +$21.17, now -$9.95 → EXIT NOW
+   *    - No time gate, no threshold - just exit to prevent further loss
+   *
+   * 2. EARLY LOSS: Never profitable → time-based thresholds
+   *    - Example: Entered at bad price, never went green → wait then exit
+   *    - Time-scaled thresholds: -1.5% at 5min, -2.5% at 30min, etc.
    */
-  checkUnderwaterTimeout(
+  checkUnderwaterExit(
     tradeId: string,
     pair: string,
     currentProfitPct: number,
     entryTime: Date | number | string,
+    currentPrice?: number,
     underwaterThresholdPct: number = -0.008, // -0.8% default for never-profitable
     minTimeMinutes: number = 15 // 15 minutes default
   ): UnderwaterCheckResult {
@@ -833,83 +950,56 @@ class PositionTracker {
       minTimeMinutes,
     };
 
-    // Must be currently underwater
-    if (currentProfitPct >= 0) {
+    const env = getEnvironmentConfig();
+
+    // Calculate current profit in absolute value if we have position data
+    let currentProfitAbsolute = 0;
+    if (existing && currentPrice && existing.entryPrice && existing.quantity) {
+      currentProfitAbsolute = (currentPrice - existing.entryPrice) * existing.quantity;
+    }
+
+    // Must be currently underwater (in absolute value)
+    if (currentProfitAbsolute >= 0) {
       logger.debug('Underwater check: trade is not underwater - skipping', {
         tradeId,
         pair,
-        currentProfitPct: currentProfitPct.toFixed(2),
+        currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
       });
       return result;
     }
 
-    // Ensure peakPct is numeric (database may return string)
-    const peakPctNumeric = existing ? (typeof existing.peakPct === 'number'
-      ? existing.peakPct
-      : parseFloat(String(existing.peakPct))) : 0;
+    // Get peak profit in absolute value
+    const peakProfitAbsolute = existing?.peakProfit || 0;
 
-    // Check time threshold (avoid premature exits from entry slippage)
-    // Use parseEntryTime to handle PostgreSQL 'timestamp without time zone' correctly
+    // Calculate trade age
     const entryTimeMs = this.parseEntryTime(entryTime);
     const ageMinutes = (Date.now() - entryTimeMs) / (1000 * 60);
     result.ageMinutes = ageMinutes;
 
-    // GREEN-TO-RED PROTECTION (with safeguards against entry noise)
-    // Philosophy: Protect meaningful profits, but don't exit on entry spread/slippage
+    // ============================================================
+    // SCENARIO 1: PROFIT COLLAPSE (matches /nexus)
+    // ============================================================
+    // If trade had MEANINGFUL profit and went negative → EXIT IMMEDIATELY
+    // No time gate, no threshold - just exit to prevent BTC -$9.95 disasters
     //
-    // Requirements to trigger:
-    // 1. Trade must have been profitable (peak > 0)
-    // 2. Trade is now underwater (current < 0)
-    // 3. EITHER: Peak was meaningful (> 0.02%) - worth protecting
-    //    OR: Trade has been open long enough (> 2 min) for entry noise to settle
-    //
-    // This prevents false exits when:
-    // - Trade enters and immediately shows -0.01% due to spread
-    // - But allows protection once trade has demonstrated real profit
-    const { getEnvironmentConfig } = require('@/config/environment');
-    const env = getEnvironmentConfig();
+    // Example: BTC peaked at +$21.17, now -$9.95 → EXIT NOW
+    const minMeaningfulPeakAbsolute = env.UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS || 0.50; // $0.50 default
 
-    // Configurable thresholds
-    const minMeaningfulPeakPct = (env.GREEN_TO_RED_MIN_PEAK_PCT || 0.0002) * 100; // 0.02% default
-    const minHoldMinutesForProtection = env.GREEN_TO_RED_MIN_HOLD_MINUTES || 2; // 2 min default
+    if (peakProfitAbsolute > minMeaningfulPeakAbsolute) {
+      // Had meaningful profit, now underwater → PROFIT COLLAPSE
+      logger.info('🚨 PROFIT COLLAPSE - exiting immediately (had real profit, now negative)', {
+        tradeId,
+        pair,
+        peakProfitAbsolute: peakProfitAbsolute.toFixed(2),
+        currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
+        totalLoss: (peakProfitAbsolute - currentProfitAbsolute).toFixed(2),
+        minMeaningfulPeak: minMeaningfulPeakAbsolute.toFixed(2),
+        rule: '/nexus profit collapse - EXIT IMMEDIATELY',
+      });
 
-    if (existing && peakPctNumeric > 0 && currentProfitPct < 0) {
-      const hasMeaningfulPeak = peakPctNumeric >= minMeaningfulPeakPct;
-      const hasMinimumHoldTime = ageMinutes >= minHoldMinutesForProtection;
-
-      // Only protect if peak was meaningful OR trade has been open long enough
-      if (hasMeaningfulPeak || hasMinimumHoldTime) {
-        logger.info('🚨 GREEN-TO-RED PROTECTION: Trade was profitable but breached breakeven - exiting', {
-          tradeId,
-          pair,
-          peakProfitPct: peakPctNumeric.toFixed(4),
-          currentProfitPct: currentProfitPct.toFixed(4),
-          ageMinutes: ageMinutes.toFixed(1),
-          hasMeaningfulPeak,
-          hasMinimumHoldTime,
-          minMeaningfulPeakPct: minMeaningfulPeakPct.toFixed(4),
-          minHoldMinutesForProtection,
-          rule: 'Meaningful profit protection (peak > threshold OR hold time > threshold)',
-        });
-
-        result.shouldExit = true;
-        // Match /nexus exit reason: underwater_small_peak_timeout
-        result.reason = `underwater_small_peak_timeout (peak +${peakPctNumeric.toFixed(3)}% → current ${currentProfitPct.toFixed(3)}%)`;
-        return result;
-      } else {
-        // Trade went green-to-red but it's too early and peak was too small
-        // Allow room to develop - this is likely entry noise
-        logger.debug('Green-to-red check: skipping - entry noise (peak too small AND too early)', {
-          tradeId,
-          pair,
-          peakProfitPct: peakPctNumeric.toFixed(4),
-          currentProfitPct: currentProfitPct.toFixed(4),
-          ageMinutes: ageMinutes.toFixed(1),
-          minMeaningfulPeakPct: minMeaningfulPeakPct.toFixed(4),
-          minHoldMinutesForProtection,
-          note: 'Allowing trade room to develop',
-        });
-      }
+      result.shouldExit = true;
+      result.reason = 'underwater_small_peak_timeout';  // /nexus naming
+      return result;
     }
 
     // SAFEGUARD: If age is negative (entry time in future), treat as data error
@@ -935,33 +1025,34 @@ class PositionTracker {
       return result;
     }
 
-    // Determine threshold based on whether trade was MEANINGFULLY profitable
-    // If we reach here, the trade was NEVER profitable (peak <= 0)
-    // The green-to-red protection above handles all trades that were ever green
-    // So this section only handles never-profitable trades - use time-based loss thresholds
+    // ============================================================
+    // SCENARIO 2: EARLY LOSS (matches /nexus)
+    // ============================================================
+    // If trade NEVER had meaningful profit → time-based thresholds
+    // If we reach here: peak <= $0.50, so this is a bad entry that never went green
+    //
+    // Example: Entered at bad price, immediately -0.5%, never recovered → wait 15min then exit at -0.8%
     const effectiveThresholdPct = underwaterThresholdPct;
-    const thresholdReason = `never_profitable (absolute threshold ${(underwaterThresholdPct * 100).toFixed(2)}%)`;
 
-    // Check loss threshold - exit if loss is WORSE than threshold
-    // currentProfitPct is in percentage form (e.g., -1.27 = -1.27%)
-    // effectiveThresholdPct is in decimal form (e.g., -0.008 = -0.8%, or -0.0018 = -0.18%)
-    // So we compare: (currentProfitPct / 100) < effectiveThresholdPct
-    const profitAsDecimal = currentProfitPct / 100;
+    // Use absolute value comparison (matches /nexus)
+    // Convert threshold from decimal to absolute value based on position size
+    const thresholdAbsolute = effectiveThresholdPct * (existing?.entryPrice || 0) * (existing?.quantity || 0);
 
-    if (profitAsDecimal < effectiveThresholdPct) {
-      logger.info('Underwater timeout triggered - position should exit', {
+    if (currentProfitAbsolute < thresholdAbsolute) {
+      logger.info('🔴 EARLY LOSS - exiting never-profitable trade (time-based threshold)', {
         tradeId,
         pair,
+        currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
+        thresholdAbsolute: thresholdAbsolute.toFixed(2),
         currentProfitPct: currentProfitPct.toFixed(2),
-        peakProfitPct: existing?.peakPct || 0,
-        thresholdType: thresholdReason,
-        effectiveThresholdPercent: `${(effectiveThresholdPct * 100).toFixed(2)}%`,
+        thresholdPct: (effectiveThresholdPct * 100).toFixed(2) + '%',
         ageMinutes: ageMinutes.toFixed(1),
         minTimeMinutes,
+        rule: '/nexus early loss - never had meaningful profit',
       });
 
       result.shouldExit = true;
-      result.reason = `Underwater Timeout (loss ${currentProfitPct.toFixed(2)}% < ${thresholdReason} ${(effectiveThresholdPct * 100).toFixed(2)}%, age ${ageMinutes.toFixed(1)}min >= ${minTimeMinutes}min)`;
+      result.reason = 'underwater_never_profited';  // /nexus naming
     }
 
     return result;
