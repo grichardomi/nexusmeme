@@ -16,9 +16,10 @@ export function MarketPrices() {
   const activeBot = bots.find((b) => b.isActive);
 
   // Get real-time prices for active bot's trading pairs
+  // Poll every 4s to match background fetcher cadence (was 10s = stale dashboard)
   const { prices, status: priceStatus, isStale, stalePairs } = usePriceCachePolling(
     activeBot?.enabledPairs ?? [],
-    { pollIntervalMs: 10000, staleThresholdMs: 30000 }
+    { pollIntervalMs: 4000, staleThresholdMs: 15000 }
   );
 
   // Hide component if no active bot

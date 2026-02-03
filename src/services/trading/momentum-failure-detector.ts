@@ -104,9 +104,10 @@ export class MomentumFailureDetector {
 
     // SIGNAL 1: Price Action Failure
     // Check if price is near recent high but momentum is declining
+    // NOTE: momentum values and thresholds are both in percentage form (e.g., -0.5 = -0.5%)
     const priceNearPeak =
       position.currentPrice / (indicators.recentHigh || position.currentPrice);
-    const momentum1hNegative = momentum1h < momentumThreshold * 100;
+    const momentum1hNegative = momentum1h < momentumThreshold;
 
     if (
       priceNearPeak >= this.PRICE_NEAR_PEAK_THRESHOLD &&
@@ -116,15 +117,15 @@ export class MomentumFailureDetector {
       result.signalCount++;
       result.reasoning.push(
         `Price action failure: ${(priceNearPeak * 100).toFixed(1)}% of peak, ` +
-          `1h momentum ${momentum1h.toFixed(2)}% (threshold: ${(momentumThreshold * 100).toFixed(2)}%)`
+          `1h momentum ${momentum1h.toFixed(2)}% (threshold: ${momentumThreshold.toFixed(2)}%)`
       );
-    } else if (momentum1h < momentumThreshold * 100) {
+    } else if (momentum1h < momentumThreshold) {
       // Alternative: Strong 1h reversal (even if not at peak)
       result.signals.priceActionFailure = true;
       result.signalCount++;
       result.reasoning.push(
         `Strong 1h reversal: momentum ${momentum1h.toFixed(2)}% ` +
-          `(threshold: ${(momentumThreshold * 100).toFixed(2)}%)`
+          `(threshold: ${momentumThreshold.toFixed(2)}%)`
       );
     }
 
@@ -141,8 +142,9 @@ export class MomentumFailureDetector {
 
     // SIGNAL 3: HTF Breakdown
     // 4h momentum weakening OR price breaking below EMA200
+    // NOTE: momentum4h and threshold both in percentage form (e.g., -0.5 = -0.5%)
     const htfMomentumWeak =
-      momentum4h < this.HTF_MOMENTUM_WEAKENING * 100;
+      momentum4h < this.HTF_MOMENTUM_WEAKENING;
     const belowEMA200 = position.currentPrice < ema200 && ema200 > 0;
 
     if (htfMomentumWeak) {
@@ -150,7 +152,7 @@ export class MomentumFailureDetector {
       result.signalCount++;
       result.reasoning.push(
         `4h momentum weakening: ${momentum4h.toFixed(2)}% ` +
-          `(threshold: ${(this.HTF_MOMENTUM_WEAKENING * 100).toFixed(2)}%)`
+          `(threshold: ${this.HTF_MOMENTUM_WEAKENING.toFixed(2)}%)`
       );
     } else if (belowEMA200) {
       result.signals.htfBreakdown = true;

@@ -27,6 +27,7 @@ interface PositionHealth {
   erosionPct: number;
   erosionRatioPct: number;
   erosionCap: number;
+  status?: 'healthy' | 'warning' | 'critical' | 'underwater';
   healthStatus: 'HEALTHY' | 'CAUTION' | 'RISK' | 'ALERT';
   alertMessage?: string;
   regime: string;
@@ -119,14 +120,21 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
           const erosionCapFraction = Number(pos.erosionCapFraction) || 0;
           const erosionRatioPct = Number(pos.erosionRatioPct) || 0;
           const erosionAbsolutePct = Number(pos.erosionAbsolutePct) || (peakProfitPct > 0 ? peakProfitPct - currentProfitPct : 0);
+          const status = (pos.status as PositionHealth['status']) || 'healthy';
 
           // Derive UI status (match Nexus bar coloring)
           let healthStatus: PositionHealth['healthStatus'] = 'HEALTHY';
-          if (erosionRatioPct > 100) {
+          if (status === 'critical') {
+            healthStatus = 'ALERT';
+          } else if (status === 'warning' || status === 'underwater') {
+            healthStatus = 'RISK';
+          } else if (erosionRatioPct > 100) {
             healthStatus = 'ALERT';
           } else if (erosionRatioPct > 70) {
             healthStatus = 'RISK';
           } else if (erosionRatioPct > 30) {
+            healthStatus = 'CAUTION';
+          } else if (currentProfitPct < 0) {
             healthStatus = 'CAUTION';
           }
 
@@ -137,6 +145,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             erosionPct: erosionAbsolutePct,
             erosionRatioPct,
             erosionCap: erosionCapFraction,
+            status,
             healthStatus,
             alertMessage: pos.recommendation,
             regime: (pos.regime as string) || 'moderate',

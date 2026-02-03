@@ -40,10 +40,13 @@ class RiskManager {
     minMomentum1h: 0.005,
     minMomentum4h: 0.005,
     volumeBreakoutRatio: 1.3,
+    minVolumeRatio: 0.50,
     aiMinConfidence: 70,
     profitTargetMinimum: 0.005,
     pyramidL1ConfidenceMin: 85,
     pyramidL2ConfidenceMin: 90,
+    entryMinIntrabarMomentumChoppy: 0.05,
+    entryMinIntrabarMomentumTrending: 0,
   };
 
   /**
@@ -56,8 +59,10 @@ class RiskManager {
    */
   initializeFromBotConfig(botConfig: Record<string, any>, exchange: string = 'kraken'): void {
     const env = getEnvironmentConfig();
-    let minMomentum1h = parseFloat(botConfig?.minMomentum1h || '0.005');
-    let minMomentum4h = parseFloat(botConfig?.minMomentum4h || '0.005');
+    // Momentum thresholds in PERCENT form (0.5 = 0.5%, matching /nexus)
+    // /nexus uses 0.005 decimal = 0.5%, so we use 0.5 percent form
+    let minMomentum1h = parseFloat(botConfig?.minMomentum1h || '0.5');
+    let minMomentum4h = parseFloat(botConfig?.minMomentum4h || '0.5');
     let volumeBreakoutRatio = parseFloat(botConfig?.volumeBreakoutRatio || '1.3');
     let priceTopThreshold = parseFloat(botConfig?.priceTopThreshold || '0.995');
 
@@ -94,8 +99,11 @@ class RiskManager {
       minMomentum1h,
       minMomentum4h,
       volumeBreakoutRatio,
+      minVolumeRatio: parseFloat(env.RISK_MIN_VOLUME_RATIO.toString()),
       aiMinConfidence: parseFloat(env.AI_MIN_CONFIDENCE_THRESHOLD.toString()),
       profitTargetMinimum: parseFloat(env.RISK_PROFIT_TARGET_MINIMUM.toString()),
+      entryMinIntrabarMomentumChoppy: parseFloat(env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY.toString()),
+      entryMinIntrabarMomentumTrending: parseFloat(env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING.toString()),
       // Pyramid confidence minimums from environment (system-wide, not per-bot)
       // Routes to correct pyramid env vars based on exchange type
       pyramidL1ConfidenceMin: parseFloat(process.env[`${exchangePrefix}_PYRAMID_L1_CONFIDENCE_MIN`] || '85'),
@@ -235,24 +243,30 @@ class RiskManager {
     const momentum1h = indicators.momentum1h ?? 0;
     const momentum4h = indicators.momentum4h ?? 0;
     const volumeRatio = indicators.volumeRatio ?? 1;
+    const adx = indicators.adx ?? 0;
 
-    // Price top check: different logic for creeping uptrend vs normal mode
-    if (this.hasCreepingUptrend) {
-      // CREEPING UPTREND MODE: Catch uptrends by allowing near-highs
-      // BUT block if price has pulled back too much from high (configurable via env)
+    // DYNAMIC REGIME-AWARE price top check:
+    // In trending markets (ADX >= 25), price near highs is NORMAL - that's where trends trade
+    // In choppy/weak markets (ADX < 25), buying at local tops is dangerous (mean reversion)
+    // This replaces the static CREEPING_UPTREND_ENABLED flag with real-time ADX detection
+    const isTrending = adx >= 25;
+
+    if (this.hasCreepingUptrend || isTrending) {
+      // TRENDING MODE: Allow entries near highs (trends make new highs!)
+      // Only block if price has pulled back too far from high (broken trend signal)
       const env = getEnvironmentConfig();
-      const pullbackThreshold = env.CREEPING_UPTREND_PULLBACK_THRESHOLD; // From environment (default 0.95 = 5% pullback)
+      const pullbackThreshold = env.CREEPING_UPTREND_PULLBACK_THRESHOLD; // default 0.95 = 5% pullback
       if (price < recentHigh * pullbackThreshold) {
         const pullbackPercent = (1 - price / recentHigh) * 100;
         const pullbackThresholdPercent = (1 - pullbackThreshold) * 100;
-        logger.info('RiskManager: Entry blocked - price too far from high (creeping uptrend)', {
+        logger.info('RiskManager: Entry blocked - price pulled back too far from high (trending mode)', {
           pair,
           price: price.toFixed(2),
           recentHigh: recentHigh.toFixed(2),
           pullbackPercent: pullbackPercent.toFixed(2),
           pullbackThresholdPercent: pullbackThresholdPercent.toFixed(1),
-          pullbackThreshold: pullbackThreshold.toFixed(4),
-          creepingUptrendMode: true,
+          adx: adx.toFixed(1),
+          trendingMode: true,
         });
         return {
           pass: false,
@@ -260,21 +274,29 @@ class RiskManager {
           stage: 'Entry Quality',
         };
       }
+      logger.debug('RiskManager: Trending mode - allowing entry near highs', {
+        pair,
+        price: price.toFixed(2),
+        recentHigh: recentHigh.toFixed(2),
+        distFromHigh: ((1 - price / recentHigh) * 100).toFixed(2) + '%',
+        adx: adx.toFixed(1),
+      });
     } else {
-      // NORMAL MODE: Avoid buying at local tops
+      // CHOPPY MODE: Avoid buying at local tops (mean reversion risk)
       // Block if price is within 0.5% of recent high
       const topThreshold = this.config.priceTopThreshold; // 0.995
       if (price > recentHigh * topThreshold) {
-        logger.info('RiskManager: Entry blocked - price at local top', {
+        logger.info('RiskManager: Entry blocked - price at local top (choppy market)', {
           pair,
           price: price.toFixed(2),
           recentHigh: recentHigh.toFixed(2),
           topThreshold: (topThreshold * 100).toFixed(2),
-          creepingUptrendMode: false,
+          adx: adx.toFixed(1),
+          trendingMode: false,
         });
         return {
           pass: false,
-          reason: `Price at local top (${(price / recentHigh * 100 - 100).toFixed(2)}% from high)`,
+          reason: `Price at local top (${(price / recentHigh * 100 - 100).toFixed(2)}% from high, ADX ${adx.toFixed(0)} = choppy)`,
           stage: 'Entry Quality',
         };
       }
@@ -310,24 +332,65 @@ class RiskManager {
       momentum1h > 0 &&
       volumeRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
 
-    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout || hasCreepingUptrend;
+    // Intrabar momentum guard (no-entry-on-red) using 1h momentum as proxy
+    const shortTermMomentumThreshold = isTrending
+      ? this.config.entryMinIntrabarMomentumTrending
+      : this.config.entryMinIntrabarMomentumChoppy;
+
+    if (momentum1h < shortTermMomentumThreshold) {
+      logger.info('RiskManager: Entry blocked - short-term momentum red/flat', {
+        pair,
+        adx: adx.toFixed(1),
+        momentum1h: momentum1h.toFixed(3),
+        threshold: shortTermMomentumThreshold.toFixed(3),
+        trending: isTrending,
+      });
+      return {
+        pass: false,
+        reason: `Short-term momentum too weak (${momentum1h.toFixed(3)}% < ${shortTermMomentumThreshold.toFixed(3)}%)`,
+        stage: 'Entry Quality',
+      };
+    }
+
+    // DYNAMIC BULLISH SENTIMENT: When BOTH timeframes agree on direction (positive),
+    // enter more aggressively even with smaller momentum. This is bullish confirmation.
+    // Requires: both momentums positive AND at least minimal movement (> 0.1% on 1h)
+    const minBullishMomentum = 0.1; // 0.1% minimum to avoid noise
+    const isBullishSentiment =
+      momentum1h > minBullishMomentum &&
+      momentum4h > 0 &&
+      volumeRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
+
+    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout || hasCreepingUptrend || isBullishSentiment;
 
     if (!passesEntryGate) {
       logger.info('RiskManager: Entry blocked - weak momentum', {
         pair,
-        momentum1h: (momentum1h * 100).toFixed(2),
-        momentum4h: (momentum4h * 100).toFixed(2),
+        momentum1h: momentum1h.toFixed(2),
+        momentum4h: momentum4h.toFixed(2),
         volumeRatio: volumeRatio.toFixed(2),
         has1hMomentum,
         hasBothPositive,
         hasVolumeBreakout,
         hasCreepingUptrend,
+        isBullishSentiment,
       });
       return {
         pass: false,
-        reason: `Weak momentum (1h=${(momentum1h * 100).toFixed(2)}%, 4h=${(momentum4h * 100).toFixed(2)}%, vol=${volumeRatio.toFixed(2)}x)`,
+        reason: `Weak momentum (1h=${momentum1h.toFixed(2)}%, 4h=${momentum4h.toFixed(2)}%, vol=${volumeRatio.toFixed(2)}x)`,
         stage: 'Entry Quality',
       };
+    }
+
+    // Log bullish sentiment entry when triggered
+    if (isBullishSentiment && !has1hMomentum && !hasBothPositive && !hasVolumeBreakout && !hasCreepingUptrend) {
+      logger.info('RiskManager: BULLISH SENTIMENT entry allowed', {
+        pair,
+        momentum1h: momentum1h.toFixed(2),
+        momentum4h: momentum4h.toFixed(2),
+        volumeRatio: volumeRatio.toFixed(2),
+        reason: 'Both timeframes positive - bullish confirmation',
+      });
     }
 
     return { pass: true, stage: 'Entry Quality' };
@@ -468,16 +531,18 @@ class RiskManager {
 
   /**
    * Get profit target based on regime (adaptive strategy)
+   * OPTIMIZED: Lower targets for weak/choppy to book profits faster
+   * CRITICAL: Strong regime at 20% to give L2 pyramid room to develop (enters at +8%)
    */
   getProfitTarget(regime: string): number {
     // Dynamic profit targets by regime (from /nexus design)
     const targets: Record<string, number> = {
-      choppy: 0.02,    // 2% in choppy markets
-      weak: 0.045,     // 4.5% in weak trends
-      moderate: 0.065, // 6.5% in moderate trends
-      strong: 0.12,    // 12% in strong trends
+      choppy: 0.015,   // 1.5% in choppy markets (lowered for faster exits)
+      weak: 0.025,     // 2.5% in weak trends (CRITICAL: weak trends rarely reach 4.5%)
+      moderate: 0.05,  // 5.0% in moderate trends (more realistic)
+      strong: 0.20,    // 20% in strong trends (L2 enters at +8%, needs +12% more to develop!)
     };
-    return targets[regime] || 0.10;
+    return targets[regime] || 0.08; // 8% default
   }
 
   /**

@@ -11,7 +11,7 @@
  */
 
 import { logger } from '@/lib/logger';
-import { getCached, setCached } from '@/lib/redis';
+import { getCached, getCachedMultiple, setCached } from '@/lib/redis';
 import type { PriceUpdate } from '@/types/market-data';
 
 const PRICE_DISTRIBUTION_PREFIX = 'price:dist:';
@@ -64,16 +64,27 @@ export async function getPriceFromRedis(pair: string): Promise<PriceUpdate | nul
  * Retrieve all available prices from Redis
  */
 export async function getAllPricesFromRedis(pairs: string[]): Promise<Map<string, PriceUpdate>> {
+  return getPricesFromRedis(pairs);
+}
+
+/**
+ * Retrieve multiple prices from Redis in one round trip
+ */
+export async function getPricesFromRedis(pairs: string[]): Promise<Map<string, PriceUpdate>> {
   const result = new Map<string, PriceUpdate>();
 
-  const promises = pairs.map(async (pair) => {
-    const price = await getPriceFromRedis(pair);
+  if (pairs.length === 0) return result;
+
+  const keys = pairs.map(pair => `${PRICE_DISTRIBUTION_PREFIX}${pair}:latest`);
+  const values = await getCachedMultiple<PriceUpdate>(keys);
+
+  values.forEach((price, index) => {
+    const pair = pairs[index];
     if (price) {
       result.set(pair, price);
     }
   });
 
-  await Promise.all(promises);
   return result;
 }
 

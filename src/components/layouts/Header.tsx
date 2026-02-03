@@ -25,12 +25,10 @@ export function Header() {
     <header className="sticky top-0 z-50 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+          {/* Logo - Left Justified */}
           <Link
             href={session?.user ? '/dashboard' : '/'}
-            className={`flex items-center gap-2 hover:opacity-80 transition ${
-              session?.user ? 'md:hidden' : ''
-            }`}
+            className="flex items-center gap-2 hover:opacity-80 transition flex-shrink-0 md:mr-8"
           >
             <Image
               src="/logo.png"
@@ -40,13 +38,13 @@ export function Header() {
               className="w-8 h-8"
               priority
             />
-            <div className="hidden md:block font-bold text-slate-900 dark:text-white text-lg">
+            <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base md:text-lg">
               NexusMeme
             </div>
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden md:flex items-center gap-6 md:flex-1">
             <Link
               href="/#features"
               className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"

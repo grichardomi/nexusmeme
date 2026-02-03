@@ -36,7 +36,7 @@ export function usePriceCachePolling(
   pairs: string[],
   options: UsePriceCachePollingOptions = {}
 ): UsePriceCachePollingResult {
-  const { pollIntervalMs = 10000, staleThresholdMs = 30000, onError } = options;
+  const { pollIntervalMs = 4000, staleThresholdMs = 15000, onError } = options;
 
   const [prices, setPrices] = useState<Map<string, MarketData>>(new Map());
   const [status, setStatus] = useState<'polling' | 'idle' | 'error' | 'stale' | 'unavailable'>(

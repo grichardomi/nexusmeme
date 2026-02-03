@@ -309,13 +309,55 @@ Format as JSON:
   try {
     const response = await callOpenAI(prompt);
 
-    // Extract JSON from response (handle cases where OpenAI adds extra text)
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    // Extract JSON from response (handle markdown code fences and extra text)
+    let cleanedResponse = response.trim();
+
+    // Remove markdown code fences if present (```json ... ``` or ``` ... ```)
+    cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+
+    // Extract JSON object from the cleaned response
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      logger.error('❌ No JSON object found in AI response', null, {
+        pair,
+        responseLength: response.length,
+        responsePreview: response.slice(0, 500),
+      });
       throw new Error('No JSON object found in response');
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      // Log the actual JSON that failed to parse for debugging
+      logger.error('❌ JSON parsing failed', parseError instanceof Error ? parseError : null, {
+        pair,
+        jsonString: jsonMatch[0],
+        errorMessage: parseError instanceof Error ? parseError.message : String(parseError),
+      });
+
+      // Try to repair common JSON issues
+      let repairedJson = jsonMatch[0]
+        .replace(/,\s*}/g, '}')  // Remove trailing commas before }
+        .replace(/,\s*]/g, ']')  // Remove trailing commas before ]
+        .replace(/'\s*:/g, '":') // Replace single quotes with double quotes for keys
+        .replace(/:\s*'/g, ':"')  // Replace single quotes with double quotes for values
+        .replace(/}'/g, '}"')
+        .replace(/]'/g, ']"');
+
+      try {
+        parsed = JSON.parse(repairedJson);
+        logger.info('✅ JSON repaired successfully', { pair });
+      } catch (repairError) {
+        logger.error('❌ JSON repair failed', repairError instanceof Error ? repairError : null, {
+          pair,
+          originalJson: jsonMatch[0].slice(0, 300),
+          repairedJson: repairedJson.slice(0, 300),
+        });
+        throw parseError; // Throw original error
+      }
+    }
 
     const signalMap: Record<string, TradeSignal> = {
       buy: 'buy',
@@ -445,13 +487,34 @@ Format as JSON with realistic price targets:
   try {
     const response = await callOpenAI(prompt);
 
-    // Extract JSON from response (handle cases where OpenAI adds extra text)
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    // Extract JSON from response (handle markdown code fences and extra text)
+    let cleanedResponse = response.trim();
+    cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      logger.error('❌ No JSON in price prediction response', null, { pair });
       throw new Error('No JSON object found in response');
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      logger.error('❌ Price prediction JSON parse failed', parseError instanceof Error ? parseError : null, {
+        pair,
+        jsonString: jsonMatch[0].slice(0, 300),
+      });
+
+      // Try basic repair
+      const repairedJson = jsonMatch[0].replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+      try {
+        parsed = JSON.parse(repairedJson);
+        logger.info('✅ Price prediction JSON repaired', { pair });
+      } catch {
+        throw parseError;
+      }
+    }
 
     return {
       shortTerm: parsed.shortTerm || currentPrice * 1.01,
@@ -514,13 +577,34 @@ Format as JSON:
   try {
     const response = await callOpenAI(prompt);
 
-    // Extract JSON from response (handle cases where OpenAI adds extra text)
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    // Extract JSON from response (handle markdown code fences and extra text)
+    let cleanedResponse = response.trim();
+    cleanedResponse = cleanedResponse.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      logger.error('❌ No JSON in risk analysis response', null, { pair });
       throw new Error('No JSON object found in response');
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (parseError) {
+      logger.error('❌ Risk analysis JSON parse failed', parseError instanceof Error ? parseError : null, {
+        pair,
+        jsonString: jsonMatch[0].slice(0, 300),
+      });
+
+      // Try basic repair
+      const repairedJson = jsonMatch[0].replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+      try {
+        parsed = JSON.parse(repairedJson);
+        logger.info('✅ Risk analysis JSON repaired', { pair });
+      } catch {
+        throw parseError;
+      }
+    }
 
     return {
       riskScore: Math.min(100, Math.max(0, parsed.riskScore || 50)),

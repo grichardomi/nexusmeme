@@ -279,36 +279,18 @@ class PositionTracker {
       return result;
     }
 
-    // Only apply erosion cap to profitable positions
+    // Apply erosion cap only if trade had a positive peak AND is currently green
     if (existing.peakPct <= 0) {
       return result;
     }
 
-    // PARITY WITH /NEXUS: Don't exit via erosion cap if trade is underwater
-    // Underwater timeout will handle negative positions
-    // This prevents exits on noise-level fluctuations (e.g., +0.02% peak → -0.01%)
-    // CRITICAL FIX: Use < 0 (not <= 0) so trades at exactly breakeven (0%) get erosion protection
-    // Without this fix, trades at exactly 0% fall through both checks (erosion skips <=0, underwater skips >=0)
-    if (currentProfitPct < 0) {
-      logger.debug('Erosion check: trade is underwater - skip erosion cap (handled by underwater timeout)', {
-        tradeId,
-        pair,
-        currentProfitPct: currentProfitPct.toFixed(2),
-        peakProfitPct: existing.peakPct.toFixed(4),
-        note: 'Parity with /nexus - erosion cap only applies to green trades (including breakeven)',
-      });
+    // Erosion cap is a profit-protection exit; skip if already underwater
+    if (currentProfitPct <= 0) {
       return result;
     }
 
-    // CRITICAL FIX: If current >= peak, no erosion is possible
-    // This guards against stale peak data or floating point issues
+    // If current >= peak, no erosion has occurred (profit still growing)
     if (currentProfitPct >= existing.peakPct) {
-      logger.debug('Erosion check: current >= peak - no erosion possible', {
-        tradeId,
-        pair,
-        currentProfitPct: currentProfitPct.toFixed(4),
-        peakProfitPct: existing.peakPct.toFixed(4),
-      });
       return result;
     }
 
@@ -318,10 +300,10 @@ class PositionTracker {
 
     const { getEnvironmentConfig } = require('@/config/environment');
     const env = getEnvironmentConfig();
+    const minExitProfitPct = env.EROSION_MIN_EXIT_PROFIT_PCT ?? 0;
 
-    // Get regime AND SIZE-BASED erosion cap as percentage
+    // Get regime-based erosion cap (e.g., 20% for choppy, 30% for strong)
     const erosionCapPercent = riskManager.getErosionCap(regime, existing.peakPct);
-    const erosionMinPeakPct = (env.EROSION_MIN_PEAK_PCT || 0.0005) * 100; // Convert decimal to percent form
 
     result.erosionUsed = erosionAbsolute;
     result.erosionCap = erosionCapPercent;
@@ -337,68 +319,52 @@ class PositionTracker {
       currentProfitPct: currentProfitPct.toFixed(4),
       erosionPct: (erosionPct * 100).toFixed(2) + '%',
       erosionCapPercent: (erosionCapPercent * 100).toFixed(2) + '%',
-      erosionMinPeakPct: erosionMinPeakPct.toFixed(4),
       shouldTrigger: erosionPct > erosionCapPercent,
     });
 
-    // CHECK 1 (PRIMARY): Regime-based erosion cap for larger peaks
-    // Only apply to peaks above minimum threshold (avoids over-protecting noise)
-    if (existing.peakPct >= erosionMinPeakPct) {
-      if (erosionPct > erosionCapPercent) {
-        logger.info('Erosion cap exceeded - position should exit', {
-          tradeId,
-          pair,
-          regime,
-          peakProfitPct: existing.peakPct.toFixed(4),
-          currentProfitPct: currentProfitPct.toFixed(4),
-          erosionAbsolute: erosionAbsolute.toFixed(4),
-          erosionPercent: (erosionPct * 100).toFixed(2),
-          erosionCapPercent: (erosionCapPercent * 100).toFixed(2),
-          greenTradeProtection: 'enabled - will not exit into loss',
-        });
-
-        result.shouldExit = true;
-        result.reason = `Erosion Cap Exceeded (eroded ${(erosionPct * 100).toFixed(2)}% from peak > ${(erosionCapPercent * 100).toFixed(2)}% threshold)`;
+    // EROSION CAP CHECK: If trade eroded beyond cap while still green → EXIT
+    if (erosionPct > erosionCapPercent) {
+      const status = currentProfitPct >= 0 ? 'still green' : 'went underwater';
+      // Ensure we stay green by requiring small positive cushion
+      if (currentProfitPct < minExitProfitPct) {
         return result;
       }
+      logger.info('🚨 EROSION CAP EXCEEDED - closing trade', {
+        tradeId,
+        pair,
+        regime,
+        peakProfitPct: existing.peakPct.toFixed(4),
+        currentProfitPct: currentProfitPct.toFixed(4),
+        erosionPercent: (erosionPct * 100).toFixed(2),
+        erosionCapPercent: (erosionCapPercent * 100).toFixed(2),
+        minExitProfitPct: minExitProfitPct.toFixed(4),
+        status,
+      });
+
+      result.shouldExit = true;
+      result.reason = `Erosion Cap Exceeded (eroded ${(erosionPct * 100).toFixed(1)}% > ${(erosionCapPercent * 100).toFixed(0)}% cap, trade ${status})`;
+      return result;
     }
 
-    // CHECK 2 (SECONDARY - from /nexus): Peak-relative erosion for ALL profitable trades
-    // This catches small-profit trades where the regime-based cap might be skipped
-    // Time-gated to avoid premature exits from normal price oscillation
+    // SECONDARY CHECK: Time-based erosion for ALL profitable trades
+    // If trade held 30+ minutes and eroded 40%+ of peak, exit regardless of cap
     const holdMinutes = existing.entryTime ? (Date.now() - existing.entryTime) / 60000 : 0;
     const peakRelativeMinHoldMinutes = env.EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES || 30;
     const peakRelativeThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD || 0.40; // 40% default
 
-    if (holdMinutes >= peakRelativeMinHoldMinutes) {
-      if (erosionPct >= peakRelativeThreshold) {
-        logger.info('Peak-relative erosion exceeded - position should exit (small profit protection)', {
-          tradeId,
-          pair,
-          peakProfitPct: existing.peakPct.toFixed(4),
-          currentProfitPct: currentProfitPct.toFixed(4),
-          erosionPercent: (erosionPct * 100).toFixed(2),
-          peakRelativeThreshold: (peakRelativeThreshold * 100).toFixed(2),
-          holdMinutes: holdMinutes.toFixed(1),
-          minHoldMinutes: peakRelativeMinHoldMinutes,
-          note: 'Small-profit dead zone protection (from /nexus)',
-        });
-
-        result.shouldExit = true;
-        result.reason = `Peak-Relative Erosion (profit dropped ${(erosionPct * 100).toFixed(1)}% from peak > ${(peakRelativeThreshold * 100).toFixed(0)}% threshold after ${holdMinutes.toFixed(0)}min)`;
-        return result;
-      }
-    } else if (existing.peakPct < erosionMinPeakPct) {
-      // Log that small profit is being tracked but time gate not met
-      logger.debug('Erosion check: small profit - waiting for time gate before peak-relative check', {
+    if (holdMinutes >= peakRelativeMinHoldMinutes && erosionPct >= peakRelativeThreshold) {
+      logger.info('⏰ TIME-BASED EROSION - closing stale eroding trade', {
         tradeId,
         pair,
         peakProfitPct: existing.peakPct.toFixed(4),
-        erosionMinPeakPct: erosionMinPeakPct.toFixed(4),
+        currentProfitPct: currentProfitPct.toFixed(4),
+        erosionPercent: (erosionPct * 100).toFixed(2),
         holdMinutes: holdMinutes.toFixed(1),
-        requiredMinutes: peakRelativeMinHoldMinutes,
-        timeRemaining: (peakRelativeMinHoldMinutes - holdMinutes).toFixed(1),
       });
+
+      result.shouldExit = true;
+      result.reason = `Time-Based Erosion (${(erosionPct * 100).toFixed(0)}% erosion after ${holdMinutes.toFixed(0)}min)`;
+      return result;
     }
 
     return result;
@@ -808,15 +774,28 @@ class PositionTracker {
     // Breakeven protection buffer: exit when profit drops below this threshold
     // Default: 0.01% - exit when approaching breakeven to preserve whatever tiny profit remains
     const breakevenBufferPct = (env.BREAKEVEN_PROTECTION_BUFFER_PCT || 0.0001) * 100; // 0.01% default
+    const minExitProfitPct = env.BREAKEVEN_MIN_EXIT_PROFIT_PCT ?? 0.05;
 
     // If current profit is approaching breakeven (below buffer), exit to protect
     if (currentProfitPct < breakevenBufferPct) {
+      if (currentProfitPct < minExitProfitPct) {
+        logger.info('Breakeven protection skipped: profit below min exit floor (avoid fee/slip loss)', {
+          tradeId,
+          pair,
+          currentProfitPct: currentProfitPct.toFixed(4),
+          minExitProfitPct: minExitProfitPct.toFixed(4),
+          breakevenBufferPct: breakevenBufferPct.toFixed(4),
+        });
+        return result;
+      }
+
       logger.info('🛡️ BREAKEVEN PROTECTION: Micro-profit approaching breakeven - exiting while still green', {
         tradeId,
         pair,
         peakProfitPct: existing.peakPct.toFixed(4),
         currentProfitPct: currentProfitPct.toFixed(4),
         breakevenBufferPct: breakevenBufferPct.toFixed(4),
+        minExitProfitPct: minExitProfitPct.toFixed(4),
         note: 'Peak below erosion threshold, protecting tiny gain before it turns red',
       });
 
@@ -1001,6 +980,13 @@ class PositionTracker {
    */
   getTrackedPositions(): string[] {
     return Array.from(this.peakProfits.keys());
+  }
+
+  /**
+   * Get peak profit data for a specific trade
+   */
+  getPeakProfit(tradeId: string): { peak: number; peakPct: number; entryTime?: number } | undefined {
+    return this.peakProfits.get(tradeId);
   }
 }
 

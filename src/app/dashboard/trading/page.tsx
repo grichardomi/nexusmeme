@@ -151,9 +151,10 @@ export default function TradingPage() {
   }, [selectedBot]);
 
   // Fetch prices once at page level (shared across all components)
+  // Poll every 4s to match background fetcher cadence (was 10s = stale dashboard)
   const { prices, status: priceStatus, isStale, stalePairs } = usePriceCachePolling(
     selectedBotPairs,
-    { pollIntervalMs: 10000, staleThresholdMs: 30000 }
+    { pollIntervalMs: 4000, staleThresholdMs: 15000 }
   );
 
   if (status === 'unauthenticated') {

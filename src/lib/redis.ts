@@ -29,34 +29,31 @@ export async function getCached<T>(key: string): Promise<T | null> {
   try {
     const redis = getRedisClient();
     const value = await redis.get(key);
-
-    // Nothing cached
-    if (value === null || value === undefined) return null;
-
-    // Already a parsed object (Upstash can return objects)
-    if (typeof value === 'object') {
-      return value as T;
-    }
-
-    // String payload - attempt to parse JSON
-    if (typeof value === 'string') {
-      try {
-        return JSON.parse(value) as T;
-      } catch {
-        // Bad cache entry: clear and refetch
-        await redis.del(key);
-        console.error(`Invalid JSON in cache for key ${key}, entry cleared`);
-        return null;
-      }
-    }
-
-    // Unknown type: clear and refetch
-    await redis.del(key);
-    console.error(`Unexpected cache type for key ${key}, entry cleared`);
-    return null;
+    return await parseCachedValue<T>(redis, key, value);
   } catch (error) {
     console.error(`Failed to get cached value for key ${key}:`, error);
     return null;
+  }
+}
+
+/**
+ * Get multiple cached values from Redis in one round trip
+ * @param keys Redis keys
+ * @returns Array of parsed JSON values (or null) in the same order as keys
+ */
+export async function getCachedMultiple<T>(keys: string[]): Promise<(T | null)[]> {
+  if (keys.length === 0) return [];
+
+  try {
+    const redis = getRedisClient();
+    const values = await redis.mget(...keys);
+
+    return await Promise.all(
+      values.map((value, index) => parseCachedValue<T>(redis, keys[index], value))
+    );
+  } catch (error) {
+    console.error('Failed to get multiple cached values:', error);
+    return keys.map(() => null);
   }
 }
 
@@ -199,4 +196,38 @@ export async function invalidateTradesCache(
   if (keysToDelete.length > 0) {
     await deleteCachedMultiple(keysToDelete);
   }
+}
+
+/**
+ * Parse a Redis value into JSON with validation and cleanup on bad entries
+ */
+async function parseCachedValue<T>(
+  redis: Redis,
+  key: string,
+  value: unknown
+): Promise<T | null> {
+  // Nothing cached
+  if (value === null || value === undefined) return null;
+
+  // Already a parsed object (Upstash can return objects)
+  if (typeof value === 'object') {
+    return value as T;
+  }
+
+  // String payload - attempt to parse JSON
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      // Bad cache entry: clear and refetch
+      await redis.del(key);
+      console.error(`Invalid JSON in cache for key ${key}, entry cleared`);
+      return null;
+    }
+  }
+
+  // Unknown type: clear and refetch
+  await redis.del(key);
+  console.error(`Unexpected cache type for key ${key}, entry cleared`);
+  return null;
 }

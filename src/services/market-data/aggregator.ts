@@ -1,7 +1,7 @@
 import { marketDataConfig } from '@/config/environment';
 import { logger, logApiCall } from '@/lib/logger';
 import type { MarketData } from '@/types/market';
-import { getCached, setCached } from '@/lib/redis';
+import { getCachedMultiple, setCached } from '@/lib/redis';
 
 interface CachedMarketData {
   data: Map<string, MarketData>;
@@ -169,11 +169,19 @@ class MarketDataAggregator {
 
         // Process up to MAX_CONCURRENT_BATCHES in parallel
         const batchPromises = concurrentBatches.map(async (batch) => {
+          // Preload Redis cache for this batch in one round trip
+          const cacheKeys = batch.map(pair => `market_data:${pair}`);
+          const cachedBatch = await getCachedMultiple<MarketData>(cacheKeys);
+          const cachedByPair = new Map<string, MarketData | null>();
+
+          cachedBatch.forEach((cached, index) => {
+            cachedByPair.set(batch[index], cached);
+          });
+
           for (const pair of batch) {
             try {
-              // Check Redis cache first (using original pair as key)
-              const cacheKey = `market_data:${pair}`;
-              const cached = await getCached<MarketData>(cacheKey);
+              // Check Redis cache first (using preloaded batch cache)
+              const cached = cachedByPair.get(pair);
 
               if (cached) {
                 data.set(pair, cached);
@@ -203,7 +211,7 @@ class MarketDataAggregator {
 
               // Store in Redis cache (TTL: 15 seconds as per config)
               const ttlSeconds = Math.ceil(marketDataConfig.cacheTtlMs / 1000);
-              await setCached(cacheKey, marketData, ttlSeconds);
+              await setCached(`market_data:${pair}`, marketData, ttlSeconds);
 
               data.set(pair, marketData);
             } catch (pairError) {
@@ -275,12 +283,53 @@ class MarketDataAggregator {
   }
 
   /**
-   * Always fetch fresh data bypassing cache
+   * Always fetch fresh data bypassing ALL caches (in-process + Redis)
    * Used by background fetcher to keep prices warm every 4 seconds
+   * CRITICAL: Must hit Kraken directly - otherwise "fresh" just reads stale Redis
    * @returns Map of market data with fresh prices from exchange
    */
   async fetchFresh(pairs: string[]): Promise<Map<string, MarketData>> {
-    return this.fetchAndCache(pairs);
+    const data = new Map<string, MarketData>();
+
+    for (const pair of pairs) {
+      try {
+        const normalizedPair = this.normalizePairForExchange(pair);
+        const ticker = await this.fetchTicker(normalizedPair);
+
+        const marketData: MarketData = {
+          pair,
+          price: ticker.last,
+          volume: ticker.volume,
+          timestamp: ticker.timestamp,
+          change24h: ticker.priceChangePercent ?? 0,
+          high24h: ticker.highPrice ?? ticker.last,
+          low24h: ticker.lowPrice ?? ticker.last,
+          bid: ticker.bid,
+          ask: ticker.ask,
+        };
+
+        // Update Redis cache with fresh data
+        const cacheKey = `market_data:${pair}`;
+        const ttlSeconds = Math.ceil(marketDataConfig.cacheTtlMs / 1000);
+        await setCached(cacheKey, marketData, ttlSeconds);
+
+        data.set(pair, marketData);
+      } catch (pairError) {
+        logger.error('fetchFresh: failed for pair', pairError instanceof Error ? pairError : null, {
+          pair,
+        });
+      }
+    }
+
+    // Update in-process cache with fresh data
+    if (data.size > 0) {
+      this.cache = {
+        data,
+        fetchedAt: Date.now(),
+      };
+    }
+
+    return data;
   }
 }
 

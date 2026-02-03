@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useLoadMore } from '@/hooks/useLoadMore';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 interface Trade {
   id: string;
@@ -26,6 +25,8 @@ interface ActivityFeedProps {
  *
  * Displays one row per trade (not separate entry/exit events)
  * Count in header matches number of rows displayed
+ *
+ * Smooth updates: Background polling merges new data without flicker
  */
 export function ActivityFeed({ botId }: ActivityFeedProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
@@ -34,7 +35,7 @@ export function ActivityFeed({ botId }: ActivityFeedProps) {
     return (
       <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
         <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white mb-4 sm:mb-6">
-          📋 Activity Feed
+          Activity Feed
         </h3>
         <p className="text-center text-slate-600 dark:text-slate-400 py-6 sm:py-8 text-sm sm:text-base">
           No bot selected. Select a bot to see activity.
@@ -47,7 +48,13 @@ export function ActivityFeed({ botId }: ActivityFeedProps) {
 }
 
 /**
- * Inner component keyed by botId to ensure independent hook instances per bot
+ * Inner component keyed by botId to ensure independent state per bot
+ *
+ * Smooth update strategy:
+ * - Initial load shows skeleton
+ * - Background polls silently merge data (no loading flash)
+ * - Items are compared by ID to avoid unnecessary re-renders
+ * - CSS transitions for smooth item appearance
  */
 function ActivityFeedContent({
   botId,
@@ -58,57 +65,115 @@ function ActivityFeedContent({
   isCollapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
 }) {
-  // Fetch trades for this specific bot
-  const fetchTradesData = useCallback(async (offset: number, limit: number) => {
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [pageSize] = useState(10);
+  const offsetRef = useRef(0);
+  const previousDataRef = useRef<string>('');
+
+  // Fetch and merge trades without flickering
+  const fetchTrades = useCallback(async (offset: number, limit: number) => {
     try {
       const cacheParam = Date.now();
       const response = await fetch(`/api/trades?botId=${botId}&offset=${offset}&limit=${limit}&_cb=${cacheParam}`);
-      if (!response.ok) return { items: [], total: 0 };
+      if (!response.ok) return null;
 
       const data = await response.json();
       const allTrades: Trade[] = data.trades || [];
 
       // Safety filter: ensure only current bot's trades
-      const trades = allTrades.filter(trade => trade.botId === botId);
-
-      if (trades.length !== allTrades.length) {
-        console.warn(`ActivityFeed: Filtered out ${allTrades.length - trades.length} trades from other bots`);
-      }
+      const filtered = allTrades.filter(trade => trade.botId === botId);
 
       // Sort by most recent activity (exit time if closed, entry time if open)
-      trades.sort((a, b) => {
+      filtered.sort((a, b) => {
         const timeA = a.exitTime ? new Date(a.exitTime).getTime() : new Date(a.entryTime).getTime();
         const timeB = b.exitTime ? new Date(b.exitTime).getTime() : new Date(b.entryTime).getTime();
         return timeB - timeA;
       });
 
-      const gotFullPage = trades.length === limit;
-      const hasMore = gotFullPage && trades.length > 0;
-
       return {
-        items: trades,
-        total: trades.length + (hasMore ? limit : 0),
+        items: filtered,
+        hasMore: filtered.length === limit,
       };
     } catch (err) {
       console.error('Failed to fetch trades:', err);
-      return { items: [], total: 0 };
+      return null;
     }
   }, [botId]);
 
-  const { items: trades, isLoading, hasMore, load: loadTrades, loadMore, reset: resetTrades } = useLoadMore<Trade>({
-    initialPageSize: 10,
-    pageSize: 10,
-    fetchFn: fetchTradesData,
-  });
-
-  // Load on mount and poll every 10 seconds
+  // Initial load + background polling
   useEffect(() => {
-    loadTrades();
-    const interval = setInterval(() => loadTrades(), 10000);
-    return () => clearInterval(interval);
-  }, [loadTrades]);
+    let mounted = true;
 
-  const handleClearFeed = () => resetTrades();
+    const poll = async () => {
+      const result = await fetchTrades(0, pageSize);
+      if (!mounted || !result) return;
+
+      // Compare serialized data to avoid unnecessary state updates
+      const serialized = JSON.stringify(result.items);
+      if (serialized === previousDataRef.current) return; // No change - skip update
+      previousDataRef.current = serialized;
+
+      // Merge: keep any additional loaded pages, replace first page
+      setTrades(prev => {
+        if (prev.length <= pageSize) {
+          // Only first page loaded - replace entirely
+          return result.items;
+        }
+        // Multiple pages loaded - replace first page, keep rest
+        const extraItems = prev.slice(pageSize);
+        return [...result.items, ...extraItems];
+      });
+
+      setHasMore(result.hasMore);
+      offsetRef.current = pageSize;
+
+      if (isInitialLoad) {
+        setIsInitialLoad(false);
+      }
+    };
+
+    // Initial fetch
+    poll();
+
+    // Background poll every 10 seconds (silent - no loading state)
+    const interval = setInterval(poll, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [fetchTrades, pageSize, isInitialLoad]);
+
+  // Load more (user-triggered - shows loading)
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+
+    setIsLoadingMore(true);
+    const result = await fetchTrades(offsetRef.current, pageSize);
+    setIsLoadingMore(false);
+
+    if (!result) return;
+
+    setTrades(prev => {
+      // Deduplicate by ID
+      const existingIds = new Set(prev.map(t => t.id));
+      const newItems = result.items.filter(t => !existingIds.has(t.id));
+      return [...prev, ...newItems];
+    });
+
+    offsetRef.current += pageSize;
+    setHasMore(result.hasMore);
+  }, [fetchTrades, pageSize, hasMore, isLoadingMore]);
+
+  const handleClearFeed = useCallback(() => {
+    setTrades([]);
+    setHasMore(true);
+    setIsInitialLoad(true);
+    offsetRef.current = 0;
+    previousDataRef.current = '';
+  }, []);
 
   const formatTime = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -126,12 +191,12 @@ function ActivityFeedContent({
                          : `$${price.toFixed(2)}`;
   };
 
-  // Loading state
-  if (isLoading && trades.length === 0) {
+  // Loading state - only on initial load
+  if (isInitialLoad) {
     return (
       <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
         <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white mb-4 sm:mb-6">
-          📋 Activity Feed
+          Activity Feed
         </h3>
         <div className="space-y-3">
           {[...Array(5)].map((_, i) => (
@@ -147,7 +212,7 @@ function ActivityFeedContent({
     return (
       <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-slate-200 dark:border-slate-700">
         <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white mb-4 sm:mb-6">
-          📋 Activity Feed
+          Activity Feed
         </h3>
         <p className="text-center text-slate-600 dark:text-slate-400 py-6 sm:py-8 text-sm sm:text-base">
           No trades yet. Start the bot to see activity.
@@ -157,11 +222,11 @@ function ActivityFeedContent({
   }
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between p-4 sm:p-6">
         <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">
-          📋 Activity Feed
+          Activity Feed
           <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">
             ({trades.length})
           </span>
@@ -186,19 +251,27 @@ function ActivityFeedContent({
         </div>
       </div>
 
-      {/* Trade List */}
-      {!isCollapsed && (
+      {/* Trade List - Smooth collapse/expand */}
+      <div
+        className="transition-all duration-300 ease-in-out"
+        style={{
+          maxHeight: isCollapsed ? '0px' : '2000px',
+          opacity: isCollapsed ? 0 : 1,
+          overflow: 'hidden',
+        }}
+      >
         <div className="px-4 sm:px-6 pb-4 sm:pb-6 space-y-2">
-          {trades.map(trade => {
+          {trades.map((trade, index) => {
             const isOpen = trade.status === 'open';
             const isProfitable = (trade.profitLoss ?? 0) >= 0;
 
             return (
               <div
                 key={trade.id}
-                className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 border-l-4 rounded-r transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50 gap-2 sm:gap-4"
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 sm:p-4 border-l-4 rounded-r hover:bg-slate-50 dark:hover:bg-slate-700/50 gap-2 sm:gap-4 transition-all duration-200 ease-in-out"
                 style={{
                   borderLeftColor: isOpen ? '#3b82f6' : isProfitable ? '#10b981' : '#ef4444',
+                  animation: `fadeSlideIn 0.3s ease-out ${Math.min(index * 0.03, 0.3)}s both`,
                 }}
               >
                 {/* Left: Trade info */}
@@ -222,7 +295,7 @@ function ActivityFeedContent({
                       {trade.exitPrice && (
                         <span> → {formatPrice(trade.exitPrice)}</span>
                       )}
-                      <span className="mx-1">•</span>
+                      <span className="mx-1">·</span>
                       <span>{trade.quantity.toFixed(4)}</span>
                     </p>
                   </div>
@@ -232,13 +305,13 @@ function ActivityFeedContent({
                 <div className="text-right flex-shrink-0">
                   {!isOpen && trade.profitLoss !== null && (
                     <div>
-                      <p className={`font-bold text-sm sm:text-base ${
+                      <p className={`font-bold text-sm sm:text-base transition-colors duration-300 ${
                         isProfitable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                       }`}>
                         {isProfitable ? '+' : ''}{trade.profitLoss >= 0 ? '$' : '-$'}{Math.abs(trade.profitLoss).toFixed(2)}
                       </p>
                       {trade.profitLossPercent !== null && (
-                        <p className={`text-xs ${
+                        <p className={`text-xs transition-colors duration-300 ${
                           isProfitable ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                         }`}>
                           {isProfitable ? '+' : ''}{trade.profitLossPercent.toFixed(2)}%
@@ -254,33 +327,42 @@ function ActivityFeedContent({
             );
           })}
         </div>
-      )}
 
-      {/* Load More */}
-      {!isCollapsed && trades.length > 0 && (
-        <div className="px-4 sm:px-6 pb-4 sm:pb-6">
-          {hasMore && (
-            <div className="flex justify-center">
-              <button
-                onClick={() => loadMore()}
-                disabled={isLoading}
-                className={`px-4 sm:px-6 py-2 rounded font-medium transition text-sm ${
-                  isLoading
-                    ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 cursor-not-allowed'
-                    : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600'
-                }`}
-              >
-                {isLoading ? 'Loading...' : 'Load More'}
-              </button>
-            </div>
-          )}
-          {isLoading && trades.length > 0 && (
-            <div className="text-center text-slate-600 dark:text-slate-400 text-sm py-4">
-              Loading...
-            </div>
-          )}
-        </div>
-      )}
+        {/* Load More */}
+        {trades.length > 0 && (
+          <div className="px-4 sm:px-6 pb-4 sm:pb-6">
+            {hasMore && (
+              <div className="flex justify-center">
+                <button
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  className={`px-4 sm:px-6 py-2 rounded font-medium transition-all duration-200 text-sm ${
+                    isLoadingMore
+                      ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 cursor-not-allowed'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {isLoadingMore ? 'Loading...' : 'Load More'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* CSS Animation Keyframes */}
+      <style jsx>{`
+        @keyframes fadeSlideIn {
+          from {
+            opacity: 0;
+            transform: translateY(4px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }

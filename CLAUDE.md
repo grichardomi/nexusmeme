@@ -7,6 +7,12 @@
 - No magic numbers in code (3.0, 0.005, 85, etc.)
 - If you write a constant, add it to environment.ts first
 
+**NO COOLDOWNS - EVER**
+- Cooldowns are FORBIDDEN - they equal missed opportunities
+- Every trade opportunity must be evaluated on its own merit
+- A loss does not affect the validity of the next setup
+- Do NOT add cooldown/pause/throttle/delay logic under ANY name
+
 **Test-Production Parity**
 - Kraken and Binance configurations must match (different pairs/fees only)
 - Both environments use same logic paths
@@ -251,11 +257,14 @@ Similar return, **much lower risk** (blowup rate 8% → 3%)
   - Early loss protection (exit if trade goes slightly negative early)
   - Balance: Capture sure wins without cutting strong winners prematurely
 
-**2. Opportunistic at Every Turn**
-- No artificial cooldowns between trades (cooldown = missed opportunity)
-- Trade whenever conditions warrant entry
-- Each trading opportunity is independent and evaluated on merit
+**2. Opportunistic at Every Turn - NO COOLDOWNS (ENFORCED)**
+- **COOLDOWNS ARE FORBIDDEN** - cooldown = missed opportunity = lost money
+- All cooldown code has been removed from the codebase (not just disabled)
+- Trade whenever conditions warrant entry - EVERY opportunity is evaluated
+- Each trading opportunity is independent and evaluated on its own merit
 - Fast entry/exit execution with no friction
+- A loss on one trade has ZERO bearing on whether the next setup is valid
+- Do NOT re-add cooldown logic under any name (pause, delay, throttle, etc.)
 
 **3. Conditional Pyramiding**
 - **ONLY pyramid in strong setups:**
@@ -280,24 +289,65 @@ Similar return, **much lower risk** (blowup rate 8% → 3%)
 
 **5. Risk Management First, Profit Second**
 - Entry blocked if market conditions bad (5-stage risk filter)
-- Early exit if trade loses momentum or shows early weakness
-- Protect against "profit slippage" by maintaining vigilance
-- Better to exit with 1% gain than watch it become -2% loss
+- Exit fast when conditions warrant - trading is about discipline
+- Better to exit with small loss than watch it become big loss
+
+---
+
+## Exit Logic (Simplified)
+
+**Philosophy: Agile Trading - 3 Core Exit Checks Only**
+
+Trading means discipline. Get in green, get out fast. No complex overlapping checks.
+
+| Priority | Check | Trigger | Purpose |
+|----------|-------|---------|---------|
+| **1** | **EROSION CAP** | Trade had profit, erosion > cap (20%) | Protect profits |
+| **2** | **EARLY LOSS** | Never profitable, loss > threshold | Cut bad entries |
+| **3** | **EMERGENCY STOP** | Loss > -6% | Safety net |
+| **4** | **PROFIT TARGET** | Profit >= target (2-12% by ADX) | Take profit |
+
+**How They Work:**
+
+1. **EROSION CAP** - If trade ever had ANY profit (peak > 0) and eroded beyond regime cap → EXIT
+   - No minimum peak requirement (even +0.01% peak counts)
+   - No green-trade requirement (exits even if trade went underwater)
+   - Regime caps: 20% (choppy/weak/moderate), 30% (strong)
+
+2. **EARLY LOSS** - If trade NEVER profited (peak ≤ 0) and losing → EXIT
+   - Age-scaled thresholds: -1.5% at 5min, -2.5% at 30min, -3.5% at 3h
+   - Only applies to trades that never went positive
+
+3. **EMERGENCY STOP** - Catastrophic loss safety net
+   - Fixed at -6% (configurable via `emergencyLossLimit`)
+
+4. **PROFIT TARGET** - Take profit when target reached
+   - Dynamic by ADX: 2% (weak), 5% (moderate), 12% (strong)
+
+**What Was Removed (Redundant):**
+- ~~Profit Lock~~ → Erosion cap handles this better
+- ~~Time Profit Lock~~ → Erosion cap handles it
+- ~~Trailing Stop~~ → Erosion cap is essentially a trailing stop
+- ~~Green-to-Red~~ → Erosion cap handles underwater trades
+- ~~Momentum Failure~~ → Early loss handles underwater trades
+- ~~Max Hold Time~~ → Rarely needed, adds complexity
+- ~~Stale Flat Trade~~ → Erosion cap or early loss will catch it
+
+**Key Insight:** Simpler = faster execution, fewer edge cases, easier debugging.
+
+---
 
 ### Implementation Checklist
 
-- [x] Profit targets are dynamic based on trend strength (ADX)
-- [x] Fast exit mechanism in place for quick gains
-- [x] **Time-based profit lock** - Exit at +1% after 30min if momentum fading (+260% weak regime improvement)
-- [x] **Entry spread check** - Block entry if spread > 0.3% (+100% weak regime improvement)
-- [x] **Trailing stop** - Ratcheting floor trails peak, exits when profit drops below (8% more consistent wins)
-- [x] Pyramiding only enabled in high-confidence + strong trend conditions
-- [x] No artificial cooldowns preventing back-to-back trades
-- [x] Early loss thresholds aggressive (exit within first 5-15 min if down)
-- [x] Trade exit reasons logged (why each position was closed)
-- [x] Fee deduction accurate (don't oversell P&L to user)
-- [ ] Secondary regime confirmation (volume/volatility)
-- [ ] Volatility-adjusted pyramid sizing
+- [x] Erosion cap fires immediately when triggered (no guards)
+- [x] Early loss thresholds scale with trade age
+- [x] Emergency stop as safety net
+- [x] Profit targets dynamic based on ADX regime
+- [x] Entry spread check - Block entry if spread > 0.3%
+- [x] Pyramiding only in strong trend conditions (ADX > 35)
+- [x] No artificial cooldowns between trades
+- [x] Trade exit reasons logged clearly
+- [x] Fee deduction accurate in P&L display
 
 ## Key Files
 

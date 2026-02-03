@@ -125,6 +125,7 @@ const envSchema = z.object({
   RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // 1% minimum (percent form)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
+  RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
   RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.005'),
 
   /* Loss Streak & Cooldown - Prevents trade churn after consecutive losses */
@@ -149,12 +150,13 @@ const envSchema = z.object({
   EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.50'), // 50% - exit if 50% of peak eroded
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
 
-  /* Regime-based Erosion Caps (AGGRESSIVE - close at 20% loss from peak) */
+  /* Regime-based Erosion Caps (MORE AGGRESSIVE) */
   /* Lower = keep more profit, close faster on pullback */
-  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.20'), // 20% - close when 20% of peak lost
-  EROSION_CAP_WEAK: z.string().transform(Number).default('0.20'), // 20% - same for weak/sideways
-  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.20'), // 20% - same for slow markets
-  EROSION_CAP_STRONG: z.string().transform(Number).default('0.30'), // 30% - only strong trends get more room
+  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.05'), // 5% - close when 5% of peak lost
+  EROSION_CAP_WEAK: z.string().transform(Number).default('0.05'), // 5% - same for weak/sideways
+  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.05'), // 5% - same for slow markets
+  EROSION_CAP_STRONG: z.string().transform(Number).default('0.10'), // 10% - only strong trends get more room
+  EROSION_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.02'), // Require at least +0.02% P&L to exit via erosion cap (stay green)
   EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.001'), // 0.1% - allow tiny exits
   EROSION_MIN_PROFIT_FLOOR_USD: z.string().transform(Number).default('0.50'), // $0.50 floor
 
@@ -191,6 +193,11 @@ const envSchema = z.object({
   /* Breakeven Protection - For micro-profits below erosion threshold */
   /* Exits when tiny profit approaches breakeven to prevent going red */
   BREAKEVEN_PROTECTION_BUFFER_PCT: z.string().transform(Number).default('0.0001'), // 0.01% - exit when profit drops below this
+  BREAKEVEN_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.10'), // Require +0.10% P&L to execute breakeven exit (covers fees/slip)
+
+  /* Intrabar momentum guard (no-entry-on-red) */
+  ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.05'), // +0.05% min 1h momentum for choppy/weak
+  ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('0'), // 0% threshold for trending (allow small dips)
 
   /* Green-to-Red Protection - Safeguards against entry noise */
   /* Only triggers if peak was meaningful OR trade has been open long enough */
@@ -322,6 +329,7 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_1H: 1.0, // 1% minimum (percent form)
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
+    RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)
     RISK_PROFIT_TARGET_MINIMUM: 0.005,
     RISK_MAX_LOSS_STREAK: 5,
     RISK_LOSS_COOLDOWN_HOURS: 1,
@@ -332,10 +340,11 @@ function getDefaultEnvironment(): Environment {
     EROSION_MIN_PEAK_PCT: 0.001, // 0.1% - protect tiny peaks (AGGRESSIVE)
     EROSION_PEAK_RELATIVE_THRESHOLD: 0.50, // 50% - exit if 50% eroded (AGGRESSIVE)
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
-    EROSION_CAP_CHOPPY: 0.20, // 20% - close at 20% loss from peak
-    EROSION_CAP_WEAK: 0.20, // 20% - same for weak/sideways
-    EROSION_CAP_MODERATE: 0.20, // 20% - same for slow markets
-    EROSION_CAP_STRONG: 0.30, // 30% - only strong trends get more room
+    EROSION_CAP_CHOPPY: 0.05, // 5% - close at 5% loss from peak
+    EROSION_CAP_WEAK: 0.05, // 5% - same for weak/sideways
+    EROSION_CAP_MODERATE: 0.05, // 5% - same for slow markets
+    EROSION_CAP_STRONG: 0.10, // 10% - only strong trends get more room
+    EROSION_MIN_EXIT_PROFIT_PCT: 0.02,
     EROSION_MIN_PROFIT_TO_CLOSE: 0.001, // 0.1% - allow tiny exits
     EROSION_MIN_PROFIT_FLOOR_USD: 0.50, // $0.50 floor
     PROFIT_LOCK_CHOPPY_MIN_PEAK: 0.001, // 0.1% min peak (AGGRESSIVE)
@@ -354,6 +363,9 @@ function getDefaultEnvironment(): Environment {
     TRAILING_STOP_ACTIVATION_PCT: 0.50, // Activate at 50% of target
     TRAILING_STOP_DISTANCE_PCT: 0.015, // Trail 1.5% behind peak
     BREAKEVEN_PROTECTION_BUFFER_PCT: 0.0001, // 0.01%
+    BREAKEVEN_MIN_EXIT_PROFIT_PCT: 0.05,
+    ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: 0.05,
+    ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: 0,
     GREEN_TO_RED_MIN_PEAK_PCT: 0.0002, // 0.02%
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,

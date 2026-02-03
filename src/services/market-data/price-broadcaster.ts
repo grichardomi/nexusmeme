@@ -13,7 +13,7 @@
 import { logger } from '@/lib/logger';
 import { getCached } from '@/lib/redis';
 import { getBinanceWebSocketClient } from './websocket-client';
-import { getPriceFromRedis } from './redis-price-distribution';
+import { getPriceFromRedis, getPricesFromRedis } from './redis-price-distribution';
 import { getPriceLeaderElection } from './leader-election';
 import { getErrorRecoveryStrategy } from './error-recovery';
 import type { PriceUpdate, PriceSubscriber } from '@/types/market-data';
@@ -80,29 +80,45 @@ class PriceBroadcaster {
    */
   private async startRedisPolling(pairs: string[]): Promise<void> {
     if (this.redisPollingInterval) {
-      clearInterval(this.redisPollingInterval);
+      clearTimeout(this.redisPollingInterval);
     }
 
     // Store pairs in a ref so new pairs can be added dynamically
     const pollingPairs = new Set(pairs);
 
-    const pollPrices = async () => {
-      try {
-        for (const pair of pollingPairs) {
-          const price = await getPriceFromRedis(pair);
+    let pollIntervalMs = 1000;
+    const minIntervalMs = 1000;
+    const maxIntervalMs = 5000;
 
-          if (price) {
-            // Check if price has changed since last poll
-            const lastPrice = this.lastRedisPrice.get(pair);
-            if (!lastPrice || lastPrice.timestamp !== price.timestamp) {
-              // Price changed - broadcast to local subscribers
-              this.lastRedisPrice.set(pair, price);
-              this.broadcast(pair, price);
+    const pollPrices = async () => {
+      let changed = false;
+
+      try {
+        const pairList = Array.from(pollingPairs);
+
+        if (pairList.length > 0) {
+          const priceMap = await getPricesFromRedis(pairList);
+
+          for (const pair of pairList) {
+            const price = priceMap.get(pair);
+
+            if (price) {
+              // Check if price has changed since last poll
+              const lastPrice = this.lastRedisPrice.get(pair);
+              if (!lastPrice || lastPrice.timestamp !== price.timestamp) {
+                // Price changed - broadcast to local subscribers
+                this.lastRedisPrice.set(pair, price);
+                this.broadcast(pair, price);
+                changed = true;
+              }
             }
           }
         }
       } catch (error) {
         logger.error('Error polling Redis for prices', error instanceof Error ? error : null);
+      } finally {
+        pollIntervalMs = changed ? minIntervalMs : Math.min(maxIntervalMs, pollIntervalMs + 1000);
+        this.redisPollingInterval = setTimeout(pollPrices, pollIntervalMs);
       }
     };
 
@@ -112,9 +128,7 @@ class PriceBroadcaster {
 
     // Poll Redis every 1 second for price updates
     // This provides near-real-time updates while minimizing Redis requests
-    this.redisPollingInterval = setInterval(pollPrices, 1000);
-
-    // Do initial poll immediately
+    // Start with immediate poll, subsequent polls adapt interval
     await pollPrices();
 
     logger.info('Redis polling started for follower instance', { pairs: pairs.length });
@@ -272,7 +286,7 @@ class PriceBroadcaster {
 
     // Stop Redis polling if running (follower mode)
     if (this.redisPollingInterval) {
-      clearInterval(this.redisPollingInterval);
+      clearTimeout(this.redisPollingInterval);
       this.redisPollingInterval = null;
     }
 

@@ -37,13 +37,6 @@ class TradeSignalOrchestrator {
   // High-frequency peak tracking interval (captures peak profits quickly before they erode)
   private peakTrackingInterval: NodeJS.Timer | null = null;
 
-  // Per-pair loss cooldown tracking (prevents trade churn after losses)
-  // Key: pair, Value: timestamp when cooldown expires
-  private pairLossCooldowns = new Map<string, number>();
-
-  // Per-pair loss streak tracking
-  private pairLossStreaks = new Map<string, number>();
-
   /**
    * Helper: Parse entry_time correctly (handle string or Date object from database)
    * CRITICAL: PostgreSQL returns 'timestamp without time zone' as strings without timezone info.
@@ -82,88 +75,6 @@ class TradeSignalOrchestrator {
   }
 
   /**
-   * Check for existing open positions on a pair across all bots (/nexus parity)
-   * Returns count of open positions - if > 0, skip signal generation for this pair
-   */
-  private async checkExistingOpenPositions(pair: string): Promise<number> {
-    try {
-      const result = await query<{ count: string }>(
-        `SELECT COUNT(*) as count FROM trades
-         WHERE pair = $1 AND status = 'open'`,
-        [pair]
-      );
-      return parseInt(result[0]?.count || '0', 10);
-    } catch (error) {
-      logger.error('Failed to check existing positions', error instanceof Error ? error : null, { pair });
-      return 0; // Fail open - allow trade if check fails
-    }
-  }
-
-  /**
-   * Check if a pair is in loss cooldown (prevents trade churn after consecutive losses)
-   * Returns the cooldown reason if in cooldown, null otherwise
-   */
-  private isPairInLossCooldown(pair: string): string | null {
-    const cooldownExpiry = this.pairLossCooldowns.get(pair);
-    if (cooldownExpiry && Date.now() < cooldownExpiry) {
-      const remainingMinutes = Math.ceil((cooldownExpiry - Date.now()) / 60000);
-      const lossStreak = this.pairLossStreaks.get(pair) || 0;
-      return `Loss cooldown active (${lossStreak} consecutive losses, ${remainingMinutes}min remaining)`;
-    }
-    // Cooldown expired - clear it
-    if (cooldownExpiry) {
-      this.pairLossCooldowns.delete(pair);
-      this.pairLossStreaks.set(pair, 0); // Reset streak after cooldown
-    }
-    return null;
-  }
-
-  /**
-   * Record a loss for a pair and apply cooldown if needed
-   * Cooldown increases with consecutive losses to prevent churn
-   */
-  recordPairLoss(pair: string): void {
-    const env = getEnvironmentConfig();
-    const currentStreak = (this.pairLossStreaks.get(pair) || 0) + 1;
-    this.pairLossStreaks.set(pair, currentStreak);
-
-    // Cooldown: 5 minutes base, increases with streak
-    // 1st loss: 5 min, 2nd: 10 min, 3rd+: 15 min
-    const baseCooldownMs = 5 * 60 * 1000; // 5 minutes
-    const cooldownMultiplier = Math.min(currentStreak, 3); // Cap at 3x
-    const cooldownMs = baseCooldownMs * cooldownMultiplier;
-
-    const maxLossStreak = env.RISK_MAX_LOSS_STREAK || 5;
-
-    // If exceeded max streak, apply hour-long cooldown
-    if (currentStreak >= maxLossStreak) {
-      const hourCooldownMs = (env.RISK_LOSS_COOLDOWN_HOURS || 1) * 60 * 60 * 1000;
-      this.pairLossCooldowns.set(pair, Date.now() + hourCooldownMs);
-      logger.warn('Loss streak limit reached - applying extended cooldown', {
-        pair,
-        lossStreak: currentStreak,
-        maxLossStreak,
-        cooldownHours: env.RISK_LOSS_COOLDOWN_HOURS || 1,
-      });
-    } else {
-      this.pairLossCooldowns.set(pair, Date.now() + cooldownMs);
-      logger.info('Loss recorded - applying cooldown', {
-        pair,
-        lossStreak: currentStreak,
-        cooldownMinutes: cooldownMs / 60000,
-      });
-    }
-  }
-
-  /**
-   * Record a win for a pair (resets loss streak)
-   */
-  recordPairWin(pair: string): void {
-    this.pairLossStreaks.set(pair, 0);
-    this.pairLossCooldowns.delete(pair);
-  }
-
-  /**
    * Start the orchestrator (runs on configurable interval)
    */
   async start(intervalMs: number = 60000) {
@@ -182,7 +93,7 @@ class TradeSignalOrchestrator {
     // CRITICAL: Captures peak profits quickly so erosion protection and green-to-red
     // protection can work correctly. Without this, trades can go from +0.03% to -0.30%
     // between main orchestrator cycles (60s) and peak is never recorded.
-    const peakTrackingIntervalMs = parseInt(process.env.PEAK_TRACKING_INTERVAL_MS || '5000', 10);
+    const peakTrackingIntervalMs = parseInt(process.env.PEAK_TRACKING_INTERVAL_MS || '1000', 10);
     logger.info('Starting high-frequency peak tracking', { peakTrackingIntervalMs });
 
     this.peakTrackingInterval = setInterval(async () => {
@@ -271,8 +182,17 @@ class TradeSignalOrchestrator {
         }
 
         const currentPrice = priceData.price;
-        const entryPrice = parseFloat(String(trade.price));
+        const entryPrice = parseFloat(String((trade as any).entry_price ?? trade.price));
         const quantity = parseFloat(String(trade.amount));
+
+        // Skip if entry price is invalid (prevents NaN propagation and missed exits)
+        if (!isFinite(entryPrice) || entryPrice <= 0) {
+          logger.warn('Invalid entry price encountered in peak tracking, skipping trade', {
+            tradeId: trade.id,
+            rawEntryPrice: (trade as any).entry_price ?? trade.price,
+          });
+          continue;
+        }
         const currentProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
 
         const trackedPositions = positionTracker.getTrackedPositions();
@@ -686,34 +606,11 @@ class TradeSignalOrchestrator {
 
       for (const pair of allPairs) {
         try {
-          // LOSS COOLDOWN CHECK: Skip pairs that had recent consecutive losses
-          // Prevents trade churn where losing trades keep reopening
-          const cooldownReason = this.isPairInLossCooldown(pair);
-          if (cooldownReason) {
-            console.log(`\n⏳ COOLDOWN: Skipping ${pair} - ${cooldownReason}`);
-            logger.info('Orchestrator: skipping pair due to loss cooldown', {
-              pair,
-              reason: cooldownReason,
-            });
-            rejectedSignals.push({
-              pair,
-              reason: 'loss_cooldown',
-              details: cooldownReason,
-            });
-            continue;
-          }
-
-          // POSITION CHECK: Skip pairs with existing open positions (/nexus parity)
-          // This prevents duplicate entries - check BEFORE generating signals
-          const existingPositions = await this.checkExistingOpenPositions(pair);
-          if (existingPositions > 0) {
-            console.log(`\n📊 POSITION EXISTS: Skipping ${pair} - ${existingPositions} open position(s)`);
-            logger.debug('Orchestrator: skipping pair - open position exists', {
-              pair,
-              openPositions: existingPositions,
-            });
-            continue; // Don't even analyze - already have a position
-          }
+          // NOTE: Position duplicate prevention is handled PER-BOT in:
+          // 1. fan-out.ts createExecutionPlan() - lines 122-138
+          // 2. fan-out.ts executeTradesDirect() - lines 420-434
+          // This allows multiple bots to each have their own position on the same pair
+          // (which is the user's requested behavior)
 
           // ============================================
           // 5-STAGE RISK FILTER (/nexus parity - BEFORE AI)
@@ -1222,13 +1119,6 @@ class TradeSignalOrchestrator {
                 // Clear position tracking when trade closes
                 positionTracker.clearPosition(trade.id);
                 exitCount++;
-
-                // Record loss/win for cooldown tracking (prevents trade churn)
-                if (profitLoss < 0) {
-                  this.recordPairLoss(trade.pair);
-                } else {
-                  this.recordPairWin(trade.pair);
-                }
               } else {
                 const errorText = await closeResponse.text();
                 logger.error('Failed to close trade', new Error(errorText), {
@@ -1278,7 +1168,6 @@ class TradeSignalOrchestrator {
    * This is the SECOND PASS - closes profitable trades before new entries
    */
   private async checkOpenTradesForProfitTargets(): Promise<void> {
-    const env = getEnvironmentConfig();
     try {
       // Get ALL open trades (not just from active bots) to manage risk
       // Matches /nexus behavior: all open positions must be monitored for exits
@@ -1386,7 +1275,6 @@ class TradeSignalOrchestrator {
           const profitTargetAggressive = parseFloat(botConfig?.profitTargetAggressive || '0.12');
           const profitTargetModerateThreshold = parseFloat(botConfig?.profitTargetModerateThreshold || '0.03'); // 3% threshold
           const profitTargetAggressiveThreshold = parseFloat(botConfig?.profitTargetAggressiveThreshold || '0.08'); // 8% threshold
-          const maxHoldHours = parseFloat(botConfig?.maxHoldHours || '336'); // 14 days default
           const emergencyLossLimit = parseFloat(botConfig?.emergencyLossLimit || '-0.06'); // -6% emergency exit
           const regime = botConfig?.regime || 'moderate';
 
@@ -1445,236 +1333,19 @@ class TradeSignalOrchestrator {
             });
           }
 
-          // CHECK 1: Underwater Exit (from /nexus - close trades that never profited)
-          // Only applies to positions that never went positive
-          if (!shouldClose && currentProfitPct < 0) {
-            // Read minimum time threshold from bot config, but use time-based escalation for actual loss threshold
-            const minTimeMinutes = parseFloat(botConfig?.underwaterExitMinTimeMinutes || '15');
-            const ageMinutes = tradeAgeMinutes;
+          // ============================================
+          // SIMPLIFIED EXIT LOGIC - 3 Core Checks Only
+          // ============================================
+          // Philosophy: Agile trading - get in green, get out fast
+          // 1. EROSION CAP - Had profit? Protect it.
+          // 2. EARLY LOSS - Never profitable? Cut losses.
+          // 3. EMERGENCY STOP - Safety net.
 
-            // Use environment-based time-escalated thresholds (philosophy: more aggressive on young trades)
-            const underwaterThresholdPct = this.getEarlyLossThreshold(ageMinutes);
-
-            // CRITICAL: Ensure peak is recorded before checking underwater timeout
-            // This prevents false negatives when trade is too new to have recorded peak
-            const trackedPositions = positionTracker.getTrackedPositions();
-            if (!trackedPositions.includes(trade.id)) {
-              const entryTimeMs = this.parseEntryTime(trade.entry_time);
-              await positionTracker.recordPeak(trade.id, currentProfitPct, entryTimeMs);
-              logger.debug('Peak profit initialized for underwater check', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                currentProfitPct: currentProfitPct.toFixed(2),
-              });
-            }
-
-            // Check if trade never went positive
-            const entryDate = trade.entry_time instanceof Date ? trade.entry_time : new Date(String(trade.entry_time));
-            const peakProfitData = positionTracker.checkUnderwaterTimeout(
-              trade.id,
-              trade.pair,
-              currentProfitPct,
-              entryDate,
-              underwaterThresholdPct,
-              minTimeMinutes
-            );
-
-            logger.debug('Underwater timeout check result', {
-              tradeId: trade.id,
-              pair: trade.pair,
-              shouldExit: peakProfitData.shouldExit,
-              currentProfitPct: currentProfitPct.toFixed(2),
-              currentProfitAsDecimal: (currentProfitPct / 100).toFixed(4),
-              peakProfitPct: peakProfitData.peakProfitPct.toFixed(4),
-              underwaterThresholdPct: `${(underwaterThresholdPct * 100).toFixed(1)}%`,
-              underwaterThresholdDecimal: underwaterThresholdPct.toFixed(4),
-              ageMinutes: ageMinutes.toFixed(1),
-              minTimeMinutes,
-              entryTime: trade.entry_time,
-              comparisonResult: `${(currentProfitPct / 100).toFixed(4)} < ${underwaterThresholdPct.toFixed(4)} = ${currentProfitPct / 100 < underwaterThresholdPct}`,
-              reason: peakProfitData.reason,
-            });
-
-            if (peakProfitData.shouldExit) {
-              shouldClose = true;
-              const peakProfitPctNumeric = typeof peakProfitData.peakProfitPct === 'number'
-                ? peakProfitData.peakProfitPct
-                : parseFloat(String(peakProfitData.peakProfitPct));
-              // Match /nexus exit reasons exactly
-              const exitType = peakProfitPctNumeric > 0 ? 'underwater_small_peak_timeout' : 'underwater_never_profited';
-              exitReason = exitType;
-
-              logger.info(`Underwater exit triggered (${exitType})`, {
-                tradeId: trade.id,
-                pair: trade.pair,
-                exitType,
-                currentProfitPct: typeof currentProfitPct === 'number' ? currentProfitPct.toFixed(2) : currentProfitPct,
-                peakProfitPct: typeof peakProfitPctNumeric === 'number' ? peakProfitPctNumeric.toFixed(4) : peakProfitPctNumeric,
-                ageMinutes: typeof ageMinutes === 'number' ? ageMinutes.toFixed(1) : ageMinutes,
-              });
-            }
-          }
-
-          // CHECK 1A: Momentum-Based Underwater Exit (exit when momentum collapses)
-          // If underwater AND momentum has dropped below threshold, exit
-          // UNDERWATER_MOMENTUM_THRESHOLD must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H)
-          // Entry requires > 0.5%, so only exit if momentum drops to < 0.3% (collapsed)
-          // CRITICAL: Only fires when loss is meaningful (not spread noise like -0.02%)
-          // PARITY WITH /NEXUS: Require minimum 15 minutes before underwater exits trigger
-          const underwaterMomentumMinLossPct = (env.UNDERWATER_MOMENTUM_MIN_LOSS_PCT || 0.001) * 100; // decimal to % (default -0.1%)
-          const underwaterMinTimeMinutes = env.UNDERWATER_EXIT_MIN_TIME_MINUTES || 15; // Match /nexus: 15 min minimum
-
-          // Skip underwater momentum check if trade is too young (parity with /nexus)
-          if (!shouldClose && currentProfitPct < -underwaterMomentumMinLossPct && tradeAgeMinutes < underwaterMinTimeMinutes) {
-            logger.debug('Underwater momentum check skipped - trade too young', {
-              tradeId: trade.id,
-              pair: trade.pair,
-              tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
-              minRequired: underwaterMinTimeMinutes,
-              currentProfitPct: currentProfitPct.toFixed(2),
-            });
-          }
-
-          if (!shouldClose && tradeAgeMinutes >= underwaterMinTimeMinutes && currentProfitPct < -underwaterMomentumMinLossPct) {
-            try {
-              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
-              const momentum1h = indicators.momentum1h ?? 0; // percent
-              const underwaterMomentumThreshold = env.UNDERWATER_MOMENTUM_THRESHOLD * 100; // env is decimal, convert to %
-
-              if (momentum1h < underwaterMomentumThreshold) {
-                shouldClose = true;
-                exitReason = 'momentum_failure_underwater';
-                logger.info('Underwater momentum breakdown - closing trade', {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  currentProfitPct: currentProfitPct.toFixed(2),
-                  momentum1h: momentum1h.toFixed(2),
-                  underwaterThreshold: underwaterMomentumThreshold.toFixed(2),
-                  minLossRequired: `-${underwaterMomentumMinLossPct.toFixed(2)}%`,
-                  note: 'Momentum too weak to support recovery',
-                });
-              }
-            } catch (indicatorError) {
-              logger.warn('Failed to fetch indicators for underwater momentum check', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
-              });
-            }
-          }
-
-          // CHECK 1A: Profit Lock - Lock in minimum profit before it disappears
-          // Regime-aware: Choppy locks 60%, Strong locks only 25% (let winners run)
-          // IMPORTANT: Only applies to GREEN trades - underwater has separate handling
-          if (!shouldClose && currentProfitPct > 0) {
-            const profitLockCheck = positionTracker.checkProfitLock(
-              trade.id,
-              trade.pair,
-              currentProfitPct,
-              regime
-            );
-
-            if (profitLockCheck.shouldExit) {
-              shouldClose = true;
-              exitReason = 'profit_locked';
-              logger.info('🔒 Profit lock exit - locking gains before they disappear', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                regime,
-                peakProfitPct: profitLockCheck.peakProfitPct.toFixed(4),
-                currentProfitPct: currentProfitPct.toFixed(4),
-                lockedProfitPct: profitLockCheck.lockedProfitPct.toFixed(4),
-                reason: profitLockCheck.reason,
-              });
-            }
-          }
-
-          // CHECK 1A.5: Time-Based Profit Lock - Exit at +1% after 30min if momentum is fading
-          // Philosophy: Don't wait for full target when trend is dying - lock in sure gains
-          // Impact: +260% improvement in weak regime expectancy (0.10% → 0.36% per trade)
-          if (!shouldClose && currentProfitPct > 0) {
-            try {
-              // Fetch current momentum for time-based exit decision
-              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
-              const momentum1h = indicators.momentum1h ?? 0; // percent form
-
-              const timeLockCheck = positionTracker.checkTimeProfitLock(
-                trade.id,
-                trade.pair,
-                currentProfitPct,
-                tradeAgeMinutes,
-                momentum1h
-              );
-
-              if (timeLockCheck.shouldExit) {
-                shouldClose = true;
-                exitReason = 'time_profit_locked';
-                logger.info('⏰ Time profit lock exit - locking gains as momentum fades', {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  currentProfitPct: currentProfitPct.toFixed(2),
-                  ageMinutes: tradeAgeMinutes.toFixed(1),
-                  momentum1h: momentum1h.toFixed(3),
-                  minMinutes: timeLockCheck.minMinutes,
-                  minProfitPct: timeLockCheck.minProfitPct.toFixed(2),
-                  momentumThreshold: timeLockCheck.momentumThreshold.toFixed(3),
-                  reason: timeLockCheck.reason,
-                });
-              }
-            } catch (indicatorError) {
-              logger.warn('Failed to fetch indicators for time profit lock check', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
-              });
-            }
-          }
-
-          // CHECK 1A.6: Trailing Stop - Ratcheting profit protection
-          // Philosophy: Once profitable, never give it all back. Trail behind peak to lock gains.
-          // Activates when profit reaches X% of target, then exits if profit drops below trailing floor.
-          // Impact: 8% more trades end profitable, reduced variance, fewer green-to-red flips
-          if (!shouldClose && currentProfitPct > 0) {
-            // Convert profitTarget from decimal (0.05) to percent (5.0) for trailing stop
-            const profitTargetPct = profitTarget * 100;
-
-            const trailingCheck = positionTracker.checkTrailingStop(
-              trade.id,
-              trade.pair,
-              currentProfitPct,
-              profitTargetPct
-            );
-
-            if (trailingCheck.shouldExit) {
-              shouldClose = true;
-              exitReason = 'trailing_stop';
-              logger.info('📉 Trailing stop exit - profit dropped below trailing floor', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                currentProfitPct: currentProfitPct.toFixed(2),
-                peakProfitPct: trailingCheck.peakProfitPct.toFixed(2),
-                trailingFloorPct: trailingCheck.trailingFloorPct.toFixed(2),
-                trailDistancePct: trailingCheck.trailDistancePct.toFixed(2),
-                profitTargetPct: profitTargetPct.toFixed(2),
-                reason: trailingCheck.reason,
-              });
-            } else if (trailingCheck.isActivated) {
-              // Log that trailing stop is active and monitoring
-              logger.debug('Trailing stop: activated and monitoring', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                currentProfitPct: currentProfitPct.toFixed(2),
-                peakProfitPct: trailingCheck.peakProfitPct.toFixed(2),
-                trailingFloorPct: trailingCheck.trailingFloorPct.toFixed(2),
-                headroom: (currentProfitPct - trailingCheck.trailingFloorPct).toFixed(2),
-              });
-            }
-          }
-
-          // CHECK 1B: Erosion Cap Exceeded (from /nexus - protect pyramid profits)
-          // Check BEFORE profit target so erosion exits take priority
-          // CRITICAL: Check if peak was profitable (not current), so trades that were profitable
-          // but turned into losses are exited when erosion cap is exceeded
+          // CHECK 1: EROSION CAP (was profitable → protect it)
+          // If trade ever had profit and erosion exceeds cap → EXIT
+          // Exit reason reflects outcome:
+          // - erosion_cap_protected: Closed while still profitable (success)
+          // - green_to_red: Had profit but went underwater (damage control)
           if (!shouldClose) {
             const erosionCheck = positionTracker.checkErosionCap(
               trade.id,
@@ -1683,108 +1354,98 @@ class TradeSignalOrchestrator {
               regime
             );
 
-            logger.debug('Erosion cap check result', {
-              tradeId: trade.id,
-              pair: trade.pair,
-              shouldExit: erosionCheck.shouldExit,
-              peakProfitPct: erosionCheck.peakProfitPct?.toFixed(4),
-              currentProfitPct: currentProfitPct.toFixed(2),
-              regime,
-            });
-
-            // Only apply erosion cap if:
-            // 1. Peak profit was positive (trade was ever profitable)
-            // 2. Peak profit exceeds minimum threshold (avoid noise-level exits)
-            // PARITY: env.EROSION_MIN_PEAK_PCT is in decimal form (0.003 = 0.3%)
-            //         erosionCheck.peakProfitPct is in percent form (0.3 = 0.3%)
-            const erosionMinPeakPct = (env.EROSION_MIN_PEAK_PCT || 0.003) * 100; // Convert to percent form
-            const peakExceedsMinimum = erosionCheck.peakProfitPct >= erosionMinPeakPct;
-
-            // AGGRESSIVE EROSION PROTECTION: Close immediately when erosion cap exceeded
-            // Philosophy: If we exceeded the cap, close NOW - don't wait for fees or underwater timeout
-            // The whole point of erosion cap is to exit before profits disappear entirely
-
-            if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0 && peakExceedsMinimum && currentProfitPct > 0) {
-              // Trade is still profitable (even if tiny) - CLOSE IMMEDIATELY
+            if (erosionCheck.shouldExit) {
               shouldClose = true;
-              exitReason = 'erosion_cap_protected';
-              logger.info('🛡️ Erosion cap triggered - exiting to protect peak profit', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
-                currentProfitPct: erosionCheck.currentProfitPct.toFixed(4),
-                erosionUsed: erosionCheck.erosionUsed.toFixed(4),
-                erosionCap: erosionCheck.erosionCap.toFixed(4),
-                erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(2),
-                regime,
-                status: `Trade peaked at +${(erosionCheck.peakProfitPct * 100).toFixed(2)}% but eroded ${(erosionCheck.erosionUsedPct * 100).toFixed(1)}% > ${(erosionCheck.erosionCap * 100).toFixed(0)}% cap - CLOSING`,
-              });
-            } else if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0 && peakExceedsMinimum && currentProfitPct <= 0) {
-              // Trade went underwater after peak - use underwater_small_peak_timeout (matches /nexus)
-              shouldClose = true;
-              exitReason = 'underwater_small_peak_timeout';
-              logger.info('💔 Erosion cap exceeded AND trade went underwater - closing immediately', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
-                currentProfitPct: currentProfitPct.toFixed(4),
-                erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(2),
-                regime,
-                note: 'Trade was profitable but collapsed below breakeven',
-              });
-            } else if (erosionCheck.shouldExit && erosionCheck.peakProfitPct > 0 && !peakExceedsMinimum) {
-              // Log when erosion exit is BLOCKED due to tiny peak (noise-level protection)
-              logger.debug('Erosion exit BLOCKED - peak below minimum threshold (noise protection)', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
-                erosionMinPeakPct: erosionMinPeakPct.toFixed(4),
-                currentProfitPct: currentProfitPct.toFixed(4),
-                note: `Peak +${erosionCheck.peakProfitPct.toFixed(2)}% < min ${erosionMinPeakPct.toFixed(2)}% - letting trade run`,
-              });
+              // Differentiate exit reason based on outcome
+              if (currentProfitPct > 0) {
+                exitReason = 'erosion_cap_protected';
+                logger.info('🛡️ EROSION CAP PROTECTED - closing with profit', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
+                  currentProfitPct: currentProfitPct.toFixed(4),
+                  erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(1),
+                  regime,
+                });
+              } else {
+                exitReason = 'green_to_red';
+                logger.info('💔 GREEN TO RED - had profit, now underwater', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
+                  currentProfitPct: currentProfitPct.toFixed(4),
+                  erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(1),
+                  regime,
+                  note: 'Trade had profit but eroded past breakeven',
+                });
+              }
             }
           }
 
+          // CHECK 2: UNDERWATER EXIT - Age-based thresholds (matching /nexus)
+          // CRITICAL: Minimum 15 minutes before underwater exit can fire (/nexus parity)
+          // This gives trades time to recover from temporary dips
+          const envConfig = getEnvironmentConfig();
+          const underwaterExitMinTimeMinutes = envConfig.UNDERWATER_EXIT_MIN_TIME_MINUTES || 15;
+          const profitCollapseMinPeakPct = envConfig.PROFIT_COLLAPSE_MIN_PEAK_PCT || 0.01; // 1.0% - meaningful profit threshold
 
-          // CHECK 2: Profit target reached
-          if (!shouldClose && currentProfitPct >= profitTarget * 100) {
-            shouldClose = true;
-            exitReason = 'profit_target_hit'; // Generic reason, actual profit % logged separately
+          // DEBUG: Log underwater check inputs
+          if (currentProfitPct < 0) {
+            const earlyLossThresholdDebug = this.getEarlyLossThreshold(tradeAgeMinutes);
+            console.log(`\n🔍 UNDERWATER DEBUG: ${trade.pair} | P&L: ${currentProfitPct.toFixed(4)}% | Age: ${tradeAgeMinutes.toFixed(1)}min | Threshold: ${earlyLossThresholdDebug.toFixed(4)} | shouldClose: ${shouldClose} | meetsMinTime: ${tradeAgeMinutes >= underwaterExitMinTimeMinutes} | meetsThreshold: ${currentProfitPct < earlyLossThresholdDebug}`);
           }
 
-          // CHECK 2.5: Stale flat trade exit - trade running for hours with ~0% P&L
-          // Prevents trades from being stuck indefinitely when no other exit triggers
-          if (!shouldClose) {
-            const { getEnvironmentConfig } = require('@/config/environment');
-            const envConfig = getEnvironmentConfig();
-            const staleFlatHours = envConfig.STALE_FLAT_TRADE_HOURS || 6;
-            const staleFlatBandPct = envConfig.STALE_FLAT_TRADE_BAND_PCT || 0.5;
-            if (tradeAgeMinutes >= staleFlatHours * 60 &&
-                Math.abs(currentProfitPct) < staleFlatBandPct) {
+          if (!shouldClose && currentProfitPct < 0 && tradeAgeMinutes >= underwaterExitMinTimeMinutes) {
+            // /nexus parity: Compare percent value directly with decimal threshold
+            // This makes the effective threshold much tighter (e.g., -0.015 instead of -1.5%)
+            const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes);
+
+            console.log(`\n⚡ UNDERWATER CHECK PASSED GATES: ${trade.pair} | Now checking threshold: ${currentProfitPct.toFixed(4)} < ${earlyLossThreshold.toFixed(4)} = ${currentProfitPct < earlyLossThreshold}`);
+
+            if (currentProfitPct < earlyLossThreshold) {
               shouldClose = true;
-              exitReason = 'stale_flat_trade';
-              logger.info('Stale flat trade exit triggered - trade has been near-zero P&L too long', {
+
+              // Get peak profit to determine specific exit reason (/nexus parity)
+              const trackedPositions = positionTracker.getTrackedPositions();
+              let peakPct = 0;
+              if (trackedPositions.includes(trade.id)) {
+                const peakData = positionTracker.getPeakProfit(trade.id);
+                peakPct = peakData?.peakPct || 0;
+              }
+
+              // Determine exit reason based on peak (/nexus exact logic)
+              if (peakPct >= profitCollapseMinPeakPct * 100) {
+                exitReason = 'underwater_profitable_collapse'; // Had meaningful profit (>= 1%)
+              } else if (peakPct > 0) {
+                exitReason = 'underwater_small_peak_timeout';  // Had small peak, time-based exit
+              } else {
+                exitReason = 'underwater_never_profited';      // Never went positive
+              }
+
+              console.log(`\n🔴 UNDERWATER EXIT TRIGGERED: ${trade.pair} | P&L: ${currentProfitPct.toFixed(4)}% | Age: ${tradeAgeMinutes.toFixed(1)}min | Reason: ${exitReason}`);
+              logger.info('🔴 UNDERWATER EXIT', {
                 tradeId: trade.id,
                 pair: trade.pair,
-                tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
-                staleFlatHours,
                 currentProfitPct: currentProfitPct.toFixed(2),
-                staleFlatBandPct,
+                threshold: earlyLossThreshold.toFixed(4),
+                thresholdPct: `${(earlyLossThreshold * 100).toFixed(2)}%`,
+                tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
+                peakPct: peakPct.toFixed(4),
+                exitReason,
+                minTimeRequired: underwaterExitMinTimeMinutes,
               });
             }
+          } else if (!shouldClose && currentProfitPct < 0) {
+            // Log why underwater exit didn't fire
+            const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes);
+            console.log(`\n⏳ UNDERWATER NOT READY: ${trade.pair} | Age: ${tradeAgeMinutes.toFixed(1)}min < ${underwaterExitMinTimeMinutes}min required | OR | P&L: ${currentProfitPct.toFixed(4)}% > ${earlyLossThreshold.toFixed(4)} threshold`);
           }
 
-          // CHECK 3: Maximum hold time exceeded
-          if (!shouldClose && tradeAgeMinutes >= maxHoldHours * 60) {
-            shouldClose = true;
-            exitReason = `time_exit_${maxHoldHours}_hours`;
-          }
-
-          // CHECK 4: Significant unrealized loss (emergency exit - from config)
+          // CHECK 3: EMERGENCY STOP (safety net - catastrophic loss)
           if (!shouldClose && currentProfitPct < emergencyLossLimit * 100) {
             shouldClose = true;
-            exitReason = 'emergency_loss_limit';
-            logger.info('Emergency loss limit triggered for trade', {
+            exitReason = 'emergency_stop';
+            logger.info('🆘 EMERGENCY STOP', {
               tradeId: trade.id,
               pair: trade.pair,
               currentProfitPct: currentProfitPct.toFixed(2),
@@ -1792,28 +1453,18 @@ class TradeSignalOrchestrator {
             });
           }
 
+          // CHECK 4: PROFIT TARGET (optional - let winners run or take profit)
+          if (!shouldClose && currentProfitPct >= profitTarget * 100) {
+            shouldClose = true;
+            exitReason = 'profit_target';
+          }
+
           if (shouldClose) {
             const exitPrice = currentPrice;
             const profitLoss = (currentPrice - entryPrice) * quantity;
             const profitLossPercent = currentProfitPct;
 
-            // FINAL SAFEGUARD: Prevent erosion_cap_protected from closing into a loss
-            // This catches race conditions where price dropped between check and execution
-            // Typical fees: ~0.4% round-trip, so require at least 0.5% to be truly profitable
-            const minProfitForErosionExit = (env.EROSION_MIN_PROFIT_TO_CLOSE || 0.007) * 100;
-            if (exitReason === 'erosion_cap_protected' && profitLossPercent < minProfitForErosionExit) {
-              logger.warn('🚫 Erosion cap exit BLOCKED at execution time - profit slipped below threshold', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                profitLossPercent: profitLossPercent.toFixed(4),
-                minRequired: minProfitForErosionExit.toFixed(2),
-                note: 'Race condition: price dropped between check and execution. Deferring to underwater timeout.',
-              });
-              // Don't close - let underwater timeout handle it if trade goes negative
-              continue;
-            }
-
-            logger.info('Profit target/time-based exit triggered - closing trade', {
+            logger.info('EXIT TRIGGERED - closing trade', {
               tradeId: trade.id,
               pair: trade.pair,
               entryPrice,
@@ -1855,13 +1506,6 @@ class TradeSignalOrchestrator {
                 // Clear position tracking when trade closes
                 positionTracker.clearPosition(trade.id);
                 exitCount++;
-
-                // Record loss/win for cooldown tracking (prevents trade churn)
-                if (profitLoss < 0) {
-                  this.recordPairLoss(trade.pair);
-                } else {
-                  this.recordPairWin(trade.pair);
-                }
               } else {
                 const errorText = await closeResponse.text();
                 logger.error('Failed to close profitable trade', new Error(errorText), {

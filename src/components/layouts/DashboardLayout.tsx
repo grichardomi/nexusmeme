@@ -114,8 +114,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         className={`fixed md:static inset-y-0 left-0 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-transform duration-300 flex flex-col z-40 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
           }`}
       >
-        {/* Logo */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+        {/* Logo - Mobile Only */}
+        <div className="md:hidden p-4 border-b border-slate-200 dark:border-slate-700">
           <Link
             href="/dashboard"
             className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-xl hover:opacity-80 transition"
@@ -127,7 +127,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               height={24}
               className="w-6 h-6"
             />
-            <span className={`${sidebarOpen ? 'inline' : 'hidden'} md:inline`}>NexusMeme</span>
+            <span>NexusMeme</span>
           </Link>
         </div>
 
