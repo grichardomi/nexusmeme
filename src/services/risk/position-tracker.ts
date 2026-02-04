@@ -154,10 +154,11 @@ class PositionTracker {
     try {
       // Batch update using PostgreSQL unnest() to update multiple rows in one query
       // UNNEST creates arrays that are zipped together row-by-row
+      // CRITICAL: Cast to uuid[] not text[] - trades.id is UUID type
       await query(
         `UPDATE trades AS t
          SET peak_profit_percent = u.peak_pct, peak_profit_recorded_at = NOW()
-         FROM (SELECT unnest($1::text[]) AS id, unnest($2::numeric[]) AS peak_pct) AS u
+         FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::numeric[]) AS peak_pct) AS u
          WHERE t.id = u.id`,
         [tradeIds, peakPcts]
       );
