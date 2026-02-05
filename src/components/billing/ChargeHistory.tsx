@@ -144,10 +144,12 @@ export function ChargeHistory() {
           </svg>
           <div className="text-left">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Billing History</h2>
-            {totalCount > 0 && (
+            {totalCount > 0 ? (
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                {totalCount} billing cycle{totalCount !== 1 ? 's' : ''}
+                {totalCount} billing cycle{totalCount !== 1 ? 's' : ''} (last 2 years)
               </p>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Showing last 2 years</p>
             )}
           </div>
         </div>
@@ -165,9 +167,16 @@ export function ChargeHistory() {
         }`}
       >
         <div className="px-4 sm:px-6 pb-4 sm:pb-6">
-          {/* Stripe Portal Link */}
+          {/* Export & Portal Actions */}
           {charges.length > 0 && (
-            <div className="flex justify-end mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row gap-2 justify-end mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => (window.location.href = '/api/fees/performance?type=export-charges')}
+                className="text-sm px-4 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition font-medium"
+                title="Download last 2 years of billing history"
+              >
+                📥 Export CSV
+              </button>
               <button
                 onClick={() => (window.location.href = '/api/billing/customer-portal')}
                 className="text-sm px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition font-medium"

@@ -7,8 +7,93 @@ import { getCached, setCached } from '@/lib/redis';
 import { exchangeFeesConfig } from '@/config/environment';
 
 /**
+ * CSV Export Handler for Trade History
+ * Exports last 2 years of trades as CSV with optional status filter
+ */
+async function handleTradesCSVExport(userId: string, statusFilter: string = 'all', botId: string | null = null): Promise<Response> {
+  try {
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    // Build WHERE clause for status filter
+    let statusWhere = '';
+    if (statusFilter === 'open') {
+      statusWhere = `AND t.status = 'open'`;
+    } else if (statusFilter === 'closed') {
+      statusWhere = `AND t.status = 'closed'`;
+    } else if (statusFilter === 'profitable') {
+      statusWhere = `AND t.status = 'closed' AND t.profit_loss > 0`;
+    } else if (statusFilter === 'losses') {
+      statusWhere = `AND t.status = 'closed' AND t.profit_loss < 0`;
+    }
+
+    const trades = await query(
+      `SELECT
+         t.pair,
+         t.entry_time,
+         t.exit_time,
+         t.price AS entry_price,
+         COALESCE(t.exit_price, t.price) AS exit_price,
+         t.amount AS quantity,
+         t.profit_loss,
+         t.profit_loss_percent,
+         t.status,
+         t.exit_reason
+       FROM trades t
+       INNER JOIN bot_instances b ON t.bot_instance_id = b.id
+       WHERE b.user_id = $1
+         AND ($3::uuid IS NULL OR t.bot_instance_id = $3)
+         AND t.entry_time >= $2
+         ${statusWhere}
+       ORDER BY t.entry_time DESC`,
+      [userId, twoYearsAgo.toISOString(), botId || null]
+    );
+
+    // Build CSV
+    const headers = ['Pair', 'Entry Time', 'Exit Time', 'Entry Price', 'Exit Price', 'Quantity', 'P&L', 'P&L %', 'Status', 'Exit Reason'];
+    const rows = trades.map((t: any) => [
+      t.pair,
+      new Date(t.entry_time).toLocaleString('en-US'),
+      t.exit_time ? new Date(t.exit_time).toLocaleString('en-US') : 'Open',
+      `$${parseFloat(t.entry_price).toFixed(2)}`,
+      t.exit_price ? `$${parseFloat(t.exit_price).toFixed(2)}` : 'N/A',
+      parseFloat(t.quantity).toFixed(6),
+      t.profit_loss ? `$${parseFloat(t.profit_loss).toFixed(2)}` : 'N/A',
+      t.profit_loss_percent ? `${parseFloat(t.profit_loss_percent).toFixed(2)}%` : 'N/A',
+      t.status,
+      t.exit_reason || 'N/A'
+    ]);
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const filename = `trades-${new Date().toISOString().split('T')[0]}.csv`;
+
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-cache'
+      }
+    });
+  } catch (error) {
+    logger.error('Trades CSV export failed', error instanceof Error ? error : null, { userId });
+    return NextResponse.json({ error: 'Export failed' }, { status: 500 });
+  }
+}
+
+/**
  * GET /api/trades
  * Get all trades for the current user's bots
+ * Query params:
+ * - type: 'list' | 'export' (default: 'list')
+ * - botId: Filter by bot ID
+ * - status: 'all' | 'open' | 'closed' | 'profitable' | 'losses'
+ * - offset: Pagination offset
+ * - limit: Pagination limit
  */
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +104,14 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type') || 'list';
     const botId = searchParams.get('botId');
+    const statusFilter = searchParams.get('status') || 'all';
+
+    // CSV export request
+    if (type === 'export') {
+      return handleTradesCSVExport(session.user.id, statusFilter, botId);
+    }
 
     // Support both offset-based and limit-based pagination
     let offset: number;
@@ -35,10 +127,14 @@ export async function GET(request: NextRequest) {
       limit = parseInt(searchParams.get('limit') || '50', 10);
     }
 
-    // Create cache key
+    // 2-year viewing window
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    // Create cache key including status filter
     const cacheKey = botId
-      ? `trades:user:${session.user.id}:bot:${botId}:offset:${offset}:limit:${limit}`
-      : `trades:user:${session.user.id}:allbots:offset:${offset}:limit:${limit}`;
+      ? `trades:user:${session.user.id}:bot:${botId}:status:${statusFilter}:offset:${offset}:limit:${limit}`
+      : `trades:user:${session.user.id}:allbots:status:${statusFilter}:offset:${offset}:limit:${limit}`;
 
     // Check cache first (TTL: 3 seconds - trades change frequently)
     interface CachedTrade {
@@ -78,6 +174,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cachedResponse);
     }
 
+    // Build WHERE clause for status filter
+    let statusWhere = '';
+    if (statusFilter === 'open') {
+      statusWhere = `AND t.status = 'open'`;
+    } else if (statusFilter === 'closed') {
+      statusWhere = `AND t.status = 'closed'`;
+    } else if (statusFilter === 'profitable') {
+      statusWhere = `AND t.status = 'closed' AND t.profit_loss > 0`;
+    } else if (statusFilter === 'losses') {
+      statusWhere = `AND t.status = 'closed' AND t.profit_loss < 0`;
+    }
+
     // Fetch trades with single JOIN query (optimized - no N+1 pattern)
     // This replaces the two-query approach: SELECT bot_ids + SELECT trades
     // Now we do it in one query with a JOIN
@@ -106,9 +214,11 @@ export async function GET(request: NextRequest) {
         INNER JOIN bot_instances b ON t.bot_instance_id = b.id
         WHERE b.user_id = $1
           AND ($2::uuid IS NULL OR t.bot_instance_id = $2)
+          AND t.entry_time >= $5
+          ${statusWhere}
         ORDER BY t.exit_time DESC, t.entry_time DESC
         LIMIT $3 OFFSET $4`,
-        [session.user.id, botId || null, limit, offset]
+        [session.user.id, botId || null, limit, offset, twoYearsAgo.toISOString()]
       );
     } catch (queryError) {
       // Fallback if exit_price, exit_reason, or pyramid_levels columns don't exist yet
@@ -140,23 +250,27 @@ export async function GET(request: NextRequest) {
           INNER JOIN bot_instances b ON t.bot_instance_id = b.id
           WHERE b.user_id = $1
             AND ($2::uuid IS NULL OR t.bot_instance_id = $2)
+            AND t.entry_time >= $5
+            ${statusWhere}
           ORDER BY t.exit_time DESC, t.entry_time DESC
           LIMIT $3 OFFSET $4`,
-          [session.user.id, botId || null, limit, offset]
+          [session.user.id, botId || null, limit, offset, twoYearsAgo.toISOString()]
         );
       } else {
         throw queryError;
       }
     }
 
-    // Get total count for pagination
+    // Get total count for pagination with filters
     const countResult = await query(
       `SELECT COUNT(*) as count
       FROM trades t
       INNER JOIN bot_instances b ON t.bot_instance_id = b.id
       WHERE b.user_id = $1
-        AND ($2::uuid IS NULL OR t.bot_instance_id = $2)`,
-      [session.user.id, botId || null]
+        AND ($2::uuid IS NULL OR t.bot_instance_id = $2)
+        AND t.entry_time >= $3
+        ${statusWhere}`,
+      [session.user.id, botId || null, twoYearsAgo.toISOString()]
     );
     const total = parseInt(String(countResult[0]?.count || '0'), 10);
 

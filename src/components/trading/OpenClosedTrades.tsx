@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { ConfirmationModal } from '@/components/modals/ConfirmationModal';
 import { NotificationModal, NotificationType } from '@/components/modals/NotificationModal';
@@ -37,6 +37,8 @@ interface OpenClosedTradesProps {
   botId: string;
 }
 
+type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses';
+
 interface CurrentPrices {
   [pair: string]: number;
 }
@@ -49,9 +51,16 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
   const [currentPrices, setCurrentPrices] = useState<CurrentPrices>({});
   const [healthData, setHealthData] = useState<Map<string, PositionHealth>>(new Map());
   const [closingTrade, setClosingTrade] = useState<string | null>(null);
-  const [closedVisibleCount, setClosedVisibleCount] = useState(20);
+  const [isClosedPositionsCollapsed, setIsClosedPositionsCollapsed] = useState(true);
+  const [isOpenPositionsCollapsed, setIsOpenPositionsCollapsed] = useState(false);
   const [isDeletingClosedTrades, setIsDeletingClosedTrades] = useState(false);
-  const [isClosedPositionsCollapsed, setIsClosedPositionsCollapsed] = useState(true); // Start collapsed
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const TRADES_PER_PAGE = 20;
 
   // Modal states
   const [notification, setNotification] = useState<{ type: NotificationType; message: string } | null>(null);
@@ -59,48 +68,69 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
 
   const isAdmin = session?.user && (session.user as any).role === 'admin';
 
-  useEffect(() => {
-    let isInitialLoad = true;
+  // Fetch trades with 2-year window, status filter, and pagination
+  const fetchTrades = useCallback(async (offset: number = 0, append: boolean = false) => {
+    try {
+      const params = new URLSearchParams({
+        botId,
+        offset: offset.toString(),
+        limit: TRADES_PER_PAGE.toString(),
+        status: statusFilter,
+      });
 
-    async function fetchTrades() {
-      try {
-        const response = await fetch(`/api/trades?botId=${botId}&limit=500`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch trades');
-        }
-        const data = await response.json();
-        const newTrades = data.trades || [];
-
-        // Only update state if data actually changed (prevents unnecessary re-renders)
-        setTrades(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newTrades)) {
-            return prev; // No change, keep same reference
-          }
-          return newTrades;
-        });
-      } catch (err) {
-        // Only show error on initial load, not on refresh failures
-        if (isInitialLoad) {
-          setError(err instanceof Error ? err.message : 'An error occurred');
-        }
-      } finally {
-        // Only set loading false on initial load
-        if (isInitialLoad) {
-          setIsLoading(false);
-          isInitialLoad = false;
-        }
+      const response = await fetch(`/api/trades?${params}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch trades');
       }
+      const data = await response.json();
+      const newTrades = data.trades || [];
+      const total = data.total || 0;
+
+      setTotalCount(total);
+      setHasMore(newTrades.length === TRADES_PER_PAGE && offset + newTrades.length < total);
+
+      if (append) {
+        setTrades(prev => {
+          const existingIds = new Set(prev.map(t => t.id));
+          const uniqueNewTrades = newTrades.filter((t: Trade) => !existingIds.has(t.id));
+          return [...prev, ...uniqueNewTrades];
+        });
+      } else {
+        setTrades(newTrades);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
     }
+  }, [botId, statusFilter]);
 
-    fetchTrades();
-    const interval = setInterval(fetchTrades, 10000); // Refresh every 10 seconds
-    return () => clearInterval(interval);
-  }, [botId]);
-
-  // Reset closed pagination when trades change
+  // Initial load and refresh on filter change
   useEffect(() => {
-    setClosedVisibleCount(20);
-  }, [trades]);
+    setIsLoading(true);
+    setTrades([]);
+    fetchTrades(0, false);
+
+    const interval = setInterval(() => fetchTrades(0, false), 10000);
+    return () => clearInterval(interval);
+  }, [fetchTrades]);
+
+  // Load more handler
+  const handleLoadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+
+    setIsLoadingMore(true);
+    const currentOffset = trades.length;
+    await fetchTrades(currentOffset, true);
+
+    // Smooth scroll
+    if (scrollRef.current) {
+      setTimeout(() => {
+        scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    }
+  }, [trades.length, isLoadingMore, hasMore, fetchTrades]);
 
   // Fetch server-side position health (includes peak/erosion from DB)
   useEffect(() => {
@@ -221,7 +251,16 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
 
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
-  const displayedClosedTrades = closedTrades.slice(0, closedVisibleCount);
+
+  // CSV Export Handler
+  const handleCSVExport = useCallback(() => {
+    const params = new URLSearchParams({
+      botId,
+      status: statusFilter,
+      type: 'export',
+    });
+    window.location.href = `/api/trades?${params}`;
+  }, [botId, statusFilter]);
 
   async function handleManualClose(trade: Trade) {
     if (!currentPrices[trade.pair]) {
@@ -246,8 +285,6 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         exitReason: 'manual_close',
       };
 
-      console.log('Closing trade with payload:', requestPayload);
-
       const response = await fetch('/api/bots/trades/close', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -255,7 +292,6 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       });
 
       const responseData = await response.json();
-      console.log('Trade close response:', responseData, 'Status:', response.status);
 
       if (!response.ok) {
         const errorMsg = responseData.message || responseData.error || 'Failed to close trade';
@@ -263,11 +299,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       }
 
       // Refresh trades after closing
-      const tradesResponse = await fetch(`/api/trades?botId=${botId}&limit=500`);
-      if (tradesResponse.ok) {
-        const data = await tradesResponse.json();
-        setTrades(data.trades || []);
-      }
+      await fetchTrades(0, false);
 
       setNotification({ type: 'success', message: `Trade closed successfully at $${currentPrice.toFixed(2)}` });
     } catch (err) {
@@ -308,11 +340,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       }
 
       // Refresh trades
-      const tradesResponse = await fetch(`/api/trades?botId=${botId}&limit=500`);
-      if (tradesResponse.ok) {
-        const tradesData = await tradesResponse.json();
-        setTrades(tradesData.trades || []);
-      }
+      await fetchTrades(0, false);
 
       setNotification({
         type: 'success',
@@ -343,237 +371,277 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
     );
   }
 
-  const TradeTable = ({ tradeList, showExit = true, isOpen = false }: { tradeList: Trade[], showExit?: boolean, isOpen?: boolean }) => {
-    if (tradeList.length === 0) {
-      return (
-        <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-          <p>No trades</p>
-        </div>
-      );
-    }
+  // Mobile-first trade card component
+  const TradeCard = ({ trade, isOpen }: { trade: Trade; isOpen: boolean }) => {
+    const currentPrice = currentPrices[trade.pair];
+    const unrealizedPnL = currentPrice ? (currentPrice - trade.entryPrice) * trade.quantity : null;
+    const unrealizedPnLPercent = currentPrice ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100 : null;
+    const displayPnL = isOpen ? unrealizedPnL : trade.profitLoss;
+    const displayPnLPercent = isOpen ? unrealizedPnLPercent : trade.profitLossPercent;
+    const health = healthData.get(trade.id);
 
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
-            <tr>
-              <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Pair</th>
-              <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Entry</th>
-              {isOpen && <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Current</th>}
-              {showExit && <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Exit</th>}
-              {!isOpen && <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Exit Reason</th>}
-              <th className="text-right py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Qty</th>
-              <th className="text-right py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">P&L</th>
-              <th className="text-right py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">%</th>
-              {isOpen && <th className="text-right py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Peak P&L</th>}
-              {isOpen && <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Erosion</th>}
-              {isOpen && <th className="text-center py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Status</th>}
-              <th className="text-left py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Time</th>
-              {isOpen && <th className="text-center py-3 px-4 font-semibold text-slate-600 dark:text-slate-400">Action</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-            {tradeList.map(trade => {
-              const currentPrice = currentPrices[trade.pair];
-              const unrealizedPnL = currentPrice ? (currentPrice - trade.entryPrice) * trade.quantity : null;
-              const unrealizedPnLPercent = currentPrice ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100 : null;
-              const displayPnL = isOpen ? unrealizedPnL : trade.profitLoss;
-              const displayPnLPercent = isOpen ? unrealizedPnLPercent : trade.profitLossPercent;
+      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 space-y-3">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-semibold text-lg text-slate-900 dark:text-white">{trade.pair}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+          <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
+            isOpen
+              ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200'
+              : 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300'
+          }`}>
+            {isOpen ? '◔ Open' : '✓ Closed'}
+          </span>
+        </div>
 
-              return (
-                <tr key={trade.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                  <td className="py-3 px-4 text-slate-900 dark:text-white font-medium">{trade.pair}</td>
-                  <td className="py-3 px-4 text-slate-700 dark:text-slate-300">${trade.entryPrice.toFixed(2)}</td>
-                  {isOpen && (
-                    <td className="py-3 px-4 text-slate-700 dark:text-slate-300">
-                      {currentPrice ? `$${currentPrice.toFixed(2)}` : '—'}
-                    </td>
-                  )}
-                  {showExit && (
-                    <td className="py-3 px-4 text-slate-700 dark:text-slate-300">
-                      {trade.exitPrice ? `$${trade.exitPrice.toFixed(2)}` : '—'}
-                    </td>
-                  )}
-                  {!isOpen && (
-                    <td className="py-3 px-4 text-slate-700 dark:text-slate-300">
-                      {trade.exitReason || '—'}
-                    </td>
-                  )}
-                  <td className="py-3 px-4 text-right text-slate-700 dark:text-slate-300">{trade.quantity.toFixed(4)}</td>
-                  <td className={`py-3 px-4 text-right font-medium ${
-                    displayPnL !== null && displayPnL >= 0
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}>
-                    {displayPnL !== null ? `$${displayPnL.toFixed(2)}` : '—'}
-                  </td>
-                  <td className={`py-3 px-4 text-right font-medium ${
-                    displayPnLPercent !== null && displayPnLPercent >= 0
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-red-600 dark:text-red-400'
-                  }`}>
-                    {displayPnLPercent !== null ? `${displayPnLPercent >= 0 ? '+' : ''}${displayPnLPercent.toFixed(2)}%` : '—'}
-                  </td>
-                  {isOpen && (
-                    <>
-                      <td className="py-3 px-4 text-right text-sm">
-                        {(() => {
-                          const health = healthData.get(trade.id);
-                          if (!health) return '—';
+        {/* Price Info */}
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Entry Price</p>
+            <p className="font-medium text-slate-900 dark:text-white">${trade.entryPrice.toFixed(2)}</p>
+          </div>
+          {isOpen && currentPrice && (
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Current Price</p>
+              <p className="font-medium text-slate-900 dark:text-white">${currentPrice.toFixed(2)}</p>
+            </div>
+          )}
+          {!isOpen && trade.exitPrice && (
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Exit Price</p>
+              <p className="font-medium text-slate-900 dark:text-white">${trade.exitPrice.toFixed(2)}</p>
+            </div>
+          )}
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Quantity</p>
+            <p className="font-medium text-slate-900 dark:text-white">{trade.quantity.toFixed(4)}</p>
+          </div>
+          {!isOpen && trade.exitReason && (
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Exit Reason</p>
+              <p className="font-medium text-slate-700 dark:text-slate-300 text-xs truncate">{trade.exitReason}</p>
+            </div>
+          )}
+        </div>
 
-                          const peakProfitPct = health.peakProfitPct;
-                          const peakProfitDollars = (peakProfitPct / 100) * trade.entryPrice * trade.quantity;
+        {/* P&L */}
+        <div className="border-t border-slate-200 dark:border-slate-600 pt-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-500 dark:text-slate-400">
+              {isOpen ? 'Unrealized P&L' : 'Realized P&L'}
+            </span>
+            <div className="text-right">
+              <p className={`font-bold text-lg ${
+                displayPnL !== null && displayPnL >= 0
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-red-600 dark:text-red-400'
+              }`}>
+                {displayPnL !== null ? `${displayPnL >= 0 ? '+' : ''}$${displayPnL.toFixed(2)}` : '—'}
+              </p>
+              {displayPnLPercent !== null && (
+                <p className={`text-sm ${
+                  displayPnLPercent >= 0
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-red-600 dark:text-red-400'
+                }`}>
+                  {displayPnLPercent >= 0 ? '+' : ''}{displayPnLPercent.toFixed(2)}%
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
 
-                          return (
-                            <div>
-                              <span className={peakProfitPct >= 0 ? 'text-green-600 dark:text-green-400 font-semibold' : 'text-slate-600 dark:text-slate-400'}>
-                                {peakProfitPct >= 0 ? '+$' : '-$'}{Math.abs(peakProfitDollars).toFixed(2)}
-                              </span>
-                              <div className="text-xs text-slate-500 dark:text-slate-400">
-                                {peakProfitPct >= 0 ? '+' : ''}{peakProfitPct.toFixed(2)}%
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-3 px-4">
-                        {(() => {
-                          const health = healthData.get(trade.id);
-                          if (!health) return <span className="text-slate-400 text-sm">—</span>;
+        {/* Open Position Health */}
+        {isOpen && health && (
+          <div className="border-t border-slate-200 dark:border-slate-600 pt-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500 dark:text-slate-400">Peak P&L</span>
+              <span className={`font-semibold ${health.peakProfitPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                {health.peakProfitPct >= 0 ? '+' : ''}{health.peakProfitPct.toFixed(2)}%
+              </span>
+            </div>
+            <div>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-slate-500 dark:text-slate-400">Erosion</span>
+                <span className="font-semibold text-slate-900 dark:text-white">{health.erosionRatioPct.toFixed(1)}%</span>
+              </div>
+              <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
+                <div
+                  className="h-full transition-all"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
+                    background: health.erosionRatioPct === 0 ? 'transparent' : 'linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%)',
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-slate-500 dark:text-slate-400">Health Status</span>
+              <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
+                health.healthStatus === 'HEALTHY' ? 'bg-emerald-600 text-white' :
+                health.healthStatus === 'CAUTION' ? 'bg-amber-600 text-white' :
+                health.healthStatus === 'RISK' ? 'bg-orange-600 text-white' :
+                'bg-purple-600 text-white'
+              }`}>
+                {health.healthStatus}
+              </span>
+            </div>
+          </div>
+        )}
 
-                          const erosionRatioPct = health.erosionRatioPct;
-
-                          // Bar width: clamped 0-100%
-                          const barWidth = Math.min(100, Math.max(0, erosionRatioPct));
-
-                          return (
-                            <div className="flex items-center gap-2">
-                              {/* Erosion bar - always visible */}
-                              <div className="w-24 h-4 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
-                                <div
-                                  className="h-full transition-all"
-                                  style={{
-                                    width: `${barWidth}%`,
-                                    background: barWidth === 0
-                                      ? 'transparent'
-                                      : 'linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%)',
-                                  }}
-                                />
-                              </div>
-                              {/* Percentage text */}
-                              <span className="text-xs font-semibold text-slate-900 dark:text-white whitespace-nowrap min-w-[35px] text-right">
-                                {erosionRatioPct.toFixed(1)}%
-                              </span>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {(() => {
-                          const health = healthData.get(trade.id);
-                          if (!health) return '—';
-
-                          // Map health status to badge colors - match Nexus style
-                          const statusColors: Record<string, string> = {
-                            HEALTHY: 'bg-emerald-600 text-white',
-                            CAUTION: 'bg-amber-600 text-white',
-                            RISK: 'bg-orange-600 text-white',
-                            ALERT: 'bg-purple-600 text-white',
-                          };
-
-                          return (
-                            <span className={`inline-block px-3 py-1 rounded font-semibold text-xs ${statusColors[health.healthStatus] || 'bg-slate-600 text-white'}`}>
-                              {health.healthStatus}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                    </>
-                  )}
-                  <td className="py-3 px-4 text-slate-700 dark:text-slate-300 text-xs">
-                    {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </td>
-                  {isOpen && (
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        onClick={() => handleManualClose(trade)}
-                        disabled={closingTrade === trade.id}
-                        className="px-3 py-1 bg-red-500 hover:bg-red-600 disabled:bg-slate-400 text-white rounded text-xs font-medium transition"
-                      >
-                        {closingTrade === trade.id ? 'Closing...' : 'Close'}
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {/* Actions */}
+        {isOpen && (
+          <button
+            onClick={() => handleManualClose(trade)}
+            disabled={closingTrade === trade.id}
+            className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-slate-400 text-white rounded font-medium transition"
+          >
+            {closingTrade === trade.id ? 'Closing...' : 'Close Position'}
+          </button>
+        )}
       </div>
     );
   };
 
   return (
-    <div className="space-y-8">
-      {/* Info Box - How Trades Close */}
+    <div className="space-y-6">
+      {/* Info Box */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500 rounded-lg p-4">
         <p className="text-sm text-blue-700 dark:text-blue-200">
-          <strong>📊 Trade Management:</strong> Open positions close automatically when momentum signals fail (every 60 seconds) OR manually via the "Close" button. Unrealized P&L shows current profit/loss based on live market prices.
+          <strong>📊 Trade Management:</strong> Open positions close automatically when momentum signals fail OR manually via "Close Position" button. Showing last 2 years of trades.
         </p>
       </div>
 
-      {/* Open Positions */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-            Open Positions ({openTrades.length})
-          </h3>
-          <span className="text-xs text-slate-500 dark:text-slate-400">Unrealized P&L • Auto-close on momentum failure</span>
+      {/* Filters and Export */}
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        {/* Status Filters */}
+        <div className="overflow-x-auto">
+          <div className="flex gap-2 pb-2">
+            {(['all', 'open', 'closed', 'profitable', 'losses'] as StatusFilter[]).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setStatusFilter(filter)}
+                className={`px-3 py-1.5 rounded text-sm font-medium whitespace-nowrap transition ${
+                  statusFilter === filter
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+              >
+                {filter === 'all' && '📊 All'}
+                {filter === 'open' && '◔ Open'}
+                {filter === 'closed' && '✓ Closed'}
+                {filter === 'profitable' && '📈 Profitable'}
+                {filter === 'losses' && '📉 Losses'}
+              </button>
+            ))}
+          </div>
         </div>
-        <TradeTable tradeList={openTrades} showExit={false} isOpen={true} />
+
+        {/* Export Button */}
+        <button
+          onClick={handleCSVExport}
+          className="flex-shrink-0 px-4 py-1.5 text-sm font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 rounded border border-green-200 dark:border-green-700 transition"
+        >
+          📥 Export CSV
+        </button>
+      </div>
+
+      {/* Open Positions */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+        <button
+          onClick={() => setIsOpenPositionsCollapsed(!isOpenPositionsCollapsed)}
+          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 bg-yellow-400 rounded-full"></div>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Open Positions ({openTrades.length})
+            </h3>
+          </div>
+          <svg className={`w-5 h-5 text-slate-500 transition-transform ${isOpenPositionsCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {!isOpenPositionsCollapsed && (
+          <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+            {openTrades.length === 0 ? (
+              <p className="text-center py-8 text-slate-500 dark:text-slate-400">No open positions</p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {openTrades.map(trade => (
+                  <TradeCard key={trade.id} trade={trade} isOpen={true} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Closed Positions */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-6">
-        <button
-          onClick={() => setIsClosedPositionsCollapsed(!isClosedPositionsCollapsed)}
-          className="w-full flex items-center justify-between text-lg font-semibold text-slate-900 dark:text-white hover:text-slate-700 dark:hover:text-slate-200 transition"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-green-400 rounded-full"></div>
-            <span>Closed Positions ({closedTrades.length})</span>
-          </div>
-          <span className="text-xl">{isClosedPositionsCollapsed ? '▶' : '▼'}</span>
-        </button>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+          <button
+            onClick={() => setIsClosedPositionsCollapsed(!isClosedPositionsCollapsed)}
+            className="flex-1 flex items-center justify-between hover:text-slate-700 dark:hover:text-slate-200 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                Closed Positions ({totalCount > trades.length ? totalCount : closedTrades.length})
+              </h3>
+            </div>
+            <svg className={`w-5 h-5 text-slate-500 transition-transform ${isClosedPositionsCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {isAdmin && !isClosedPositionsCollapsed && closedTrades.length > 0 && (
+            <button
+              onClick={handleDeleteAllClosedTrades}
+              disabled={isDeletingClosedTrades}
+              className="ml-3 px-3 py-1 bg-red-500 hover:bg-red-600 disabled:bg-slate-400 text-white rounded text-sm font-medium transition"
+            >
+              {isDeletingClosedTrades ? 'Deleting...' : 'Delete All'}
+            </button>
+          )}
+        </div>
 
         {!isClosedPositionsCollapsed && (
-          <>
-            {isAdmin && closedTrades.length > 0 && (
-              <div className="flex justify-end mt-4 mb-4">
-                <button
-                  onClick={handleDeleteAllClosedTrades}
-                  disabled={isDeletingClosedTrades}
-                  className="px-3 py-1 bg-red-500 hover:bg-red-600 disabled:bg-slate-400 text-white rounded text-sm font-medium transition"
-                >
-                  {isDeletingClosedTrades ? 'Deleting...' : 'Delete All'}
-                </button>
-              </div>
-            )}
+          <div className="p-4">
+            {closedTrades.length === 0 ? (
+              <p className="text-center py-8 text-slate-500 dark:text-slate-400">No closed positions</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {closedTrades.map(trade => (
+                    <TradeCard key={trade.id} trade={trade} isOpen={false} />
+                  ))}
+                </div>
 
-            <TradeTable tradeList={displayedClosedTrades} showExit={true} />
-
-            {closedTrades.length > displayedClosedTrades.length && (
-              <div className="flex justify-center mt-4">
-                <button
-                  onClick={() => setClosedVisibleCount((count) => count + 20)}
-                  className="px-4 py-2 rounded font-medium transition text-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700"
-                >
-                  Load More Closed Positions
-                </button>
-              </div>
+                {/* Load More */}
+                {hasMore && (
+                  <div className="flex justify-center mt-6" ref={scrollRef}>
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={isLoadingMore}
+                      className={`px-6 py-2 rounded font-medium transition text-sm ${
+                        isLoadingMore
+                          ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 cursor-not-allowed'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {isLoadingMore ? 'Loading...' : 'Load More'}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
-          </>
+          </div>
         )}
       </div>
 

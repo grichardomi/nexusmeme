@@ -393,7 +393,8 @@ export async function POST(req: NextRequest) {
           userId,
           data.tradeId,
           data.botInstanceId,
-          actualProfitLoss
+          actualProfitLoss,
+          data.pair
         );
 
         logger.info('Performance fee recorded for profitable trade', {

@@ -332,6 +332,9 @@ class PositionTracker {
    *
    * Philosophy: Lock profits faster in uptrends, don't let gains slip away
    * Example: $20 peak with 10% cap = exit at $18 (lost $2, locked $18)
+   *
+   * FIX 2: Uses NET profit (after estimated exit fees) to prevent fee-induced losses
+   * FIX 3: Applies execution buffer (0.80x) to exit early and leave room for lag
    */
   checkErosionCap(
     tradeId: string,
@@ -343,11 +346,18 @@ class PositionTracker {
     const existing = this.peakProfits.get(tradeId);
     const env = getEnvironmentConfig();
 
+    // FIX 2: Calculate NET profit (subtract estimated exit fees)
+    // This prevents "close at +$9.99 GROSS → actually -$0.50 NET after fees" disasters
+    const estimatedExitFeePct = env.ESTIMATED_EXIT_FEE_PCT || 0.003; // 0.3% default
+    const currentProfitNetPct = currentProfitPct - (estimatedExitFeePct * 100); // Convert fee to pct points
+
     // DEBUG: Log erosion check inputs
     logger.info('🔍 EROSION CHECK START', {
       tradeId,
       pair,
-      currentProfitPct: currentProfitPct.toFixed(4),
+      currentProfitGrossPct: currentProfitPct.toFixed(4),
+      currentProfitNetPct: currentProfitNetPct.toFixed(4),
+      estimatedExitFeePct: (estimatedExitFeePct * 100).toFixed(2) + '%',
       regime,
       hasPeakData: !!existing,
       peakPct: existing?.peakPct?.toFixed(4) || 'N/A',
@@ -380,11 +390,33 @@ class PositionTracker {
     // Works for USD, USDT, EUR - any quote currency
     // Eliminates micro-peak precision issues
 
-    // Calculate current profit in absolute value (quote currency)
-    let currentProfitAbsolute = existing.currentProfit;
+    // FIX 2: Calculate current profit in absolute value (GROSS, then subtract exit fees for NET)
+    let currentProfitGross = existing.currentProfit;
     if (currentPrice && existing.entryPrice && existing.quantity) {
-      currentProfitAbsolute = (currentPrice - existing.entryPrice) * existing.quantity;
-      existing.currentProfit = currentProfitAbsolute; // Update tracker
+      currentProfitGross = (currentPrice - existing.entryPrice) * existing.quantity;
+      existing.currentProfit = currentProfitGross; // Update tracker
+    }
+
+    // FIX 2: Subtract estimated exit fees to get NET profit
+    const estimatedExitFee = currentPrice && existing.quantity
+      ? (currentPrice * existing.quantity * estimatedExitFeePct)
+      : 0;
+    const currentProfitNet = currentProfitGross - estimatedExitFee;
+
+    // CRITICAL CHECK (from /nexus line 355):
+    // PROTECT GREEN TRADES: Don't exit via erosion cap if trade is underwater
+    // Underwater timeout will handle negative positions separately
+    if (currentProfitNet <= 0) {
+      logger.debug('⚠️ Erosion check: underwater - skip erosion cap (handled by underwater timeout)', {
+        tradeId,
+        pair,
+        currentProfitGross: currentProfitGross.toFixed(2),
+        estimatedExitFee: estimatedExitFee.toFixed(2),
+        currentProfitNet: currentProfitNet.toFixed(2),
+        peakProfit: existing.peakProfit.toFixed(2),
+        note: 'Erosion cap only protects PROFITABLE trades - underwater trades handled separately',
+      });
+      return result; // Don't exit via erosion cap when underwater
     }
 
     // Check 1: Must have positive peak in ABSOLUTE VALUE (not just percentage)
@@ -397,64 +429,76 @@ class PositionTracker {
       return result;
     }
 
-    // Check 2: If current >= peak, no erosion (profit still growing)
-    if (currentProfitAbsolute >= existing.peakProfit) {
+    // Check 2: If current NET profit >= peak, no erosion (profit still growing)
+    // Use NET profit to account for fees that will be deducted on exit
+    if (currentProfitNet >= existing.peakProfit) {
       return result;
     }
 
     // Calculate erosion in ABSOLUTE VALUE and as percentage of peak
     // CRITICAL: This works even if trade went NEGATIVE (100%+ erosion)
-    // Example: Peak +$19.24, Current -$0.34 → erosion = $19.58 (102% of peak)
-    const erosionAbsolute = existing.peakProfit - currentProfitAbsolute;
+    // Example: Peak +$19.24, Current -$0.34 NET → erosion = $19.58 (102% of peak)
+    // FIX 2: Use NET profit for erosion calculation
+    const erosionAbsolute = existing.peakProfit - currentProfitNet;
     const erosionPct = erosionAbsolute / existing.peakProfit; // What % of peak profit was lost
 
-    // Get regime-based erosion cap percentage (e.g., 10% for uptrends, 20% for choppy)
-    const erosionCapPercent = riskManager.getErosionCap(regime, existing.peakPct);
+    // Get regime-based erosion cap percentage (e.g., 5% for moderate, 10% for strong)
+    const erosionCapBasePercent = riskManager.getErosionCap(regime, existing.peakPct);
+
+    // FIX 3: Apply execution buffer to exit earlier (leaves room for fees + execution lag)
+    // Example: 5% cap * 0.80 buffer = 4% effective cap (exits 20% earlier)
+    const executionBuffer = env.EROSION_CAP_EXECUTION_BUFFER || 0.80;
+    const erosionCapPercent = erosionCapBasePercent * executionBuffer;
 
     // Convert erosion cap to ABSOLUTE VALUE (this is the /nexus approach)
-    // Example: $20 peak * 10% cap = $2 allowed erosion = exit at $18
+    // Example: $20 peak * 4% effective cap = $0.80 allowed erosion = exit at $19.20
     const erosionCapAbsolute = existing.peakProfit * erosionCapPercent;
 
-    // Update result metrics
+    // Update result metrics (use NET profit)
     result.erosionUsed = erosionAbsolute;
     result.erosionCap = erosionCapAbsolute;
     result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
     result.peakProfit = existing.peakProfit;
-    result.currentProfit = currentProfitAbsolute;
+    result.currentProfit = currentProfitNet; // Use NET for accuracy
 
-    // DEBUG: Log erosion calculation (ABSOLUTE VALUE)
-    logger.info('📊 EROSION CALC (absolute value)', {
+    // DEBUG: Log erosion calculation (ABSOLUTE VALUE + NET PROFIT + EXECUTION BUFFER)
+    logger.info('📊 EROSION CALC (NET profit w/ execution buffer)', {
       tradeId,
       pair,
       regime,
       peakProfitAbsolute: existing.peakProfit.toFixed(2),
-      currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
+      currentProfitGross: currentProfitGross.toFixed(2),
+      estimatedExitFee: estimatedExitFee.toFixed(2),
+      currentProfitNet: currentProfitNet.toFixed(2),
       erosionAbsolute: erosionAbsolute.toFixed(2),
+      erosionCapBasePercent: (erosionCapBasePercent * 100).toFixed(2) + '%',
+      executionBuffer: (executionBuffer * 100).toFixed(0) + '%',
+      erosionCapEffectivePercent: (erosionCapPercent * 100).toFixed(2) + '%',
       erosionCapAbsolute: erosionCapAbsolute.toFixed(2),
       erosionPct: (erosionPct * 100).toFixed(2) + '%',
-      erosionCapPercent: (erosionCapPercent * 100).toFixed(2) + '%',
       shouldTrigger: erosionAbsolute > erosionCapAbsolute,
     });
 
     // PRIMARY EXIT CHECK: Absolute erosion exceeds cap (matches /nexus)
     if (erosionAbsolute > erosionCapAbsolute) {
-      // Determine exit reason based on whether still profitable (/nexus pattern)
-      const isStillGreen = currentProfitAbsolute > 0;
-      const exitReason = isStillGreen
-        ? 'erosion_cap_protected'  // Still positive when exiting
-        : 'underwater_small_peak_timeout';  // Went negative (profit collapsed)
+      // Exit reason is ALWAYS 'erosion_cap_protected' here because:
+      // - Underwater trades (currentProfitNet <= 0) return early above
+      // - Only profitable trades reach this point
+      // - This guarantees erosion_cap_protected = PROFIT locked
+      const exitReason = 'erosion_cap_protected';
 
       logger.info(`🚨 EROSION CAP EXCEEDED - ${exitReason}`, {
         tradeId,
         pair,
         regime,
         peakProfitAbsolute: existing.peakProfit.toFixed(2),
-        currentProfitAbsolute: currentProfitAbsolute.toFixed(2),
+        currentProfitGross: currentProfitGross.toFixed(2),
+        estimatedExitFee: estimatedExitFee.toFixed(2),
+        currentProfitNet: currentProfitNet.toFixed(2),
         erosionAbsolute: erosionAbsolute.toFixed(2),
         erosionCapAbsolute: erosionCapAbsolute.toFixed(2),
         erosionPercent: (erosionPct * 100).toFixed(2) + '%',
-        isStillGreen,
-        exitReason,
+        note: 'Trade IS profitable (NET) - underwater trades blocked above (mimics /nexus)',
       });
 
       result.shouldExit = true;

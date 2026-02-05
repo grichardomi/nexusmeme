@@ -160,9 +160,13 @@ const envSchema = z.object({
   EROSION_CAP_WEAK: z.string().transform(Number).default('0.05'), // 5% - same for weak/sideways
   EROSION_CAP_MODERATE: z.string().transform(Number).default('0.05'), // 5% - same for slow markets
   EROSION_CAP_STRONG: z.string().transform(Number).default('0.10'), // 10% - only strong trends get more room
+  EROSION_CAP_EXECUTION_BUFFER: z.string().transform(Number).default('0.80'), // Exit at 80% of cap (leaves 20% buffer for fees + execution lag)
   EROSION_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.02'), // Require at least +0.02% P&L to exit via erosion cap (stay green)
   EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.001'), // 0.1% - allow tiny exits
   EROSION_MIN_PROFIT_FLOOR_USD: z.string().transform(Number).default('0.50'), // $0.50 floor
+
+  /* Exit Fee Estimation - Used to calculate NET profit for erosion cap */
+  ESTIMATED_EXIT_FEE_PCT: z.string().transform(Number).default('0.003'), // 0.3% default exit fee (Kraken taker ~0.26-0.30%)
 
   /* Regime-based Profit Lock (AGGRESSIVE - protect small gains) */
   /* Philosophy: Lock profits early - don't let them slip away */
@@ -356,9 +360,11 @@ function getDefaultEnvironment(): Environment {
     EROSION_CAP_WEAK: 0.05, // 5% - same for weak/sideways
     EROSION_CAP_MODERATE: 0.05, // 5% - same for slow markets
     EROSION_CAP_STRONG: 0.10, // 10% - only strong trends get more room
+    EROSION_CAP_EXECUTION_BUFFER: 0.80, // Exit at 80% of cap (20% safety buffer)
     EROSION_MIN_EXIT_PROFIT_PCT: 0.02,
     EROSION_MIN_PROFIT_TO_CLOSE: 0.001, // 0.1% - allow tiny exits
     EROSION_MIN_PROFIT_FLOOR_USD: 0.50, // $0.50 floor
+    ESTIMATED_EXIT_FEE_PCT: 0.003, // 0.3% default exit fee
     PROFIT_LOCK_CHOPPY_MIN_PEAK: 0.001, // 0.1% min peak (AGGRESSIVE)
     PROFIT_LOCK_CHOPPY_LOCK_PCT: 0.60, // Lock 60%
     PROFIT_LOCK_WEAK_MIN_PEAK: 0.002, // 0.2% min peak

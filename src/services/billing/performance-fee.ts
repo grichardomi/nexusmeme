@@ -32,7 +32,8 @@ export async function recordPerformanceFee(
   userId: string,
   tradeId: string,
   botInstanceId: string,
-  profitAmount: number
+  profitAmount: number,
+  pair: string
 ): Promise<PerformanceFeeRecord | null> {
   // Only charge on profitable trades
   if (profitAmount <= 0) {
@@ -45,10 +46,10 @@ export async function recordPerformanceFee(
   try {
     const result = await query(
       `INSERT INTO performance_fees
-       (user_id, trade_id, bot_instance_id, profit_amount, fee_amount, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending_billing')
+       (user_id, trade_id, bot_instance_id, profit_amount, fee_amount, status, pair)
+       VALUES ($1, $2, $3, $4, $5, 'pending_billing', $6)
        RETURNING *`,
-      [userId, tradeId, botInstanceId, profitAmount, feeAmount]
+      [userId, tradeId, botInstanceId, profitAmount, feeAmount, pair]
     );
 
     logger.info('Performance fee recorded', {
@@ -136,9 +137,8 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
          pf.status,
          pf.coinbase_charge_id,
          pf.paid_at,
-         t.pair
+         pf.pair
        FROM performance_fees pf
-       LEFT JOIN trades t ON pf.trade_id::text = t.id::text
        WHERE pf.user_id = $1
        ORDER BY pf.created_at DESC
        LIMIT $2`,

@@ -12,11 +12,128 @@ import { getUserFeeSummary } from '@/services/billing/performance-fee';
 import { query } from '@/lib/db';
 
 /**
+ * CSV Export Handler
+ * Exports last 2 years of performance fees as CSV
+ */
+async function handleCSVExport(userId: string): Promise<Response> {
+  try {
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    const fees = await query(
+      `SELECT
+         pf.created_at,
+         pf.pair,
+         pf.profit_amount,
+         pf.fee_amount,
+         pf.status,
+         pf.paid_at,
+         pf.stripe_invoice_id
+       FROM performance_fees pf
+       WHERE pf.user_id = $1
+         AND pf.created_at >= $2
+       ORDER BY pf.created_at DESC`,
+      [userId, twoYearsAgo.toISOString()]
+    );
+
+    // Build CSV
+    const headers = ['Date', 'Pair', 'Profit', 'Fee (5%)', 'Status', 'Paid Date', 'Invoice ID'];
+    const rows = fees.map((f: any) => [
+      new Date(f.created_at).toLocaleDateString('en-US'),
+      f.pair || 'N/A',
+      `$${parseFloat(f.profit_amount || 0).toFixed(2)}`,
+      `$${parseFloat(f.fee_amount || 0).toFixed(2)}`,
+      f.status,
+      f.paid_at ? new Date(f.paid_at).toLocaleDateString('en-US') : 'N/A',
+      f.stripe_invoice_id || 'N/A'
+    ]);
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const filename = `performance-fees-${new Date().toISOString().split('T')[0]}.csv`;
+
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-cache'
+      }
+    });
+  } catch (error) {
+    logger.error('CSV export failed', error instanceof Error ? error : null, { userId });
+    return NextResponse.json({ error: 'Export failed' }, { status: 500 });
+  }
+}
+
+/**
+ * CSV Export Handler for Billing History
+ * Exports last 2 years of billing charges as CSV
+ */
+async function handleChargesCSVExport(userId: string): Promise<Response> {
+  try {
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+    const charges = await query(
+      `SELECT
+         billing_period_start,
+         billing_period_end,
+         total_fees_amount,
+         total_fees_count,
+         status,
+         stripe_invoice_id,
+         paid_at,
+         created_at
+       FROM fee_charge_history
+       WHERE user_id = $1
+         AND billing_period_end >= $2
+       ORDER BY billing_period_end DESC`,
+      [userId, twoYearsAgo.toISOString().split('T')[0]]
+    );
+
+    // Build CSV
+    const headers = ['Billing Period Start', 'Billing Period End', 'Amount', 'Trades', 'Status', 'Invoice ID', 'Paid Date'];
+    const rows = charges.map((c: any) => [
+      new Date(c.billing_period_start).toLocaleDateString('en-US'),
+      new Date(c.billing_period_end).toLocaleDateString('en-US'),
+      `$${parseFloat(c.total_fees_amount || 0).toFixed(2)}`,
+      c.total_fees_count,
+      c.status,
+      c.stripe_invoice_id || 'N/A',
+      c.paid_at ? new Date(c.paid_at).toLocaleDateString('en-US') : 'N/A'
+    ]);
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const filename = `billing-history-${new Date().toISOString().split('T')[0]}.csv`;
+
+    return new Response(csv, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-cache'
+      }
+    });
+  } catch (error) {
+    logger.error('Billing history CSV export failed', error instanceof Error ? error : null, { userId });
+    return NextResponse.json({ error: 'Export failed' }, { status: 500 });
+  }
+}
+
+/**
  * GET /api/fees/performance
  * Get user's performance fee summary with pagination support
  *
  * Query params:
- * - type: 'summary' | 'transactions' | 'charges' (defaults to 'summary')
+ * - type: 'summary' | 'transactions' | 'charges' | 'export' | 'export-charges' (defaults to 'summary')
  * - offset: Number of items to skip (default: 0)
  * - limit: Number of items to return (default: 20 for transactions, 10 for charges)
  */
@@ -33,6 +150,14 @@ export async function GET(request: Request) {
     const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0'));
     const txnLimit = parseInt(url.searchParams.get('limit') || '20'); // Default 20 for transactions
     const chargeLimit = parseInt(url.searchParams.get('limit') || '10'); // Default 10 for charges
+
+    // CSV export requests
+    if (type === 'export') {
+      return handleCSVExport(session.user.id);
+    }
+    if (type === 'export-charges') {
+      return handleChargesCSVExport(session.user.id);
+    }
 
     let summary: any = {
       total_profits: 0,
@@ -67,19 +192,23 @@ export async function GET(request: Request) {
       try {
         const statusFilter = url.searchParams.get('status'); // Optional status filter
 
-        // Get total count with optional status filter
-        let countQuery = `SELECT COUNT(*) as total FROM performance_fees WHERE user_id = $1`;
-        let countParams: any[] = [session.user.id];
+        // 2-year viewing window (best practice for performance and UX)
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+
+        // Get total count with optional status filter and 2-year window
+        let countQuery = `SELECT COUNT(*) as total FROM performance_fees WHERE user_id = $1 AND created_at >= $2`;
+        let countParams: any[] = [session.user.id, twoYearsAgo.toISOString()];
 
         if (statusFilter && statusFilter !== 'all') {
-          countQuery += ` AND status = $2`;
+          countQuery += ` AND status = $${countParams.length + 1}`;
           countParams.push(statusFilter);
         }
 
         const countResult = await query(countQuery, countParams);
         transactionTotal = parseInt(countResult[0]?.total || 0);
 
-        // Fetch paginated transactions with optional status filter
+        // Fetch paginated transactions with 2-year window and optional status filter
         let txnQuery = `
           SELECT
             pf.id,
@@ -91,15 +220,15 @@ export async function GET(request: Request) {
             pf.paid_at,
             pf.billed_at,
             pf.stripe_invoice_id,
-            COALESCE(t.pair, 'Unknown') as pair
+            pf.pair
           FROM performance_fees pf
-          LEFT JOIN trades t ON pf.trade_id = t.id::text
           WHERE pf.user_id = $1
+            AND pf.created_at >= $2
         `;
-        let txnParams: any[] = [session.user.id];
+        let txnParams: any[] = [session.user.id, twoYearsAgo.toISOString()];
 
         if (statusFilter && statusFilter !== 'all') {
-          txnQuery += ` AND pf.status = $2`;
+          txnQuery += ` AND pf.status = $${txnParams.length + 1}`;
           txnParams.push(statusFilter);
         }
 
@@ -117,7 +246,7 @@ export async function GET(request: Request) {
           paid_at: t.paid_at,
           billed_at: t.billed_at,
           stripe_invoice_id: t.stripe_invoice_id,
-          pair: t.pair || 'Unknown',
+          pair: t.pair,
         }));
       } catch (err) {
         logger.warn('Could not fetch recent transactions', {
@@ -152,10 +281,15 @@ export async function GET(request: Request) {
     // Fetch charge history if requested or on initial load
     if (type === 'summary' || type === 'charges') {
       try {
-        // Get total count first
+        // 2-year viewing window for billing history
+        const twoYearsAgo = new Date();
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        const twoYearsAgoDate = twoYearsAgo.toISOString().split('T')[0];
+
+        // Get total count with 2-year filter
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM fee_charge_history WHERE user_id = $1`,
-          [session.user.id]
+          `SELECT COUNT(*) as total FROM fee_charge_history WHERE user_id = $1 AND billing_period_end >= $2`,
+          [session.user.id, twoYearsAgoDate]
         );
         chargeTotal = parseInt(countResult[0]?.total || 0);
 
@@ -174,10 +308,11 @@ export async function GET(request: Request) {
              created_at
            FROM fee_charge_history
            WHERE user_id = $1
+             AND billing_period_end >= $2
            ORDER BY billing_period_end DESC
-           OFFSET $2
-           LIMIT $3`,
-          [session.user.id, offset, chargeLimit]
+           OFFSET $3
+           LIMIT $4`,
+          [session.user.id, twoYearsAgoDate, offset, chargeLimit]
         );
 
         chargeHistory = historyResult.map((h) => ({

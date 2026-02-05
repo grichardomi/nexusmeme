@@ -149,9 +149,12 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
   return (
     <section className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
       {/* Header - Compact for mobile */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-bold text-slate-900 dark:text-white">Performance Fees</h2>
-        <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Performance Fees</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Showing last 2 years</p>
+        </div>
+        <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded w-fit">
           5% on profits
         </span>
       </div>
@@ -332,16 +335,23 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
       </details>
 
       {/* Quick Actions */}
-      <div className="flex gap-2 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+      <div className="flex flex-col sm:flex-row gap-2 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
         <button
           onClick={() => (window.location.href = '/api/billing/customer-portal')}
           className="flex-1 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg active:bg-slate-200 dark:active:bg-slate-600"
         >
           Manage Payment
         </button>
+        <button
+          onClick={() => (window.location.href = '/api/fees/performance?type=export')}
+          className="flex-1 px-3 py-2 text-sm font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded-lg active:bg-green-100 dark:active:bg-green-900/40"
+          title="Download last 2 years of fees (for taxes)"
+        >
+          📥 Export CSV
+        </button>
         <Link
           href="/help/performance-fees"
-          className="px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg active:bg-blue-100 dark:active:bg-blue-900/40"
+          className="px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg active:bg-blue-100 dark:active:bg-blue-900/40 text-center"
         >
           FAQ
         </Link>

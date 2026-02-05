@@ -214,7 +214,7 @@ export default function TradingPage() {
             >
               {bots.map((bot) => (
                 <option key={bot.id} value={bot.id}>
-                  {bot.exchange} {bot.tradingMode === 'paper' ? '📄 PAPER' : '💰 LIVE'} {bot.isActive ? '🟢' : '⚫'} (ID: {bot.id.slice(0, 8)})
+                  {bot.name} • {bot.exchange.toUpperCase()} • {bot.tradingMode === 'paper' ? '📄 PAPER' : '💰 LIVE'} {bot.isActive ? '🟢' : '⚫'}
                 </option>
               ))}
             </select>
