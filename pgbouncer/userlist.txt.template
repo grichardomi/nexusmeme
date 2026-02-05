@@ -1,0 +1,7 @@
+# PgBouncer user list
+# Format: "username" "password_hash"
+# Generate hash: echo -n "passwordUSERNAME" | md5sum
+# Example: "postgres" "md5d8578edf8458ce06fbc5bb76a58c5ca4"
+
+# This file will be generated from environment variables
+# See setup-userlist.sh
