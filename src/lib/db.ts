@@ -18,8 +18,8 @@ export function getPool(): Pool {
 
     pool = new Pool({
       connectionString: databaseUrl,
-      // Connection pool sizing
-      max: isProduction ? 20 : 10, // More connections for dev to handle parallel requests
+      // Connection pool sizing - keep small to avoid Railway connection limit
+      max: isProduction ? 15 : 8, // Railway dev tier ~20-30 max connections total
       min: 2, // Keep minimum connections warm
 
       // Timeout settings - Railway proxy needs more time

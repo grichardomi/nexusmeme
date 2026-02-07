@@ -408,7 +408,7 @@ export async function PATCH(request: NextRequest) {
 
     // Verify the bot belongs to the user
     const bot = await query(
-      `SELECT id, config FROM bot_instances WHERE id = $1 AND user_id = $2`,
+      `SELECT id, config, enabled_pairs FROM bot_instances WHERE id = $1 AND user_id = $2`,
       [botId, session.user.id]
     );
 
@@ -438,6 +438,33 @@ export async function PATCH(request: NextRequest) {
           },
           { status: 400 }
         );
+      }
+
+      // Check for open trades on pairs being removed
+      const currentPairs: string[] = bot[0].enabled_pairs || [];
+      const removedPairs = currentPairs.filter((p: string) => !enabledPairs.includes(p));
+
+      if (removedPairs.length > 0) {
+        const openTrades = await query(
+          `SELECT id, pair FROM trades
+           WHERE bot_instance_id = $1
+             AND status = 'open'
+             AND pair = ANY($2)`,
+          [botId, removedPairs]
+        );
+
+        if (openTrades.length > 0) {
+          const affectedPairs = [...new Set(openTrades.map((t: any) => t.pair))];
+          return NextResponse.json(
+            {
+              error: `Cannot remove ${affectedPairs.join(', ')} — you have ${openTrades.length} open trade(s) on ${openTrades.length === 1 ? 'this pair' : 'these pairs'}. Close your open positions first, then change pairs.`,
+              code: 'OPEN_TRADES_ON_PAIR',
+              openTrades: openTrades.length,
+              affectedPairs,
+            },
+            { status: 409 }
+          );
+        }
       }
 
       // Check plan limits for trading pairs

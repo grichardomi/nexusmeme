@@ -32,10 +32,12 @@ class PgNotifyManager {
 
       logger.info('PgNotify: Connecting to PostgreSQL...');
 
-      // Create connection pool for publishing
+      // Create connection pool for publishing (small pool - only for NOTIFY)
       this.pool = new Pool({
         connectionString: databaseUrl,
-        max: 20,
+        max: 3, // Small pool - only used for NOTIFY, main queries use src/lib/db.ts pool
+        min: 1,
+        idleTimeoutMillis: 60000,
       });
 
       // Create dedicated client for listening (LISTEN requires persistent connection)
