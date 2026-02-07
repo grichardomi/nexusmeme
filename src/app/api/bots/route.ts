@@ -400,7 +400,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { botId, enabledPairs, tradingMode, status, name, initialCapital } = body;
+    const { botId, enabledPairs, tradingMode, status, name, initialCapital, exchange } = body;
 
     if (!botId) {
       return NextResponse.json({ error: 'Bot ID required' }, { status: 400 });
@@ -623,6 +623,39 @@ export async function PATCH(request: NextRequest) {
       updates.push(`config = $${paramCount}`);
       params.push(JSON.stringify(config));
       paramCount++;
+    }
+
+    if (exchange !== undefined) {
+      const validExchanges = ['binance', 'kraken', 'coinbase'];
+      if (!validExchanges.includes(exchange.toLowerCase())) {
+        return NextResponse.json(
+          { error: `Invalid exchange. Must be one of: ${validExchanges.join(', ')}` },
+          { status: 400 }
+        );
+      }
+
+      // Verify user has API keys for target exchange
+      const keysCheck = await query(
+        `SELECT id FROM exchange_api_keys WHERE user_id = $1 AND exchange = $2`,
+        [session.user.id, exchange.toLowerCase()]
+      );
+
+      if (keysCheck.length === 0) {
+        return NextResponse.json(
+          { error: `No ${exchange.toUpperCase()} API keys found. Connect your ${exchange.toUpperCase()} account in Settings first.` },
+          { status: 400 }
+        );
+      }
+
+      updates.push(`exchange = $${paramCount}`);
+      params.push(exchange.toLowerCase());
+      paramCount++;
+
+      logger.info('Switching bot exchange', {
+        userId: session.user.id,
+        botId,
+        newExchange: exchange.toLowerCase(),
+      });
     }
 
     if (updates.length === 0) {

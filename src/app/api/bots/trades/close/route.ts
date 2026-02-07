@@ -27,6 +27,7 @@ import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { withRetry } from '@/lib/resilience';
 import { exchangeFeesConfig } from '@/config/environment';
+import { getAccountFeeRates, computeMinExitPrice } from '@/services/exchanges/fee-schedule';
 import { z } from 'zod';
 
 const tradeCloseSchema = z.object({
@@ -174,14 +175,44 @@ export async function POST(req: NextRequest) {
           secretKey: decryptedSecretKey,
         });
 
-        // Place sell order with retry
+        // Compute minimum net-positive exit price and place IOC
+        let minExitPrice = data.exitPrice;
+        try {
+          const entryInfo = (await query(
+            `SELECT price, fee, amount FROM trades WHERE id = $1`,
+            [data.tradeId]
+          ))[0];
+          const entryPrice = entryInfo?.price ? parseFloat(String(entryInfo.price)) : null;
+          const entryFeeQuote = entryInfo?.fee ? parseFloat(String(entryInfo.fee)) : 0;
+          const qty = entryInfo?.amount ? parseFloat(String(entryInfo.amount)) : quantity;
+          if (entryPrice && qty) {
+            // Prefer symbol-level taker rate (per-user); fallback to account-level if unavailable
+            let takerRate = 0;
+            try {
+              const { getSymbolTakerRate } = await import('@/services/exchanges/fee-schedule');
+              takerRate = await getSymbolTakerRate(userId, exchange, data.pair);
+            } catch {}
+            if (!takerRate) {
+              const { taker } = await getAccountFeeRates(userId, exchange);
+              takerRate = taker || (
+                exchange.toLowerCase() === 'kraken' ? exchangeFeesConfig.krakenTakerFeeDefault
+                : exchange.toLowerCase() === 'binance' ? exchangeFeesConfig.binanceTakerFeeDefault
+                : 0.001
+              );
+            }
+            minExitPrice = Math.max(data.exitPrice, computeMinExitPrice(entryPrice, entryFeeQuote, qty, takerRate));
+          }
+        } catch {}
+
+        // Place sell order with retry (IOC at or above minExitPrice)
         const orderResult = await withRetry(
           async () => {
             return await adapter.placeOrder({
               pair: data.pair,
               side: 'sell',
               amount: quantity,
-              price: data.exitPrice,
+              price: minExitPrice,
+              timeInForce: 'IOC',
             });
           },
           {
@@ -200,13 +231,30 @@ export async function POST(req: NextRequest) {
           }
         );
 
-        actualExitPrice = orderResult.price || data.exitPrice;
+        actualExitPrice = orderResult.avgPrice || orderResult.price || minExitPrice;
+
+        // If IOC did not fill, abort close and let orchestrator retry later
+        if (!orderResult.avgPrice && orderResult.status !== 'filled') {
+          logger.warn('Exit IOC could not fill at net-positive floor; aborting close', {
+            tradeId: data.tradeId,
+            pair: data.pair,
+            attemptedPrice: minExitPrice,
+            status: orderResult.status,
+          });
+          return NextResponse.json(
+            { error: 'could_not_fill_exit', message: 'Best bid below net-positive exit floor; close deferred.' },
+            { status: 409 }
+          );
+        }
 
         // Capture exit fee from order execution
         let exitFee = 0;
-        if (orderResult.fee) {
+        if ((orderResult as any).feeQuote && (orderResult as any).feeQuote > 0) {
+          exitFee = (orderResult as any).feeQuote;
+          logger.debug('Captured exit fee (normalized to quote)', { orderId: orderResult.orderId, exitFee, feeAsset: (orderResult as any).feeAsset });
+        } else if (orderResult.fee) {
           exitFee = orderResult.fee;
-          logger.debug('Captured exit fee from order', { orderId: orderResult.orderId, exitFee });
+          logger.debug('Captured exit fee from order (assumed quote)', { orderId: orderResult.orderId, exitFee });
         } else {
           // Fallback: Use configured exchange fee rate
           const feeRate = exchange.toLowerCase() === 'kraken'
@@ -230,8 +278,8 @@ export async function POST(req: NextRequest) {
         ))[0];
 
         if (tradeInfo?.price) {
-          const entryPrice = tradeInfo.price;
-          const entryFee = tradeInfo.fee || 0;
+          const entryPrice = parseFloat(String(tradeInfo.price));
+          const entryFee = parseFloat(String(tradeInfo.fee)) || 0;
 
           // Calculate gross P&L before fees
           const grossProfitLoss = (actualExitPrice - entryPrice) * quantity;
@@ -278,18 +326,32 @@ export async function POST(req: NextRequest) {
       // This allows manual recovery if exchange is down
     }
 
-    // VALIDATION: ABORT profit-protection exits that went red
+    // VALIDATION: ABORT profit-protection exits that went significantly red
     // Race condition: Exit decision made when trade was green, but execution happened in red
-    // Profit protection (erosion cap, profit lock) should NEVER close trades in red
-    const profitProtectionReasons = ['erosion_cap_profit_lock', 'profit_lock_regime', 'breakeven_protection'];
+    // Profit protection exits should NEVER close trades at a significant loss
+    // EXCEPTION: erosion_full_giveback (100% erosion) is allowed a fee-sized loss
+    //   because at 100% erosion, gross profit = 0, and fees make it slightly negative
+    const profitProtectionReasons = [
+      'erosion_cap_profit_lock',
+      'erosion_cap_protected',
+      'erosion_cap_exceeded',
+      'erosion_cap',
+      'erosion_full_giveback',
+      'green_to_red',
+      'profit_target',
+      'profit_lock_regime',
+      'breakeven_protection',
+    ];
 
+    // Enforce net-positive requirement for profit-protection exits (erosion/profit lock)
+    // If net slips red during execution, abort and let underwater logic handle it
     if (profitProtectionReasons.includes(data.exitReason || '') && actualProfitLossPercent < 0) {
-      logger.warn('🚫 PROFIT PROTECTION EXIT ABORTED: Trade went red during execution - letting it run', {
+      logger.warn('🚫 PROFIT PROTECTION EXIT ABORTED: Net loss detected during execution', {
         tradeId: data.tradeId,
         pair: data.pair,
         originalReason: data.exitReason,
         profitLossPercent: actualProfitLossPercent.toFixed(4),
-        note: 'Price slipped from green to red - aborting exit, trade will be handled by underwater logic',
+        note: 'Profit-protection exits must be net positive; handing off to underwater logic',
       });
 
       return NextResponse.json(
@@ -303,7 +365,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Normalize exit reasons for consistency in UI and reporting
+    // Preserve /nexus exit reason taxonomy for analytics
+    // Only normalize truly redundant aliases, keep distinct reasons distinct
     let correctedExitReason = data.exitReason;
+    if (correctedExitReason === 'erosion_cap_profit_lock') {
+      correctedExitReason = 'erosion_cap_protected'; // /nexus canonical name
+    }
+    // Keep underwater_never_profited, underwater_small_peak_timeout, underwater_profitable_collapse
+    // as distinct reasons — they indicate different trade behaviors and are critical for analysis
 
     // STEP 2: Update trade record with exit information
     logger.info('Updating trade record', {

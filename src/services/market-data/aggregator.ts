@@ -1,4 +1,4 @@
-import { marketDataConfig } from '@/config/environment';
+import { marketDataConfig, getEnvironmentConfig } from '@/config/environment';
 import { logger, logApiCall } from '@/lib/logger';
 import type { MarketData } from '@/types/market';
 import { getCachedMultiple, setCached } from '@/lib/redis';
@@ -14,7 +14,7 @@ interface CachedMarketData {
  * Unified caching strategy with multiple layers for cost optimization:
  * 1. In-process memory cache (10s TTL) - serves 67% of requests locally, zero cost
  * 2. Redis distributed cache (15s TTL) - shared across all server instances
- * 3. Kraken public API - only fetched when cache layers cold
+ * 3. Binance public API - only fetched when cache layers cold
  *
  * Usage:
  * - API consumers: Call getMarketData() - uses cache intelligently
@@ -24,7 +24,7 @@ interface CachedMarketData {
  * Cost benefit:
  * - In-process cache eliminates ~67% of Redis calls
  * - Background fetcher keeps Redis warm every 4 seconds
- * - Kraken public API (no auth required) for ticker data
+ * - Binance public API (no auth required) for ticker data
  */
 class MarketDataAggregator {
   private cache: CachedMarketData | null = null;
@@ -56,78 +56,58 @@ class MarketDataAggregator {
   }
 
   /**
-   * Map pair to Kraken format
-   * BTC/USD -> XXBTZUSD, ETH/USD -> XETHZUSD
+   * Map pair to Binance symbol format
+   * BTC/USD -> BTCUSDT, ETH/USD -> ETHUSDT, BTC/USDT -> BTCUSDT
    */
-  private mapToKrakenPair(pair: string): string {
+  private mapToBinanceSymbol(pair: string): string {
     const [base, quote] = pair.split('/');
-    const krakenBase = base === 'BTC' ? 'XXBT' : `X${base}`;
-    const krakenQuote = quote === 'USD' ? 'ZUSD' : quote;
-    return `${krakenBase}${krakenQuote}`;
+    // Binance only has USDT pairs — map USD → USDT
+    const binanceQuote = quote === 'USD' ? 'USDT' : quote;
+    return `${base}${binanceQuote}`;
   }
 
   /**
-   * Normalize pair format for exchange
-   * Kraken uses USD directly, no conversion needed
-   * @param pair Trading pair (e.g., BTC/USD)
-   * @returns Same pair (Kraken supports USD)
-   */
-  private normalizePairForExchange(pair: string): string {
-    // Kraken uses USD directly - no normalization needed
-    return pair;
-  }
-
-  /**
-   * Direct Kraken ticker fetch (public API - no auth required)
+   * Direct Binance ticker fetch (public API - no auth required)
    * Used by aggregator for market data display
-   * Kraken public API: https://api.kraken.com/0/public/Ticker
-   * @param pair Trading pair (e.g., BTC/USD)
+   * Binance public API: https://api.binance.com/api/v3/ticker/24hr
+   * @param pair Trading pair in internal format (e.g., BTC/USD)
    */
   private async fetchTicker(pair: string): Promise<any> {
     try {
-      const krakenPair = this.mapToKrakenPair(pair);
-      const url = `https://api.kraken.com/0/public/Ticker?pair=${krakenPair}`;
+      const symbol = this.mapToBinanceSymbol(pair);
+      const baseUrl = getEnvironmentConfig().BINANCE_API_BASE_URL;
+      const url = `${baseUrl}/api/v3/ticker/24hr?symbol=${symbol}`;
 
       const response = await fetch(url);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(
-          `Kraken API error: ${response.status} ${response.statusText} - ${errorText.slice(0, 100)}`
+          `Binance API error: ${response.status} ${response.statusText} - ${errorText.slice(0, 200)}`
         );
       }
 
       const data = await response.json();
 
-      if (data.error && data.error.length > 0) {
-        throw new Error(`Kraken API error: ${data.error.join(', ')}`);
-      }
-
-      // Kraken returns data keyed by pair name (may differ from request)
-      const tickerKey = Object.keys(data.result)[0];
-      const tickerData = data.result[tickerKey];
-
-      // Kraken ticker format: a=ask, b=bid, c=last, v=volume, p=vwap, t=trades, l=low, h=high, o=open
-      const last = parseFloat(tickerData.c[0]);
-      const openPrice = parseFloat(tickerData.o);
-      const priceChangePercent = ((last - openPrice) / openPrice) * 100;
+      // Binance 24hr ticker response fields
+      const last = parseFloat(data.lastPrice);
 
       const ticker = {
         pair,
-        last,                                    // c = last trade closed [price, lot volume]
-        bid: parseFloat(tickerData.b[0]),       // b = bid [price, whole lot volume, lot volume]
-        ask: parseFloat(tickerData.a[0]),       // a = ask [price, whole lot volume, lot volume]
-        volume: parseFloat(tickerData.v[1]),    // v = volume [today, last 24h]
-        highPrice: parseFloat(tickerData.h[1]), // h = high [today, last 24h]
-        lowPrice: parseFloat(tickerData.l[1]),  // l = low [today, last 24h]
-        openPrice,                              // o = open price
-        priceChangePercent,                     // calculated 24h change
+        last,
+        bid: parseFloat(data.bidPrice),
+        ask: parseFloat(data.askPrice),
+        volume: parseFloat(data.volume),
+        highPrice: parseFloat(data.highPrice),
+        lowPrice: parseFloat(data.lowPrice),
+        openPrice: parseFloat(data.openPrice),
+        priceChangePercent: parseFloat(data.priceChangePercent),
         timestamp: new Date().getTime(),
       };
 
       return ticker;
     } catch (error) {
-      console.log(`\n❌ KRAKEN API ERROR: ${pair} - ${error instanceof Error ? error.message : 'Unknown error'}`);
-      logger.error('Failed to fetch Kraken ticker', error instanceof Error ? error : null, {
+      console.log(`\n❌ BINANCE API ERROR: ${pair} - ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error('Failed to fetch Binance ticker', error instanceof Error ? error : null, {
         pair,
         errorMessage: error instanceof Error ? error.message : String(error),
       });
@@ -144,7 +124,7 @@ class MarketDataAggregator {
    * - Batch processing (10 pairs at a time to avoid timeout)
    * - Concurrency limiting (max 3 concurrent batches)
    * - Redis caching for resilience
-   * - Pair normalization (USD → USDT for Binance)
+   * - Pair normalization (USD → USDT for Binance API calls)
    */
   private async fetchAndCache(pairs: string[]): Promise<Map<string, MarketData>> {
     this.isFetching = true;
@@ -188,12 +168,8 @@ class MarketDataAggregator {
                 continue;
               }
 
-              // Normalize pair for exchange (USD → USDT for Binance)
-              const normalizedPair = this.normalizePairForExchange(pair);
-
               // Fetch from Binance if not in cache
-              // Use direct fetch to bypass shared rate limiter (aggregator only needs ~15 req/min)
-              const ticker = await this.fetchTicker(normalizedPair);
+              const ticker = await this.fetchTicker(pair);
 
               const marketData: MarketData = {
                 pair, // Store original pair (e.g., BTC/USD not BTC/USDT)
@@ -217,7 +193,7 @@ class MarketDataAggregator {
             } catch (pairError) {
               logger.error('Failed to fetch market data for pair', pairError instanceof Error ? pairError : null, {
                 pair,
-                normalizedPair: this.normalizePairForExchange(pair),
+                symbol: this.mapToBinanceSymbol(pair),
                 errorMessage: pairError instanceof Error ? pairError.message : String(pairError),
               });
               // Continue with next pair instead of failing entirely
@@ -285,7 +261,7 @@ class MarketDataAggregator {
   /**
    * Always fetch fresh data bypassing ALL caches (in-process + Redis)
    * Used by background fetcher to keep prices warm every 4 seconds
-   * CRITICAL: Must hit Kraken directly - otherwise "fresh" just reads stale Redis
+   * CRITICAL: Must hit Binance directly - otherwise "fresh" just reads stale Redis
    * @returns Map of market data with fresh prices from exchange
    */
   async fetchFresh(pairs: string[]): Promise<Map<string, MarketData>> {
@@ -293,8 +269,7 @@ class MarketDataAggregator {
 
     for (const pair of pairs) {
       try {
-        const normalizedPair = this.normalizePairForExchange(pair);
-        const ticker = await this.fetchTicker(normalizedPair);
+        const ticker = await this.fetchTicker(pair);
 
         const marketData: MarketData = {
           pair,

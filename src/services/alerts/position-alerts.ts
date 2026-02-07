@@ -40,7 +40,7 @@ class PositionAlertsService {
         `SELECT
           t.id,
           t.pair,
-          t.price as entry_price,
+          t.entry_price,
           t.profit_loss_percent,
           t.peak_profit_percent,
           t.entry_time,

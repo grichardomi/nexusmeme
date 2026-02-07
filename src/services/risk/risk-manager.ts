@@ -6,7 +6,7 @@
  */
 
 import { logger } from '@/lib/logger';
-import { getEnvironmentConfig } from '@/config/environment';
+import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
 import type { TechnicalIndicators } from '@/types/ai';
 
 export interface RiskFilterResult {
@@ -37,8 +37,8 @@ class RiskManager {
     spreadMaxPercent: 0.005,
     priceTopThreshold: 0.995,
     rsiExtremeOverbought: 85,
-    minMomentum1h: 0.005,
-    minMomentum4h: 0.005,
+    minMomentum1h: 1.0,   // 1.0% - must exceed Kraken's 0.52% fee drag (2× fees)
+    minMomentum4h: 0.5,   // 0.5% - 4h confirmation threshold
     volumeBreakoutRatio: 1.3,
     minVolumeRatio: 0.50,
     aiMinConfidence: 70,
@@ -59,10 +59,11 @@ class RiskManager {
    */
   initializeFromBotConfig(botConfig: Record<string, any>, exchange: string = 'kraken'): void {
     const env = getEnvironmentConfig();
-    // Momentum thresholds in PERCENT form (0.5 = 0.5%, matching /nexus)
-    // /nexus uses 0.005 decimal = 0.5%, so we use 0.5 percent form
-    let minMomentum1h = parseFloat(botConfig?.minMomentum1h || '0.5');
-    let minMomentum4h = parseFloat(botConfig?.minMomentum4h || '0.5');
+    // Momentum thresholds from ENVIRONMENT (authoritative, not stale botConfig)
+    // RISK_MIN_MOMENTUM_1H is in percent form: 1.0 = 1.0%
+    // Kraken needs higher threshold (0.52% round-trip fees) to ensure trades can overcome fee drag
+    let minMomentum1h = parseFloat(env.RISK_MIN_MOMENTUM_1H?.toString() || '1.0');
+    let minMomentum4h = parseFloat(env.RISK_MIN_MOMENTUM_4H?.toString() || '0.5');
     let volumeBreakoutRatio = parseFloat(botConfig?.volumeBreakoutRatio || '1.3');
     let priceTopThreshold = parseFloat(botConfig?.priceTopThreshold || '0.995');
 
@@ -149,19 +150,23 @@ class RiskManager {
       };
     }
 
-    // ADX now only determines regime/targets, not entry blocking
-    // Choppy markets (ADX < 22) are tradable with smaller targets (1.5%)
+    // /nexus parity: BLOCK entries in choppy markets (ADX < threshold)
+    // Choppy markets have no clear direction → entries go immediately underwater
     if (adx < this.config.minADXForEntry) {
-      console.log(`\n⚠️ CHOPPY MARKET: ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry} - will use 1.5% target`);
-      logger.info('RiskManager: Choppy market detected - using conservative targets', {
+      console.log(`\n🚫 CHOPPY MARKET BLOCKED: ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry} - no entry allowed`);
+      logger.info('RiskManager: Entry blocked - choppy market (/nexus parity)', {
         adx,
         threshold: this.config.minADXForEntry,
-        note: 'Allowing entry with smaller profit target',
       });
-    } else {
-      console.log(`\n✅ TRENDING MARKET: ADX=${adx.toFixed(1)} >= ${this.config.minADXForEntry}`);
+      return {
+        pass: false,
+        reason: `Choppy market (ADX ${adx.toFixed(1)} < ${this.config.minADXForEntry})`,
+        stage: 'Health Gate',
+        adx,
+      };
     }
 
+    console.log(`\n✅ TRENDING MARKET: ADX=${adx.toFixed(1)} >= ${this.config.minADXForEntry}`);
     return { pass: true, stage: 'Health Gate', adx };
   }
 
@@ -191,17 +196,21 @@ class RiskManager {
       };
     }
 
-    // Volume panic check: 3x volume = panic selling
+    // Volume panic check (/nexus parity): ONLY block if high volume + selling pressure
+    // High volume + positive momentum = healthy breakout (ALLOW)
+    // High volume + negative momentum = panic selling (BLOCK)
     const volumeRatio = indicators.volumeRatio ?? 1;
-    if (volumeRatio > this.config.volumeSpikeMax) {
-      logger.info('RiskManager: Entry blocked - volume panic spike', {
+    const momentum1h = indicators.momentum1h ?? 0;
+    if (volumeRatio > this.config.volumeSpikeMax && momentum1h < -0.005) {
+      logger.info('RiskManager: Entry blocked - volume panic spike with selling pressure', {
         pair,
         volumeRatio: volumeRatio.toFixed(2),
         threshold: this.config.volumeSpikeMax,
+        momentum1h: momentum1h.toFixed(4),
       });
       return {
         pass: false,
-        reason: `Volume panic spike (${volumeRatio.toFixed(2)}x > ${this.config.volumeSpikeMax}x)`,
+        reason: `Volume panic spike (${volumeRatio.toFixed(2)}x + mom ${(momentum1h * 100).toFixed(2)}%)`,
         stage: 'Drop Protection',
       };
     }
@@ -244,10 +253,11 @@ class RiskManager {
     const adx = indicators.adx ?? 0;
 
     // DYNAMIC REGIME-AWARE price top check:
-    // In trending markets (ADX >= 25), price near highs is NORMAL - that's where trends trade
-    // In choppy/weak markets (ADX < 25), buying at local tops is dangerous (mean reversion)
+    // In trending markets (ADX >= minADXForEntry), price near highs is NORMAL - that's where trends trade
+    // In choppy/weak markets (ADX < minADXForEntry), buying at local tops is dangerous (mean reversion)
     // This replaces the static CREEPING_UPTREND_ENABLED flag with real-time ADX detection
-    const isTrending = adx >= 25;
+    // CRITICAL: Must use same threshold as health gate (20) to avoid blocking valid entries (ADX 20-24)
+    const isTrending = adx >= this.config.minADXForEntry;
 
     if (this.hasCreepingUptrend || isTrending) {
       // TRENDING MODE: Allow entries near highs (trends make new highs!)
@@ -332,7 +342,8 @@ class RiskManager {
       console.log(`\n⚠️ REVERSAL MODE: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%) - entry allowed`);
     }
 
-    // Avoid extreme overbought (RSI > 85)
+    // Avoid extreme overbought (RSI > 85) - matches /nexus exactly
+    // FLAT block, no exceptions. /nexus uses RSI > 85 regardless of ADX/regime
     if (indicators.rsi > this.config.rsiExtremeOverbought) {
       logger.info('RiskManager: Entry blocked - extreme overbought', {
         pair,
@@ -346,60 +357,28 @@ class RiskManager {
       };
     }
 
-    // Require minimum momentum - multiple entry paths (matches /nexus)
+    // Require minimum momentum - 3 entry paths (matches /nexus exactly)
+    // Path 1: Strong 1h momentum exceeds configured threshold
     const has1hMomentum = momentum1h > this.config.minMomentum1h;
+    // Path 2: Both timeframes show meaningful momentum (> minMomentum threshold)
     const hasBothPositive =
       momentum1h > this.config.minMomentum1h &&
       momentum4h > this.config.minMomentum4h;
+    // Path 3: Volume breakout (vol > 1.3x) with ANY positive 1h momentum
+    // /nexus uses momentum1h > 0 here — NOT the main threshold
     const hasVolumeBreakout =
       volumeRatio > this.config.volumeBreakoutRatio &&
       momentum1h > 0;
 
-    // Creeping uptrend mode: also allow low-volume positive momentum
-    const hasCreepingUptrend =
-      env.CREEPING_UPTREND_ENABLED &&
-      momentum1h > 0 &&
-      volumeRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
-
-    // Intrabar momentum guard (no-entry-on-red) - checks CURRENT candle direction
-    // CRITICAL: Uses real-time intrabar momentum (currentPrice - currentCandleOpen)
-    // NOT historical 1h momentum - prevents entering on falling prices
-    const intrabarMomentum = indicators.intrabarMomentum !== undefined ? indicators.intrabarMomentum : momentum1h;
-    const shortTermMomentumThreshold = isTrending
-      ? this.config.entryMinIntrabarMomentumTrending
-      : this.config.entryMinIntrabarMomentumChoppy;
-
-    if (intrabarMomentum < shortTermMomentumThreshold) {
-      const momentumType = indicators.intrabarMomentum !== undefined ? 'intrabar' : 'momentum1h (fallback)';
-      logger.info('RiskManager: Entry blocked - current candle is red/flat', {
-        pair,
-        adx: adx.toFixed(1),
-        intrabarMomentum: intrabarMomentum.toFixed(3),
-        threshold: shortTermMomentumThreshold.toFixed(3),
-        trending: isTrending,
-        momentumType,
-      });
-      console.log(`\n🚫 RED CANDLE BLOCKED: ${pair} - Intrabar momentum ${intrabarMomentum.toFixed(3)}% < ${shortTermMomentumThreshold.toFixed(3)}% (price currently falling)`);
-      return {
-        pass: false,
-        reason: `Current candle is red (intrabar ${intrabarMomentum.toFixed(3)}% < ${shortTermMomentumThreshold.toFixed(3)}%)`,
-        stage: 'Entry Quality',
-      };
-    }
-
-    // DYNAMIC BULLISH SENTIMENT: When BOTH timeframes agree on direction (positive),
-    // enter more aggressively even with smaller momentum. This is bullish confirmation.
-    // Requires: both momentums positive AND at least minimal movement (> 0.1% on 1h)
-    const minBullishMomentum = 0.1; // 0.1% minimum to avoid noise
-    const isBullishSentiment =
-      momentum1h > minBullishMomentum &&
-      momentum4h > 0 &&
-      volumeRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
-
-    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout || hasCreepingUptrend || isBullishSentiment;
+    // /nexus EXACT entry gate: 3 paths ONLY
+    // 1. Strong 1h momentum (> 0.5%)
+    // 2. Both timeframes positive (1h > 0.5% AND 4h > 0.5%)
+    // 3. Volume breakout (vol > 1.3x AND 1h > 0%)
+    // NO other overrides - no intrabar, no creeping uptrend, no bullish sentiment, no strong trend override
+    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout;
 
     if (!passesEntryGate) {
-      logger.info('RiskManager: Entry blocked - weak momentum', {
+      logger.info('RiskManager: Entry blocked - weak momentum (/nexus 3-path gate)', {
         pair,
         momentum1h: momentum1h.toFixed(2),
         momentum4h: momentum4h.toFixed(2),
@@ -407,8 +386,6 @@ class RiskManager {
         has1hMomentum,
         hasBothPositive,
         hasVolumeBreakout,
-        hasCreepingUptrend,
-        isBullishSentiment,
       });
       return {
         pass: false,
@@ -417,14 +394,12 @@ class RiskManager {
       };
     }
 
-    // Log bullish sentiment entry when triggered
-    if (isBullishSentiment && !has1hMomentum && !hasBothPositive && !hasVolumeBreakout && !hasCreepingUptrend) {
-      logger.info('RiskManager: BULLISH SENTIMENT entry allowed', {
+    // Log which path allowed entry
+    if (hasVolumeBreakout && !has1hMomentum && !hasBothPositive) {
+      logger.info('RiskManager: Volume breakout entry', {
         pair,
         momentum1h: momentum1h.toFixed(2),
-        momentum4h: momentum4h.toFixed(2),
         volumeRatio: volumeRatio.toFixed(2),
-        reason: 'Both timeframes positive - bullish confirmation',
       });
     }
 
@@ -479,12 +454,15 @@ class RiskManager {
     _entryPrice: number,
     _exitPrice: number,
     profitTargetPercent: number,
-    exchangeFeePercent: number = 0.003 // Kraken: 0.16-0.26% = ~0.3% round trip
+    exchange: string = 'kraken'
   ): RiskFilterResult {
-    logger.debug('RiskManager: Stage 5 - Cost Floor', { pair, profitTargetPercent });
+    logger.debug('RiskManager: Stage 5 - Cost Floor', { pair, profitTargetPercent, exchange });
+
+    // Use ACTUAL exchange-specific fees (round-trip: entry + exit)
+    const exchangeFeePercent = getExchangeTakerFee(exchange) * 2; // Kraken: 0.0026*2 = 0.0052 (0.52%)
 
     // Calculate total costs
-    const spreadPercent = 0.00003; // 0.003% for liquid pairs
+    const spreadPercent = 0.0005; // 0.05% for liquid pairs (realistic Kraken spread)
     const slippagePercent = 0.0001; // 0.01% conservative estimate
     const totalCostsPercent = exchangeFeePercent + spreadPercent + slippagePercent;
 
@@ -614,7 +592,7 @@ class RiskManager {
     price: number,
     indicators: TechnicalIndicators,
     ticker: { bid?: number; ask?: number; last?: number; spread?: number },
-    profitTarget: number
+    _profitTarget?: number
   ): Promise<RiskFilterResult> {
     const adx = indicators.adx ?? 0;
 
@@ -636,18 +614,26 @@ class RiskManager {
       return stage3;
     }
 
-    // Stages 1-3 passed - ready for AI analysis
-    // Stages 4 (AI Validation) and 5 (Cost Floor) run after AI signal
-    logger.debug('RiskManager: Pre-AI stages (1-3) passed', {
+    // STAGE 5: Cost Floor (/nexus parity - validate BEFORE AI to save API calls)
+    // Use ADX-based profit target percentage (not dollar amount)
+    const regime = this.getRegime(adx);
+    const profitTargetPct = this.getProfitTarget(regime);
+    const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct);
+    if (!stage5.pass) {
+      return stage5;
+    }
+
+    logger.debug('RiskManager: All 5 stages passed (pre-AI)', {
       pair,
       adx: adx.toFixed(1),
+      regime,
+      profitTargetPct: (profitTargetPct * 100).toFixed(2) + '%',
       momentum1h: (indicators.momentum1h ?? 0).toFixed(3),
-      profitTarget,
     });
 
     return {
       pass: true,
-      stage: 'Pre-AI Filter Complete',
+      stage: 'All Stages Passed',
       adx,
     };
   }

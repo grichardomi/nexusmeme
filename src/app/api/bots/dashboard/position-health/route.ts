@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { riskManager } from '@/services/risk/risk-manager';
+import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
 
 /**
@@ -79,8 +79,10 @@ export async function GET(req: NextRequest) {
         t.entry_time,
         t.exit_time,
         t.status,
+        t.fee,
         b.config,
-        b.status as bot_status
+        b.status as bot_status,
+        b.exchange
       FROM trades t
       INNER JOIN bot_instances b ON t.bot_instance_id = b.id
       WHERE t.status = 'open'
@@ -129,24 +131,32 @@ export async function GET(req: NextRequest) {
     for (const trade of trades) {
       const entryPrice = parseFloat(String(trade.entry_price));
       const quantity = parseFloat(String(trade.quantity || 0));
+      const tradeExchange = trade.exchange || 'kraken';
 
       // Use live price if available, otherwise fall back to entry price (which means 0% P&L)
       const currentPrice = marketPrices.get(trade.pair) || entryPrice;
 
-      // Calculate P&L based on LIVE price (not stale database values)
-      const currentProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-      const currentProfit = (currentPrice - entryPrice) * quantity;
+      // Calculate NET P&L (gross - entry fee ONLY)
+      // Exit fee is NOT deducted until trade actually closes — best practice per exchange standards
+      const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(tradeExchange));
+      const entryFeePct = quantity > 0 && entryPrice > 0 ? (entryFeeDollars / (entryPrice * quantity)) * 100 : 0;
+      const currentProfitPct = grossProfitPct - entryFeePct;
+      const currentProfit = (currentPrice - entryPrice) * quantity - entryFeeDollars;
 
       const peakProfitPct = parseFloat(String(trade.peak_profit_percent || 0));
       const ageMinutes = (Date.now() - parseEntryTimeUTC(trade.entry_time)) / (1000 * 60);
       const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
       const regime = botConfig?.regime || 'moderate';
 
-      // Update database with fresh P&L values (async, don't block response)
+      // Update database with fresh GROSS P&L values (async, don't block response)
+      // CRITICAL: Write GROSS P&L, NOT NET. The trades API deducts fees when reading.
+      // Writing NET here caused DOUBLE FEE DEDUCTION (fees subtracted here + again in /api/trades).
       if (marketPrices.has(trade.pair)) {
+        const grossProfit = (currentPrice - entryPrice) * quantity;
         query(
           `UPDATE trades SET profit_loss = $1, profit_loss_percent = $2 WHERE id = $3`,
-          [currentProfit, currentProfitPct, trade.id]
+          [grossProfit, grossProfitPct, trade.id]
         ).catch((updateErr) => {
           logger.debug('Position health: failed to update P&L in DB', {
             tradeId: trade.id,
@@ -187,7 +197,10 @@ export async function GET(req: NextRequest) {
       // Erosion calculations (align with position tracker logic)
       // IMPORTANT: If current >= peak, erosion is 0 (no erosion has occurred, profit increased)
       // Use effectivePeakPct which may have been corrected above
-      const erosionCapFraction = riskManager.getErosionCap(regime, effectivePeakPct); // fraction of peak allowed to erode
+      // Use PEAK-RELATIVE erosion threshold for dashboard (fraction of peak allowed to erode)
+      // Absolute-of-cost cap is used in execution; for UI health, compare against peak-relative threshold
+      const env = getEnvironmentConfig();
+      const erosionCapFraction = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g., 0.50 = 50%
 
       // Calculate erosion when position HAD profit (peak > 0) and has since dropped
       // This includes cases where position went underwater after having profit - that's meaningful erosion!

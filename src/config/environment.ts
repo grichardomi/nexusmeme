@@ -34,11 +34,12 @@ const envSchema = z.object({
 
   /* Exchange APIs */
   KRAKEN_API_BASE_URL: z.string().url().default('https://api.kraken.com'),
-  BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.com'),
+  BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.us'),
   COINBASE_API_BASE_URL: z.string().url().default('https://api.coinbase.com'),
 
   /* Exchange Trading Fees - Used as fallback when actual fees unavailable */
   KRAKEN_TAKER_FEE_DEFAULT: z.string().transform(Number).default('0.0026'), // 0.26% tier 1
+  KRAKEN_MAKER_FEE_DEFAULT: z.string().transform(Number).default('0.0016'), // 0.16% tier 1
   BINANCE_TAKER_FEE_DEFAULT: z.string().transform(Number).default('0.001'), // 0.10% standard
 
   /* Trading Configuration */
@@ -126,7 +127,7 @@ const envSchema = z.object({
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
-  RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.005'),
+  RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.015'), // 1.5% - covers 0.52% round-trip fees + margin
   RISK_EMA200_DOWNTREND_BLOCK_ENABLED: z.string().transform(val => val === 'true').default('false'), // Block entries when price < EMA200 (disable to catch reversals)
 
   /* Loss Streak & Cooldown - Prevents trade churn after consecutive losses */
@@ -145,28 +146,33 @@ const envSchema = z.object({
   PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.001'), // 0.1% - protect tiny peaks
 
   /* Minimum peak profit before erosion cap kicks in */
-  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.001'), // 0.1% - protect tiny peaks
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - small-profit dead zone (prevents micro-peak false exits)
+  EROSION_MIN_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
 
   /* Underwater exit - minimum meaningful peak in dollars (/nexus port) */
   UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
-  /* Peak-Relative Erosion (VERY TIGHT - close early on pullback) */
-  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.50'), // 50% - exit if 50% of peak eroded
+  /* Peak-Relative Erosion (/nexus parity - 30% of peak eroded = exit) */
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.30'), // 30% - exit if 30% of peak eroded (/nexus parity)
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
 
-  /* Regime-based Erosion Caps (MORE AGGRESSIVE) */
+  /* Regime-based Erosion Caps (VERY AGGRESSIVE - lock profits quickly) */
   /* Lower = keep more profit, close faster on pullback */
-  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.05'), // 5% - close when 5% of peak lost
-  EROSION_CAP_WEAK: z.string().transform(Number).default('0.05'), // 5% - same for weak/sideways
-  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.05'), // 5% - same for slow markets
-  EROSION_CAP_STRONG: z.string().transform(Number).default('0.10'), // 10% - only strong trends get more room
+  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.02'), // 2% - exit fast in chop
+  EROSION_CAP_WEAK: z.string().transform(Number).default('0.02'), // 2% - exit fast in weak trends
+  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.03'), // 3% - balanced for moderate
+  EROSION_CAP_STRONG: z.string().transform(Number).default('0.05'), // 5% - let strong trends breathe
   EROSION_CAP_EXECUTION_BUFFER: z.string().transform(Number).default('0.80'), // Exit at 80% of cap (leaves 20% buffer for fees + execution lag)
+  EROSION_CAP_DEGRADED_MODE_MULTIPLIER: z.string().transform(Number).default('3.0'), // 3x more conservative in degraded mode (prevents false exits)
+  EROSION_CAP_DEGRADED_MODE_MIN: z.string().transform(Number).default('0.50'), // 50% minimum erosion cap in degraded mode
   EROSION_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.02'), // Require at least +0.02% P&L to exit via erosion cap (stay green)
   EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.001'), // 0.1% - allow tiny exits
   EROSION_MIN_PROFIT_FLOOR_USD: z.string().transform(Number).default('0.50'), // $0.50 floor
+  EROSION_MIN_HOLD_SECONDS: z.string().transform(Number).default('60'), // 60 seconds - minimum hold before erosion cap can fire (prevents instant exits)
 
-  /* Exit Fee Estimation - Used to calculate NET profit for erosion cap */
-  ESTIMATED_EXIT_FEE_PCT: z.string().transform(Number).default('0.003'), // 0.3% default exit fee (Kraken taker ~0.26-0.30%)
+  /* Fee Estimation - CRITICAL: Account for BOTH entry and exit fees */
+  ESTIMATED_ENTRY_FEE_PCT: z.string().transform(Number).default('0.003'), // 0.3% entry fee
+  ESTIMATED_EXIT_FEE_PCT: z.string().transform(Number).default('0.003'), // 0.3% exit fee
 
   /* Regime-based Profit Lock (AGGRESSIVE - protect small gains) */
   /* Philosophy: Lock profits early - don't let them slip away */
@@ -244,6 +250,20 @@ const envSchema = z.object({
   PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.05'), // 5% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
 
+  /* Capital Preservation - 3-Layer Automated Downtrend Protection */
+  CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  CP_BTC_EMA_SHORT_PERIOD: z.string().transform(Number).default('50'),
+  CP_BTC_EMA_LONG_PERIOD: z.string().transform(Number).default('200'),
+  CP_DRAWDOWN_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  CP_DRAWDOWN_REDUCE_PCT: z.string().transform(Number).default('5'), // 5% rolling loss → reduce size
+  CP_DRAWDOWN_PAUSE_PCT: z.string().transform(Number).default('10'), // 10% rolling loss → pause 24h
+  CP_DRAWDOWN_STOP_PCT: z.string().transform(Number).default('15'), // 15% drawdown from peak → pause until BTC recovers
+  CP_DRAWDOWN_PAUSE_HOURS: z.string().transform(Number).default('24'),
+  CP_LOSS_STREAK_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  CP_LOSS_STREAK_REDUCE: z.string().transform(Number).default('3'), // 3 consecutive losses → half size
+  CP_LOSS_STREAK_PAUSE: z.string().transform(Number).default('7'), // 7 consecutive losses → pause 4h
+  CP_LOSS_STREAK_PAUSE_HOURS: z.string().transform(Number).default('4'),
+
   /* Logging */
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   LOG_FORMAT: z.enum(['json', 'text']).default('json'),
@@ -285,9 +305,10 @@ function getDefaultEnvironment(): Environment {
     COINBASE_COMMERCE_WEBHOOK_SECRET: undefined,
     COINBASE_COMMERCE_ENABLED: false,
     KRAKEN_API_BASE_URL: 'https://api.kraken.com',
-    BINANCE_API_BASE_URL: 'https://api.binance.com',
+    BINANCE_API_BASE_URL: 'https://api.binance.us',
     COINBASE_API_BASE_URL: 'https://api.coinbase.com',
     KRAKEN_TAKER_FEE_DEFAULT: 0.0026,
+    KRAKEN_MAKER_FEE_DEFAULT: 0.0016,
     BINANCE_TAKER_FEE_DEFAULT: 0.001,
     TRADING_PAIRS: ['BTC/USD', 'ETH/USD'],
     SUPPORTED_QUOTE_CURRENCIES: ['USD', 'USDT'],
@@ -344,7 +365,7 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)
-    RISK_PROFIT_TARGET_MINIMUM: 0.005,
+    RISK_PROFIT_TARGET_MINIMUM: 0.015, // 1.5% - covers fees
     RISK_EMA200_DOWNTREND_BLOCK_ENABLED: false, // Allow reversal entries by default
     RISK_MAX_LOSS_STREAK: 5,
     RISK_LOSS_COOLDOWN_HOURS: 1,
@@ -352,19 +373,24 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.001, // 0.1% - protect tiny peaks (AGGRESSIVE)
-    EROSION_MIN_PEAK_PCT: 0.001, // 0.1% - protect tiny peaks (AGGRESSIVE)
+    EROSION_MIN_PEAK_PCT: 0.005, // 0.5% - small-profit dead zone (prevents micro-peak false exits)
+    EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
-    EROSION_PEAK_RELATIVE_THRESHOLD: 0.50, // 50% - exit if 50% eroded (AGGRESSIVE)
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.30, // 30% - exit if 30% eroded (/nexus parity)
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
-    EROSION_CAP_CHOPPY: 0.05, // 5% - close at 5% loss from peak
-    EROSION_CAP_WEAK: 0.05, // 5% - same for weak/sideways
-    EROSION_CAP_MODERATE: 0.05, // 5% - same for slow markets
-    EROSION_CAP_STRONG: 0.10, // 10% - only strong trends get more room
+    EROSION_CAP_CHOPPY: 0.02, // 2% - exit fast in chop (keep 98% of peak)
+    EROSION_CAP_WEAK: 0.02, // 2% - exit fast in weak trends
+    EROSION_CAP_MODERATE: 0.03, // 3% - balanced for moderate trends
+    EROSION_CAP_STRONG: 0.05, // 5% - let strong trends breathe
     EROSION_CAP_EXECUTION_BUFFER: 0.80, // Exit at 80% of cap (20% safety buffer)
+    EROSION_CAP_DEGRADED_MODE_MULTIPLIER: 3.0, // 3x more conservative
+    EROSION_CAP_DEGRADED_MODE_MIN: 0.50, // 50% minimum
     EROSION_MIN_EXIT_PROFIT_PCT: 0.02,
     EROSION_MIN_PROFIT_TO_CLOSE: 0.001, // 0.1% - allow tiny exits
     EROSION_MIN_PROFIT_FLOOR_USD: 0.50, // $0.50 floor
-    ESTIMATED_EXIT_FEE_PCT: 0.003, // 0.3% default exit fee
+    EROSION_MIN_HOLD_SECONDS: 60, // 60 seconds minimum hold before erosion cap
+    ESTIMATED_ENTRY_FEE_PCT: 0.003, // 0.3% entry fee (total 0.6% round-trip)
+    ESTIMATED_EXIT_FEE_PCT: 0.003, // 0.3% exit fee
     PROFIT_LOCK_CHOPPY_MIN_PEAK: 0.001, // 0.1% min peak (AGGRESSIVE)
     PROFIT_LOCK_CHOPPY_LOCK_PCT: 0.60, // Lock 60%
     PROFIT_LOCK_WEAK_MIN_PEAK: 0.002, // 0.2% min peak
@@ -401,6 +427,18 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_DAILY: -0.045,
     PERFORMANCE_FEE_RATE: 0.05,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
+    CP_BTC_TREND_GATE_ENABLED: true,
+    CP_BTC_EMA_SHORT_PERIOD: 50,
+    CP_BTC_EMA_LONG_PERIOD: 200,
+    CP_DRAWDOWN_ENABLED: true,
+    CP_DRAWDOWN_REDUCE_PCT: 5,
+    CP_DRAWDOWN_PAUSE_PCT: 10,
+    CP_DRAWDOWN_STOP_PCT: 15,
+    CP_DRAWDOWN_PAUSE_HOURS: 24,
+    CP_LOSS_STREAK_ENABLED: true,
+    CP_LOSS_STREAK_REDUCE: 3,
+    CP_LOSS_STREAK_PAUSE: 7,
+    CP_LOSS_STREAK_PAUSE_HOURS: 4,
   };
 }
 
@@ -575,10 +613,42 @@ export const exchangeFeesConfig = {
   get krakenTakerFeeDefault() {
     return getEnv('KRAKEN_TAKER_FEE_DEFAULT');
   },
+  get krakenMakerFeeDefault() {
+    return getEnv('KRAKEN_MAKER_FEE_DEFAULT');
+  },
   get binanceTakerFeeDefault() {
     return getEnv('BINANCE_TAKER_FEE_DEFAULT');
   },
 };
+
+/**
+ * Get taker fee rate for a given exchange (decimal, e.g. 0.0026 for 0.26%)
+ */
+export function getExchangeTakerFee(exchange: string): number {
+  const env = getEnvironmentConfig();
+  return exchange.toLowerCase() === 'binance'
+    ? env.BINANCE_TAKER_FEE_DEFAULT   // 0.001 (0.10%)
+    : env.KRAKEN_TAKER_FEE_DEFAULT;   // 0.0026 (0.26%)
+}
+
+/**
+ * Get maker fee rate for a given exchange (decimal, e.g. 0.0016 for 0.16%)
+ * Only Kraken has a separate maker fee; Binance uses same rate for maker/taker at standard tier
+ */
+export function getExchangeMakerFee(exchange: string): number {
+  const env = getEnvironmentConfig();
+  return exchange.toLowerCase() === 'kraken'
+    ? env.KRAKEN_MAKER_FEE_DEFAULT   // 0.0016 (0.16%)
+    : env.BINANCE_TAKER_FEE_DEFAULT; // 0.001 (0.10%) - same maker/taker at standard tier
+}
+
+/**
+ * Estimate round-trip fee in percent (entry + exit)
+ * Kraken: 0.52%, Binance: 0.20%
+ */
+export function estimateRoundTripFeePct(exchange: string): number {
+  return getExchangeTakerFee(exchange) * 2 * 100;
+}
 
 /**
  * Billing configuration

@@ -43,29 +43,31 @@ export function Header() {
             </div>
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-6 md:flex-1">
-            <Link
-              href="/#features"
-              className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
-            >
-              Features
-            </Link>
-            <Link
-              href="/pricing"
-              className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
-            >
-              Pricing
-            </Link>
-          </nav>
+          {/* Desktop Navigation - Only show for non-authenticated users */}
+          {!session?.user && (
+            <nav className="hidden md:flex items-center gap-6 md:flex-1">
+              <Link
+                href="/#features"
+                className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
+              >
+                Features
+              </Link>
+              <Link
+                href="/pricing"
+                className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
+              >
+                Pricing
+              </Link>
+            </nav>
+          )}
 
-          {/* Auth Buttons / User Menu */}
-          <div className="flex items-center gap-2 sm:gap-4">
+          {/* Auth Buttons / User Menu - Mobile First */}
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
             {/* Theme Toggle Button - Only render when mounted to avoid hydration mismatch */}
             {mounted && (
               <button
                 onClick={toggleTheme}
-                className="p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
+                className="p-1.5 sm:p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition touch-manipulation flex-shrink-0"
                 aria-label="Toggle dark mode"
                 title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               >
@@ -96,7 +98,7 @@ export function Header() {
             )}
 
             {session?.user ? (
-              <div className="flex items-center gap-2 sm:gap-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 md:gap-4">
                 <Link
                   href="/dashboard"
                   className="hidden sm:inline-block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition text-sm"
@@ -117,35 +119,39 @@ export function Header() {
                 >
                   Help
                 </Link>
+                {/* Hide Sign Out button on mobile - show in mobile menu instead */}
                 <button
                   onClick={() => signOut({ redirect: true, callbackUrl: '/' })}
-                  className="text-sm bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white px-3 py-1.5 rounded hover:bg-slate-300 dark:hover:bg-slate-700 transition"
+                  className="hidden sm:inline-block text-sm bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white px-3 py-1.5 rounded hover:bg-slate-300 dark:hover:bg-slate-700 transition"
                 >
                   Sign Out
                 </button>
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <Link
                   href="/auth/signin"
-                  className="text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition font-medium"
+                  className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition font-medium whitespace-nowrap"
                 >
                   Sign In
                 </Link>
                 <Link
                   href="/auth/signup"
-                  className="text-sm bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded transition font-medium"
+                  className="text-xs sm:text-sm bg-blue-600 hover:bg-blue-700 text-white px-2.5 sm:px-3 py-1.5 rounded transition font-medium whitespace-nowrap"
                 >
                   Get Started
                 </Link>
               </div>
             )}
 
-            {/* Mobile Menu Button */}
-            <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="md:hidden p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
-            >
+            {/* Mobile Menu Button - Only show for non-authenticated users */}
+            {/* Authenticated users use the sidebar hamburger in DashboardLayout instead */}
+            {!session?.user && (
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="md:hidden p-1.5 sm:p-2 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition touch-manipulation flex-shrink-0 ml-1"
+                aria-label="Toggle menu"
+              >
               <svg
                 className="w-6 h-6"
                 fill="none"
@@ -168,39 +174,45 @@ export function Header() {
                   />
                 )}
               </svg>
-            </button>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Mobile Navigation */}
         {isMenuOpen && (
           <nav className="md:hidden border-t border-slate-200 dark:border-slate-800 py-4 space-y-3">
-            <Link
-              href="/#features"
-              className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Features
-            </Link>
-            <Link
-              href="/#pricing"
-              className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/pricing"
-              className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Plans
-            </Link>
+            {/* Only show Features/Pricing links for non-authenticated users */}
+            {!session?.user && (
+              <>
+                <Link
+                  href="/#features"
+                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Features
+                </Link>
+                <Link
+                  href="/#pricing"
+                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Pricing
+                </Link>
+                <Link
+                  href="/pricing"
+                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Plans
+                </Link>
+              </>
+            )}
             {session?.user && (
               <>
                 <Link
                   href="/dashboard"
-                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
+                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2.5 px-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   Dashboard
@@ -208,7 +220,7 @@ export function Header() {
                 {(session.user as any).role === 'admin' && (
                   <Link
                     href="/admin/dashboard"
-                    className="block text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300 transition py-2 font-medium"
+                    className="block text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300 transition py-2.5 px-2 font-medium rounded hover:bg-purple-50 dark:hover:bg-purple-900/20"
                     onClick={() => setIsMenuOpen(false)}
                   >
                     Admin Panel
@@ -216,11 +228,21 @@ export function Header() {
                 )}
                 <Link
                   href="/help"
-                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2"
+                  className="block text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2.5 px-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
                   onClick={() => setIsMenuOpen(false)}
                 >
                   Help
                 </Link>
+                {/* Sign Out button in mobile menu */}
+                <button
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    signOut({ redirect: true, callbackUrl: '/' });
+                  }}
+                  className="w-full text-left text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition py-2.5 px-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Sign Out
+                </button>
               </>
             )}
           </nav>

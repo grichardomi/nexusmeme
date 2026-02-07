@@ -15,8 +15,7 @@ import {
   predictPriceAI,
   // analyzeRiskAI - DISABLED: Result was explicitly ignored (signal confidence is PRIMARY per /nexus)
 } from './inference';
-import { fetchKrakenOHLC } from '@/services/market-data/kraken-ohlc';
-import { regimeDetector } from '@/services/regime/detector';
+import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import {
   AIAnalysisRequest,
   AIAnalysisResult,
@@ -108,28 +107,18 @@ export async function analyzeMarket(
       confidence: 0,
     };
 
-    // Market Regime Analysis (FREE - no AI call, uses cached database regime)
-    // CRITICAL: Use regime from database (already detected by orchestrator with 100 candles)
+    // Market Regime Analysis (FREE - no AI call, always calculate fresh)
+    // CRITICAL FIX: Never use cached database regime - always calculate fresh from live indicators
+    // Caching caused stale "choppy" regime even when ADX was 32.8 (should be "moderate")
+    // Per CLAUDE.md: "no cached data" - fresh regime detection is critical for trading decisions
     if (request.includeRegime !== false) {
-      const dbRegime = await regimeDetector.getLatestRegime(request.pair);
+      result.regime = detectMarketRegime(candles, indicators);
 
-      if (dbRegime) {
-        result.regime = {
-          regime: dbRegime.type,
-          confidence: Number(dbRegime.confidence),
-          volatility: 0,
-          trend: 0,
-          analysis: dbRegime.reason,
-          timestamp: dbRegime.timestamp,
-        };
-      } else {
-        result.regime = detectMarketRegime(candles, indicators);
-      }
-
-      logger.debug('Market regime loaded from cache', {
+      logger.debug('Market regime calculated fresh from indicators', {
         pair: request.pair,
         regime: result.regime.regime,
         confidence: result.regime.confidence,
+        adx: indicators.adx,
       });
     }
 
@@ -242,7 +231,7 @@ async function fetchMarketData(
   timeframe: string,
   limit: number
 ): Promise<OHLCCandle[]> {
-  return fetchKrakenOHLC(pair, limit, timeframe);
+  return fetchOHLC(pair, limit, timeframe);
 }
 
 /**

@@ -184,13 +184,15 @@ export default function SupportPage() {
 
   return (
     <DashboardLayout title="Support">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Support Tickets</h1>
+      <div className="space-y-4 md:space-y-6 max-w-full overflow-x-hidden">
+        {/* Header - Mobile First: Stack on mobile, row on desktop */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
+            Support Tickets
+          </h1>
           <button
             onClick={() => setShowCreateForm(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition"
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition text-sm sm:text-base touch-manipulation"
           >
             Create Ticket
           </button>
@@ -214,12 +216,14 @@ export default function SupportPage() {
           />
         )}
 
-        {/* Tickets List */}
-        <div className="space-y-4">
+        {/* Tickets List - Mobile First */}
+        <div className="space-y-3 md:space-y-4 max-w-full">
           {tickets.length === 0 && !isLoading ? (
-            <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
-              <p className="text-slate-600 dark:text-slate-400 mb-4">No support tickets yet</p>
-              <p className="text-sm text-slate-500 dark:text-slate-500">
+            <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 sm:p-8 md:p-12 text-center">
+              <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 mb-3 md:mb-4">
+                No support tickets yet
+              </p>
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-500">
                 If you need help, click "Create Ticket" above to get in touch with our support team.
               </p>
             </div>
@@ -229,28 +233,31 @@ export default function SupportPage() {
                 <Link
                   key={ticket.id}
                   href={`/dashboard/support/${ticket.id}`}
-                  className="block bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition"
+                  className="block bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 sm:p-5 md:p-6 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition active:scale-[0.99] touch-manipulation overflow-hidden"
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="text-lg">{getStatusIcon(ticket.status)}</span>
-                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                          {ticket.subject}
-                        </h3>
-                        {(unreadCounts[ticket.id] || 0) > 0 && (
-                          <span className="ml-2 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-semibold">
-                            {unreadCounts[ticket.id]} new
-                          </span>
-                        )}
+                  {/* Mobile First: Stack on mobile, row on tablet+ */}
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-3 md:mb-4 min-w-0">
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className="flex items-start gap-2 sm:gap-3 mb-2">
+                        <span className="text-base sm:text-lg flex-shrink-0">{getStatusIcon(ticket.status)}</span>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white break-words line-clamp-2">
+                            {ticket.subject}
+                          </h3>
+                          {(unreadCounts[ticket.id] || 0) > 0 && (
+                            <span className="inline-block mt-1 px-2 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-semibold">
+                              {unreadCounts[ticket.id]} new
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 truncate">
                         Created {new Date(ticket.createdAt).toLocaleDateString()}
                       </p>
                     </div>
 
                     <span
-                      className={`inline-block px-3 py-1 rounded text-xs font-medium ${getPriorityColor(
+                      className={`inline-block px-2.5 sm:px-3 py-1 rounded text-xs font-medium self-start flex-shrink-0 ${getPriorityColor(
                         ticket.priority
                       )}`}
                     >
@@ -258,27 +265,27 @@ export default function SupportPage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-slate-500 dark:text-slate-500 capitalize">
+                  <div className="flex items-center gap-3 sm:gap-4 flex-wrap min-w-0">
+                    <span className="text-xs text-slate-500 dark:text-slate-500 capitalize truncate">
                       {ticket.category.replace('_', ' ')}
                     </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-500 capitalize">
+                    <span className="text-xs text-slate-500 dark:text-slate-500 capitalize truncate">
                       {ticket.status.replace('_', ' ')}
                     </span>
                   </div>
                 </Link>
               ))}
 
-              {/* Load More Button */}
+              {/* Load More Button - Mobile First */}
               {hasMore && (
-                <div className="flex justify-center pt-4">
+                <div className="flex justify-center pt-3 md:pt-4">
                   <button
                     onClick={() => loadMore()}
                     disabled={isLoading}
-                    className={`px-6 py-2 rounded font-medium transition ${
+                    className={`w-full sm:w-auto px-6 py-2.5 rounded font-medium text-sm sm:text-base transition touch-manipulation ${
                       isLoading
                         ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600'
+                        : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-[0.98]'
                     }`}
                   >
                     {isLoading ? 'Loading...' : 'Load More'}
@@ -472,13 +479,16 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Create Support Ticket</h2>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 sm:p-5 md:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4 md:mb-5">
+          <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+            Create Support Ticket
+          </h2>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-xl"
+            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-2xl sm:text-xl p-1 -m-1 touch-manipulation"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -490,10 +500,10 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Subject */}
+        <form onSubmit={handleSubmit} className="space-y-4 md:space-y-5">
+          {/* Subject - Mobile First */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5 sm:mb-2">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                 Subject *
               </label>
@@ -507,7 +517,7 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
               onChange={e => handleFieldChange('subject', e.target.value)}
               onBlur={() => handleFieldBlur('subject')}
               placeholder="Brief description of your issue"
-              className={`w-full px-4 py-2 rounded border bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 text-sm focus:outline-none focus:ring-2 transition ${
+              className={`w-full px-3 sm:px-4 py-2.5 sm:py-2 rounded border bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 text-sm sm:text-base focus:outline-none focus:ring-2 transition touch-manipulation ${
                 fieldErrors.subject && touched.subject
                   ? 'border-red-300 dark:border-red-500 focus:ring-red-500'
                   : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
@@ -522,15 +532,15 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
             )}
           </div>
 
-          {/* Category */}
+          {/* Category - Mobile First */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 sm:mb-2">
               Category *
             </label>
             <select
               value={formData.category}
               onChange={e => setFormData(prev => ({ ...prev, category: e.target.value as any }))}
-              className="w-full px-4 py-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              className="w-full px-3 sm:px-4 py-2.5 sm:py-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-blue-500 transition touch-manipulation"
               disabled={isSubmitting}
             >
               <option value="general">General</option>
@@ -540,9 +550,9 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
             </select>
           </div>
 
-          {/* Message */}
+          {/* Message - Mobile First */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-1.5 sm:mb-2">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
                 Message *
               </label>
@@ -555,12 +565,12 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
               onChange={e => handleFieldChange('message', e.target.value)}
               onBlur={() => handleFieldBlur('message')}
               placeholder="Please provide details about your issue..."
-              className={`w-full px-4 py-2 rounded border bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 text-sm focus:outline-none focus:ring-2 transition resize-none ${
+              className={`w-full px-3 sm:px-4 py-2.5 sm:py-2 rounded border bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 text-sm sm:text-base focus:outline-none focus:ring-2 transition resize-none touch-manipulation ${
                 fieldErrors.message && touched.message
                   ? 'border-red-300 dark:border-red-500 focus:ring-red-500'
                   : 'border-slate-300 dark:border-slate-600 focus:ring-blue-500'
               }`}
-              rows={6}
+              rows={5}
               disabled={isSubmitting}
             />
             {fieldErrors.message && touched.message && (
@@ -571,21 +581,21 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
             )}
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
+          {/* Actions - Mobile First: Stack on mobile, row on desktop */}
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 sm:justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 font-medium text-sm transition"
+              className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 font-medium text-sm transition touch-manipulation active:scale-[0.98]"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className={`px-4 py-2 rounded font-medium text-sm transition ${
+              className={`w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded font-medium text-sm transition touch-manipulation ${
                 isFormValid() && !isSubmitting
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
+                  ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white cursor-pointer active:scale-[0.98]'
                   : 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
               }`}
               disabled={!isFormValid() || isSubmitting}

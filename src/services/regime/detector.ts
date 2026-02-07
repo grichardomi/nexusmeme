@@ -1,6 +1,6 @@
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { getExchangeAdapter } from '@/services/exchanges/singleton';
+import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import { calculateTechnicalIndicators, detectMarketRegime } from '@/services/ai/market-analysis';
 import type { MarketRegime, RegimeType } from '@/types/market';
 import type { OHLCCandle } from '@/types/ai';
@@ -26,26 +26,26 @@ class RegimeDetector {
 
   /**
    * Get cached 1h OHLC or fetch fresh if stale/missing
+   * Uses Binance public API via fetchOHLC (no rate limiter, correct pair mapping)
    */
-  private async getCached1hOHLC(pair: string, exchange: string, limit: number): Promise<any[]> {
-    const cacheKey = `${pair}:${exchange}:1h:${limit}`;
+  private async getCached1hOHLC(pair: string, _exchange: string, limit: number): Promise<OHLCCandle[]> {
+    const cacheKey = `${pair}:1h:${limit}`;
     const cached = this.ohlcCache1h.get(cacheKey);
     const now = Date.now();
 
     if (cached && (now - cached.timestamp) < this.OHLC_1H_CACHE_TTL_MS) {
-      logger.debug('1h OHLC cache HIT', { pair, exchange, age: now - cached.timestamp });
+      logger.debug('1h OHLC cache HIT', { pair, age: now - cached.timestamp });
       return cached.data;
     }
 
-    logger.debug('1h OHLC cache MISS - fetching fresh', { pair, exchange, limit });
-    const adapter = getExchangeAdapter(exchange);
-    const ohlcv = await adapter.getOHLCV(pair, '1h', limit);
+    logger.debug('1h OHLC cache MISS - fetching fresh', { pair, limit });
+    const candles = await fetchOHLC(pair, limit, '1h');
 
-    if (ohlcv && ohlcv.length >= 26) {
-      this.ohlcCache1h.set(cacheKey, { data: ohlcv, timestamp: now });
+    if (candles && candles.length >= 26) {
+      this.ohlcCache1h.set(cacheKey, { data: candles, timestamp: now });
     }
 
-    return ohlcv;
+    return candles;
   }
 
   /**
@@ -92,26 +92,8 @@ class RegimeDetector {
         return null;
       }
 
-      // CRITICAL: Use only the most recent candles for regime detection
-      // Kraken may return more than requested (e.g., 721 instead of 100)
-      // Using all of them would make regime detection look at 30+ days of history
-      // instead of recent 4 days, causing stale bearish signals when price is rising
-      const recentCandles = ohlcv.slice(-100); // Use last 100 candles max
-      logger.debug('Regime detection candle selection', {
-        pair,
-        totalFetched: ohlcv.length,
-        used: recentCandles.length,
-      });
-
-      // Convert to OHLCCandle format expected by analysis functions
-      const candles: OHLCCandle[] = recentCandles.map((candle: any) => ({
-        time: candle.timestamp,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        volume: candle.volume,
-      }));
+      // Use last 100 candles max for regime detection
+      const candles = ohlcv.slice(-100);
 
       // Calculate technical indicators
       const indicators = calculateTechnicalIndicators(candles);

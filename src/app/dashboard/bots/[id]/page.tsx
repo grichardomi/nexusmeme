@@ -55,6 +55,7 @@ export default function BotDetailPage() {
   const [isStoppingBot, setIsStoppingBot] = useState(false);
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   const [editBotName, setEditBotName] = useState('');
+  const [editExchange, setEditExchange] = useState('');
   const [editInitialCapital, setEditInitialCapital] = useState('');
   const [editCapitalMode, setEditCapitalMode] = useState<'fixed' | 'unlimited'>('fixed');
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
@@ -110,6 +111,7 @@ export default function BotDetailPage() {
 
   const handleEditSettingsClick = () => {
     setEditBotName(bot?.name || `${bot?.exchange} Trading Bot` || '');
+    setEditExchange(bot?.exchange || 'binance');
 
     const initialCapital = bot?.initialCapital;
     // Check if unlimited (0 = unlimited, uses real exchange balance)
@@ -147,7 +149,7 @@ export default function BotDetailPage() {
 
     setIsUpdatingSettings(true);
     try {
-      console.log('Updating bot settings:', { botId: id, name: editBotName, initialCapital: capital });
+      console.log('Updating bot settings:', { botId: id, name: editBotName, exchange: editExchange, initialCapital: capital });
 
       const response = await fetch('/api/bots', {
         method: 'PATCH',
@@ -155,6 +157,7 @@ export default function BotDetailPage() {
         body: JSON.stringify({
           botId: id,
           name: editBotName,
+          exchange: editExchange,
           initialCapital: capital,
         }),
       });
@@ -832,6 +835,25 @@ export default function BotDetailPage() {
                   placeholder="e.g., My Trading Bot"
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Exchange
+                </label>
+                <select
+                  value={editExchange}
+                  onChange={(e) => setEditExchange(e.target.value)}
+                  disabled={isUpdatingSettings}
+                  className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="binance">Binance</option>
+                  <option value="kraken">Kraken</option>
+                  <option value="coinbase">Coinbase</option>
+                </select>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Requires API keys connected in Settings
+                </p>
               </div>
 
               <div>

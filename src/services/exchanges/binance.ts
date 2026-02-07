@@ -1,6 +1,7 @@
 import { BaseExchangeAdapter } from './adapter';
 import { logger, logApiCall } from '@/lib/logger';
 import type { ApiKeys, Order, Balance, Ticker, OrderResult } from '@/types/exchange';
+import { marketDataAggregator } from '@/services/market-data/aggregator';
 import { createHmac } from 'crypto';
 import { withRetry, CircuitBreaker } from '@/lib/resilience';
 import { binanceRateLimiter } from '@/lib/distributed-rate-limiter';
@@ -14,7 +15,7 @@ import { getEnvironmentConfig } from '@/config/environment';
  * Rate limits: 1200 requests per minute (20 per second)
  */
 export class BinanceAdapter extends BaseExchangeAdapter {
-  private baseUrl = 'https://api.binance.com/api';
+  private baseUrl = `${getEnvironmentConfig().BINANCE_API_BASE_URL}/api`;
   // Circuit breaker: open after 5 failures, close after 3 successes, reset after 60s
   private circuitBreaker = new CircuitBreaker(5, 3, 60000);
   // Rate limiter is distributed (Redis-backed) - shared across all instances
@@ -22,6 +23,17 @@ export class BinanceAdapter extends BaseExchangeAdapter {
 
   getName(): string {
     return 'binance';
+  }
+
+  /**
+   * Normalize pair to Binance symbol format
+   * BTC/USD → BTCUSDT, ETH/USD → ETHUSDT, BTC/USDT → BTCUSDT
+   * Binance only has USDT pairs — USD must be converted to USDT
+   */
+  private normalizeSymbol(pair: string): string {
+    const [base, quote] = pair.split('/');
+    const binanceQuote = quote === 'USD' ? 'USDT' : quote;
+    return `${base}${binanceQuote}`;
   }
 
   async connect(keys: ApiKeys): Promise<void> {
@@ -52,8 +64,23 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     }
   }
 
+  private async getPublicSymbolPrice(symbol: string): Promise<number | null> {
+    try {
+      const url = `${this.baseUrl}/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      const p = parseFloat(data.price);
+      return Number.isFinite(p) && p > 0 ? p : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // getFees implemented later in file (avoid duplication)
+
   async placeOrder(
-    order: Omit<Order, 'id' | 'status' | 'timestamp'>
+    order: { pair: string; side: 'buy' | 'sell'; amount: number; price: number; timeInForce?: string; postOnly?: boolean }
   ): Promise<OrderResult> {
     this.validateKeys();
     this.validatePair(order.pair);
@@ -104,14 +131,14 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         return await withRetry(
           async () => {
             // Convert pair format: BTC/USDT -> BTCUSDT
-            const symbol = order.pair.replace('/', '');
+            const symbol = this.normalizeSymbol(order.pair);
 
             // Build order parameters
-            const params = {
+            const params: any = {
               symbol,
               side: order.side.toUpperCase(),
               type: 'LIMIT',
-              timeInForce: 'GTC', // Good Till Canceled
+              timeInForce: order.timeInForce || 'GTC', // Allow IOC for exits
               quantity: order.amount.toFixed(8),
               price: order.price.toFixed(2),
               recvWindow: 5000, // 5 second validity window
@@ -168,12 +195,51 @@ export class BinanceAdapter extends BaseExchangeAdapter {
           if (totalQty > 0 && totalCost > 0) {
             avgPrice = totalCost / totalQty;
           }
+          // Capture fee asset and convert to quote if needed
+          const commissionAsset = result.fills[0]?.commissionAsset || result.fills[0]?.c || undefined;
           if (totalCommission > 0) {
             fee = totalCommission;
-            logger.debug('Captured Binance order fees from response', {
-              orderId: result.orderId,
-              fee,
-            });
+            try {
+              const [, quote] = order.pair.split('/');
+              let feeQuote = totalCommission;
+              if (commissionAsset && commissionAsset !== quote) {
+                // Try exchange-native price first (e.g., BNBUSDT)
+                const symbol = `${commissionAsset}${quote}`;
+                const exPrice = await this.getPublicSymbolPrice(symbol);
+                if (exPrice && exPrice > 0) {
+                  feeQuote = totalCommission * exPrice;
+                } else {
+                  // Fallback to aggregator if available
+                  const pairForFee = `${commissionAsset}/${quote}`;
+                  const md = await marketDataAggregator.getMarketData([pairForFee]);
+                  const ticker = md.get(pairForFee);
+                  if (ticker && ticker.price > 0) {
+                    feeQuote = totalCommission * ticker.price;
+                  }
+                }
+              }
+              // Attach metadata to result
+              (result as any).feeAsset = commissionAsset;
+              (result as any).feeQuote = feeQuote;
+              // Derive maker flag if all fills share isMaker
+              const allMaker = result.fills.every((f: any) => f.isMaker === true);
+              const allTaker = result.fills.every((f: any) => f.isMaker === false);
+              if (allMaker || allTaker) {
+                (result as any).isMaker = allMaker;
+              }
+              logger.debug('Captured Binance fees with normalization', {
+                orderId: result.orderId,
+                fee,
+                feeAsset: commissionAsset,
+                feeQuote: (result as any).feeQuote,
+                isMaker: (result as any).isMaker,
+              });
+            } catch (convErr) {
+              logger.warn('Fee normalization failed (Binance fills)', {
+                orderId: result.orderId,
+                error: convErr instanceof Error ? convErr.message : String(convErr),
+              });
+            }
           }
         }
 
@@ -182,7 +248,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
           const orderData = await this.circuitBreaker.execute(async () => {
             return await withRetry(
               async () => {
-                const symbol = order.pair.replace('/', '');
+                const symbol = this.normalizeSymbol(order.pair);
                 const params = {
                   symbol,
                   orderId: result.orderId,
@@ -215,10 +281,44 @@ export class BinanceAdapter extends BaseExchangeAdapter {
             }
             if (totalCommission > 0) {
               fee = totalCommission;
-              logger.debug('Captured Binance order fees from query', {
-                orderId: result.orderId,
-                fee,
-              });
+              try {
+                const commissionAsset = orderData.fills[0]?.commissionAsset || orderData.fills[0]?.c || undefined;
+                const [, quote] = order.pair.split('/');
+                let feeQuote = totalCommission;
+                if (commissionAsset && commissionAsset !== quote) {
+                  const symbol = `${commissionAsset}${quote}`;
+                  const exPrice = await this.getPublicSymbolPrice(symbol);
+                  if (exPrice && exPrice > 0) {
+                    feeQuote = totalCommission * exPrice;
+                  } else {
+                    const pairForFee = `${commissionAsset}/${quote}`;
+                    const md = await marketDataAggregator.getMarketData([pairForFee]);
+                    const ticker = md.get(pairForFee);
+                    if (ticker && ticker.price > 0) {
+                      feeQuote = totalCommission * ticker.price;
+                    }
+                  }
+                }
+                (orderData as any).feeAsset = commissionAsset;
+                (orderData as any).feeQuote = feeQuote;
+                const allMaker = orderData.fills.every((f: any) => f.isMaker === true);
+                const allTaker = orderData.fills.every((f: any) => f.isMaker === false);
+                if (allMaker || allTaker) {
+                  (orderData as any).isMaker = allMaker;
+                }
+                logger.debug('Captured Binance fees from query with normalization', {
+                  orderId: result.orderId,
+                  fee,
+                  feeAsset: (orderData as any).feeAsset,
+                  feeQuote: (orderData as any).feeQuote,
+                  isMaker: (orderData as any).isMaker,
+                });
+              } catch (convErr) {
+                logger.warn('Fee normalization failed (Binance query)', {
+                  orderId: result.orderId,
+                  error: convErr instanceof Error ? convErr.message : String(convErr),
+                });
+              }
             }
           }
 
@@ -239,7 +339,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         // Continue without fee data - will fall back to default calculation
       }
 
-      return {
+      const orderResult: OrderResult = {
         orderId: result.orderId,
         pair: order.pair,
         side: order.side,
@@ -249,7 +349,15 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         timestamp: new Date(result.transactTime || Date.now()),
         status: result.status.toLowerCase(),
         fee,
-      };
+      } as OrderResult;
+      // Attach normalized fee fields if available
+      const feeAssetFromResp = (result as any).feeAsset ?? undefined;
+      const feeQuoteFromResp = (result as any).feeQuote ?? undefined;
+      const isMakerFromResp = (result as any).isMaker ?? undefined;
+      if (feeAssetFromResp) (orderResult as any).feeAsset = feeAssetFromResp;
+      if (feeQuoteFromResp !== undefined) (orderResult as any).feeQuote = feeQuoteFromResp;
+      if (isMakerFromResp !== undefined) (orderResult as any).isMaker = isMakerFromResp;
+      return orderResult;
     } catch (error) {
       logger.error('Failed to place Binance order', error instanceof Error ? error : null, {
         pair: order.pair,
@@ -268,7 +376,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
       logger.info('Cancelling Binance order', { orderId, pair });
 
       // Convert pair format: BTC/USDT -> BTCUSDT
-      const symbol = pair.replace('/', '');
+      const symbol = this.normalizeSymbol(pair);
 
       // Use circuit breaker + retry for resilience
       // Don't retry on validation errors (order not found, already cancelled)
@@ -325,7 +433,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     try {
       logger.info('Fetching Binance order', { orderId, pair });
 
-      const symbol = pair.replace('/', '');
+      const symbol = this.normalizeSymbol(pair);
 
       // Use circuit breaker + retry for resilience
       const data = await this.circuitBreaker.execute(async () => {
@@ -380,7 +488,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     try {
       logger.info('Listing Binance open orders', { pair });
 
-      const symbol = pair.replace('/', '');
+      const symbol = this.normalizeSymbol(pair);
 
       // Use circuit breaker + retry for resilience
       const data = await this.circuitBreaker.execute(async () => {
@@ -520,7 +628,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         return await withRetry(
           async () => {
             // Convert pair to Binance format (e.g., BTC/USDT -> BTCUSDT)
-            const symbol = pair.replace('/', '');
+            const symbol = this.normalizeSymbol(pair);
 
             const data = await this.publicRequest(`/v3/ticker/24hr?symbol=${symbol}`);
 
@@ -570,7 +678,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
 
     try {
       // Convert pair to Binance format (e.g., BTC/USDT -> BTCUSDT)
-      const symbol = pair.replace('/', '');
+      const symbol = this.normalizeSymbol(pair);
 
       // Map standard timeframes to Binance interval format
       const intervalMap: Record<string, string> = {
@@ -659,7 +767,7 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     try {
       logger.info('Fetching min order size for pair', { pair });
 
-      const symbol = pair.replace('/', '');
+      const symbol = this.normalizeSymbol(pair);
 
       // Use circuit breaker + retry for resilience
       const data = await this.circuitBreaker.execute(async () => {
@@ -771,6 +879,8 @@ export class BinanceAdapter extends BaseExchangeAdapter {
       throw error;
     }
   }
+
+  // Removed unused public SAPI helper
 
   /**
    * Make private (authenticated) request to Binance API with HMAC-SHA256 signing

@@ -14,6 +14,8 @@ interface Trade {
   exitTime: string | null;
   profitLoss: number | null;
   profitLossPercent: number | null;
+  profitLossNet: number | null;
+  profitLossPercentNet: number | null;
   status: string;
 }
 
@@ -142,14 +144,17 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
 
   const calculateMetrics = (position: Trade) => {
     if (!position.exitPrice) {
-      // For open positions, calculate unrealized P&L using current market price
-      const currentPrice = prices.get(position.pair)?.price;
-      let unrealizedPnL: number | null = null;
-      let unrealizedPnLPercent: number | null = null;
+      // For open positions, use NET P&L from API (includes estimated round-trip fees)
+      // Fall back to GROSS client-side calc only if API NET values unavailable
+      let unrealizedPnL: number | null = position.profitLossNet;
+      let unrealizedPnLPercent: number | null = position.profitLossPercentNet;
 
-      if (currentPrice) {
-        unrealizedPnL = (currentPrice - position.entryPrice) * position.quantity;
-        unrealizedPnLPercent = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+      if (unrealizedPnL === null || unrealizedPnLPercent === null) {
+        const currentPrice = prices.get(position.pair)?.price;
+        if (currentPrice) {
+          unrealizedPnL = (currentPrice - position.entryPrice) * position.quantity;
+          unrealizedPnLPercent = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
+        }
       }
 
       return {
@@ -162,8 +167,8 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
     }
 
     return {
-      currentPnL: position.profitLoss,
-      currentPnLPercent: position.profitLossPercent,
+      currentPnL: position.profitLossNet ?? position.profitLoss,
+      currentPnLPercent: position.profitLossPercentNet ?? position.profitLossPercent,
       peakPnL: position.profitLoss,
       erosion: null,
       holdTime: new Date(position.exitTime || Date.now()).getTime() - new Date(position.entryTime).getTime(),
@@ -305,12 +310,16 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
                             <span className="text-slate-500 dark:text-slate-400">—</span>
                           )}
                         </td>
-                        <td className={`py-3 px-4 text-right text-sm ${health ? getErosionColor(erosionRatioPct) : 'text-slate-500 dark:text-slate-400'}`}>
+                        <td className={`py-3 px-4 text-right text-sm ${health ? (parseFloat(health.peakProfitPct) > 0 && parseFloat(health.peakProfitPct) < 0.1 ? 'text-slate-500 dark:text-slate-400' : getErosionColor(erosionRatioPct)) : 'text-slate-500 dark:text-slate-400'}`}>
                           {health ? (
-                            <div>
-                              <div>{health.erosionRatioPct}%</div>
-                              <div className="text-xs text-slate-600 dark:text-slate-400">{health.erosionPct}</div>
-                            </div>
+                            parseFloat(health.peakProfitPct) > 0 && parseFloat(health.peakProfitPct) < 0.1 ? (
+                              <div>Flat</div>
+                            ) : (
+                              <div>
+                                <div>{health.erosionRatioPct}%</div>
+                                <div className="text-xs text-slate-600 dark:text-slate-400">{health.erosionPct}</div>
+                              </div>
+                            )
                           ) : (
                             '—'
                           )}

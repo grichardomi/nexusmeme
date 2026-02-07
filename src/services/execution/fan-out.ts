@@ -5,6 +5,8 @@ import DynamicPositionSizer from '@/services/trading/dynamic-position-sizer';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
+import { getExchangeTakerFee } from '@/config/environment';
+import { capitalPreservation } from '@/services/risk/capital-preservation';
 
 interface BotInstance {
   id: string;
@@ -270,6 +272,36 @@ class ExecutionFanOut {
       stopLossPct // Use actual stop loss from decision, not hardcoded 2%
     );
 
+    // CAPITAL PRESERVATION: Per-bot Layer 2 (drawdown) + Layer 3 (loss streak)
+    // Layer 1 (BTC trend gate) is already in decision.capitalPreservationMultiplier from orchestrator
+    let cpMultiplier = decision.capitalPreservationMultiplier ?? 1.0;
+    try {
+      const botCp = await capitalPreservation.evaluateBot(bot.id, effectiveBalance);
+      if (!botCp.allowTrading) {
+        logger.info('Capital preservation: bot paused, skipping trade', {
+          botId: bot.id,
+          reason: botCp.reason,
+          layer: botCp.layer,
+        });
+        return null;
+      }
+      cpMultiplier = Math.max(0.25, cpMultiplier * botCp.sizeMultiplier); // Floor at 0.25
+      if (cpMultiplier < 1.0) {
+        logger.info('Capital preservation: reducing position size for bot', {
+          botId: bot.id,
+          globalMultiplier: decision.capitalPreservationMultiplier ?? 1.0,
+          botMultiplier: botCp.sizeMultiplier,
+          combinedMultiplier: cpMultiplier,
+          reason: botCp.reason,
+        });
+      }
+    } catch (error) {
+      logger.warn('Capital preservation: per-bot check error, using global multiplier only', {
+        botId: bot.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     // REGIME-BASED POSITION SIZING: Scale positions based on market regime
     // Strong trends = bigger positions (ride the wave)
     // Weak/choppy = smaller positions (reduce risk in uncertain markets)
@@ -283,12 +315,13 @@ class ExecutionFanOut {
     const regimeMultiplier = regimeMultipliers[regimeType] ?? 1.0;
 
     const baseQuantity = positionSize.sizeAsset;
-    const quantity = baseQuantity * regimeMultiplier;
+    const quantity = baseQuantity * regimeMultiplier * cpMultiplier;
 
-    logger.info('Regime-adjusted position size', {
+    logger.info('Position size with regime + capital preservation', {
       botId: bot.id,
       regime: regimeType,
       regimeMultiplier: `${regimeMultiplier}x`,
+      cpMultiplier: `${cpMultiplier}x`,
       baseQuantity: baseQuantity.toFixed(8),
       adjustedQuantity: quantity.toFixed(8),
     });
@@ -483,6 +516,7 @@ class ExecutionFanOut {
     const calculatedTakeProfit = takeProfit || (side === 'buy' ? executionPrice * 1.05 : executionPrice * 0.95);
 
     let orderId = `paper_${Date.now()}`;
+    let entryFee = 0; // Track entry fee for NET profit calculations
 
     // Execute on exchange (paper or live)
     if (tradingMode === 'live') {
@@ -515,11 +549,9 @@ class ExecutionFanOut {
         const adapter = getExchangeAdapter(exchange);
         await adapter.connect({ publicKey, secretKey });
 
+        // Place limit order at current market price
         const orderResult = await adapter.placeOrder({
-          pair,
-          side,
-          amount,
-          price: executionPrice, // Use live execution price
+          pair, side, amount, price: executionPrice,
         });
 
         orderId = orderResult.orderId;
@@ -527,13 +559,28 @@ class ExecutionFanOut {
         if (orderResult.avgPrice && orderResult.avgPrice > 0) {
           executionPrice = orderResult.avgPrice;
         }
-        console.log(`\n💰 LIVE TRADE EXECUTED: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)}`);
+
+        // Capture entry fee from exchange (or estimate as fallback)
+        if ((orderResult as any).feeQuote && (orderResult as any).feeQuote > 0) {
+          entryFee = (orderResult as any).feeQuote;
+        } else if (orderResult.fee && orderResult.fee > 0) {
+          entryFee = orderResult.fee;
+        } else {
+          // Estimate using taker fee rate for the exchange
+          const feeRate = getExchangeTakerFee(exchange);
+          entryFee = executionPrice * amount * feeRate;
+        }
+
+        console.log(`\n💰 LIVE TRADE EXECUTED: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)} (fee: $${entryFee.toFixed(4)})`);
         logger.info('Trade executed on LIVE exchange (direct)', {
           orderId,
           pair,
           side,
           amount,
           executionPrice,
+          entryFee,
+          feeAsset: (orderResult as any).feeAsset,
+          exchange,
           tradingMode: 'live',
         });
       } catch (error) {
@@ -546,27 +593,34 @@ class ExecutionFanOut {
         return { executed: false, reason: 'exchange_error' };
       }
     } else {
-      console.log(`\n📋 PAPER TRADE: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)} (live price)`);
+      // Paper trade: estimate entry fee using taker rate for the exchange
+      const feeRate = getExchangeTakerFee(exchange);
+      entryFee = executionPrice * amount * feeRate;
+
+      console.log(`\n📋 PAPER TRADE: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)} (est fee: $${entryFee.toFixed(4)})`);
       logger.info('Paper trade executed (direct)', {
         orderId,
         pair,
         side,
         amount,
         executionPrice,
+        entryFee,
+        exchange,
         signalPrice: plan.price,
         tradingMode: 'paper',
       });
     }
 
     // Record trade in database with live execution price (/nexus parity)
+    // CRITICAL: Save entry fee so NET profit can be calculated accurately
     const idempotencyKey = `direct_${botInstanceId}_${pair}_${side}_${Date.now()}`;
     const recordResult = await query<{ id: string }>(
-      `INSERT INTO trades (id, bot_instance_id, pair, side, price, amount,
-                          entry_time, status, idempotency_key, stop_loss, take_profit, trading_mode)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9, $10)
+      `INSERT INTO trades (id, bot_instance_id, pair, side, price, amount, entry_price, quantity,
+                          entry_time, status, idempotency_key, stop_loss, take_profit, trading_mode, fee)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING id`,
-      [botInstanceId, pair, side, executionPrice, amount, 'open', idempotencyKey, calculatedStopLoss, calculatedTakeProfit, tradingMode]
+      [botInstanceId, pair, side, executionPrice, amount, executionPrice, amount, 'open', idempotencyKey, calculatedStopLoss, calculatedTakeProfit, tradingMode, entryFee]
     );
 
     if (!recordResult || recordResult.length === 0) {

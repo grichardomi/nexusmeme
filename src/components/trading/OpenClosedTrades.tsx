@@ -15,6 +15,9 @@ interface Trade {
   exitTime: string | null;
   profitLoss: number | null;
   profitLossPercent: number | null;
+  profitLossNet: number | null;
+  profitLossPercentNet: number | null;
+  fee: number | null;
   status: string;
   exitReason?: string | null;
   botId?: string;
@@ -132,6 +135,22 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
     }
   }, [trades.length, isLoadingMore, hasMore, fetchTrades]);
 
+  // Map backend exit reasons to user-friendly labels
+  function formatExitReason(reason: any): string {
+    const r = String(reason ?? '').toLowerCase();
+    if (r === 'erosion_cap_profit_lock' || r === 'erosion_cap_protected' || r === 'erosion_cap_exceeded') return 'Erosion Cap';
+    if (r === 'underwater_profitable_collapse') return 'Profitable Collapse';
+    if (r === 'underwater_small_peak_timeout') return 'Small Peak Timeout';
+    if (r === 'underwater_never_profited') return 'Never Profited';
+    if (r === 'force_close_underwater') return 'Force Close';
+    if (r === 'manual_close') return 'Manual Close';
+    if (r === 'profit_target') return 'Profit Target';
+    if (r === 'breakeven_protection') return 'Breakeven Protection';
+    if (r === 'stop_loss') return 'Stop Loss';
+    if (r === 'emergency_stop') return 'Emergency Stop';
+    return String(reason ?? '');
+  }
+
   // Fetch server-side position health (includes peak/erosion from DB)
   useEffect(() => {
     async function fetchPositionHealth() {
@@ -152,9 +171,16 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
           const erosionAbsolutePct = Number(pos.erosionAbsolutePct) || (peakProfitPct > 0 ? peakProfitPct - currentProfitPct : 0);
           const status = (pos.status as PositionHealth['status']) || 'healthy';
 
-          // Derive UI status (match Nexus bar coloring)
+          // Derive UI status
+          // Micro-peaks (< 0.1%) are spread noise - derive health from P&L, not erosion
+          const isMicroPeak = peakProfitPct < 0.1;
           let healthStatus: PositionHealth['healthStatus'] = 'HEALTHY';
-          if (status === 'critical') {
+          if (isMicroPeak) {
+            // No meaningful peak yet - status based on current P&L only
+            if (currentProfitPct < -3) healthStatus = 'ALERT';
+            else if (currentProfitPct < -1) healthStatus = 'RISK';
+            else if (currentProfitPct < 0) healthStatus = 'CAUTION';
+          } else if (status === 'critical') {
             healthStatus = 'ALERT';
           } else if (status === 'warning' || status === 'underwater') {
             healthStatus = 'RISK';
@@ -271,6 +297,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
     setClosingTrade(trade.id);
     try {
       const currentPrice = currentPrices[trade.pair];
+      // Send GROSS P&L to close endpoint - it handles fee deduction server-side
       const unrealizedPnL = (currentPrice - trade.entryPrice) * trade.quantity;
       const unrealizedPnLPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
 
@@ -374,10 +401,12 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
   // Mobile-first trade card component
   const TradeCard = ({ trade, isOpen }: { trade: Trade; isOpen: boolean }) => {
     const currentPrice = currentPrices[trade.pair];
-    const unrealizedPnL = currentPrice ? (currentPrice - trade.entryPrice) * trade.quantity : null;
-    const unrealizedPnLPercent = currentPrice ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100 : null;
-    const displayPnL = isOpen ? unrealizedPnL : trade.profitLoss;
-    const displayPnLPercent = isOpen ? unrealizedPnLPercent : trade.profitLossPercent;
+    // Use NET P&L from API (includes estimated round-trip fees)
+    // Fall back to GROSS client-side calc only if API NET values unavailable
+    const unrealizedPnL = trade.profitLossNet ?? (currentPrice ? (currentPrice - trade.entryPrice) * trade.quantity : null);
+    const unrealizedPnLPercent = trade.profitLossPercentNet ?? (currentPrice ? ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100 : null);
+    const displayPnL = isOpen ? unrealizedPnL : (trade.profitLossNet ?? trade.profitLoss);
+    const displayPnLPercent = isOpen ? unrealizedPnLPercent : (trade.profitLossPercentNet ?? trade.profitLossPercent);
     const health = healthData.get(trade.id);
 
     return (
@@ -421,10 +450,20 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             <p className="text-xs text-slate-500 dark:text-slate-400">Quantity</p>
             <p className="font-medium text-slate-900 dark:text-white">{trade.quantity.toFixed(4)}</p>
           </div>
+          {trade.fee !== null && trade.fee > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {isOpen ? 'Entry Fee' : 'Total Fees'}
+              </p>
+              <p className="font-medium text-amber-600 dark:text-amber-400 text-sm">
+                ${trade.fee.toFixed(2)}
+              </p>
+            </div>
+          )}
           {!isOpen && trade.exitReason && (
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Exit Reason</p>
-              <p className="font-medium text-slate-700 dark:text-slate-300 text-xs truncate">{trade.exitReason}</p>
+              <p className="font-medium text-slate-700 dark:text-slate-300 text-xs truncate">{formatExitReason(trade.exitReason)}</p>
             </div>
           )}
         </div>
@@ -468,13 +507,15 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             <div>
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="text-slate-500 dark:text-slate-400">Erosion</span>
-                <span className="font-semibold text-slate-900 dark:text-white">{health.erosionRatioPct.toFixed(1)}%</span>
+                <span className="font-semibold text-slate-900 dark:text-white">
+                  {health.peakProfitPct > 0 && health.peakProfitPct <= 0.1 ? 'Flat' : `${health.erosionRatioPct.toFixed(1)}%`}
+                </span>
               </div>
               <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
                 <div
                   className="h-full transition-all"
                   style={{
-                    width: `${Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
+                    width: `${health.peakProfitPct > 0 && health.peakProfitPct <= 0.1 ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
                     background: health.erosionRatioPct === 0 ? 'transparent' : 'linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%)',
                   }}
                 />

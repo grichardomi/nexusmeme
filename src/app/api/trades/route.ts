@@ -35,10 +35,12 @@ async function handleTradesCSVExport(userId: string, statusFilter: string = 'all
          t.price AS entry_price,
          COALESCE(t.exit_price, t.price) AS exit_price,
          t.amount AS quantity,
+         t.fee,
          t.profit_loss,
          t.profit_loss_percent,
          t.status,
-         t.exit_reason
+         t.exit_reason,
+         b.exchange
        FROM trades t
        INNER JOIN bot_instances b ON t.bot_instance_id = b.id
        WHERE b.user_id = $1
@@ -49,20 +51,37 @@ async function handleTradesCSVExport(userId: string, statusFilter: string = 'all
       [userId, twoYearsAgo.toISOString(), botId || null]
     );
 
-    // Build CSV
-    const headers = ['Pair', 'Entry Time', 'Exit Time', 'Entry Price', 'Exit Price', 'Quantity', 'P&L', 'P&L %', 'Status', 'Exit Reason'];
-    const rows = trades.map((t: any) => [
-      t.pair,
-      new Date(t.entry_time).toLocaleString('en-US'),
-      t.exit_time ? new Date(t.exit_time).toLocaleString('en-US') : 'Open',
-      `$${parseFloat(t.entry_price).toFixed(2)}`,
-      t.exit_price ? `$${parseFloat(t.exit_price).toFixed(2)}` : 'N/A',
-      parseFloat(t.quantity).toFixed(6),
-      t.profit_loss ? `$${parseFloat(t.profit_loss).toFixed(2)}` : 'N/A',
-      t.profit_loss_percent ? `${parseFloat(t.profit_loss_percent).toFixed(2)}%` : 'N/A',
-      t.status,
-      t.exit_reason || 'N/A'
-    ]);
+    // Build CSV — recompute NET P&L from first principles (entry/exit/fees)
+    // DB profit_loss may contain stale values written during open trade monitoring
+    const headers = ['Pair', 'Entry Time', 'Exit Time', 'Entry Price', 'Exit Price', 'Quantity', 'Gross P&L', 'Fees', 'Net P&L', 'Net P&L %', 'Status', 'Exit Reason'];
+    const rows = trades.map((t: any) => {
+      const entryPrice = parseFloat(t.entry_price);
+      const exitPrice = parseFloat(t.exit_price);
+      const qty = parseFloat(t.quantity);
+      const totalFees = parseFloat(t.fee || '0');
+
+      // Recompute from first principles
+      const grossPnL = (exitPrice - entryPrice) * qty;
+      const netPnL = grossPnL - totalFees;
+      const netPnLPct = entryPrice > 0 && qty > 0
+        ? (netPnL / (entryPrice * qty)) * 100
+        : 0;
+
+      return [
+        t.pair,
+        new Date(t.entry_time).toLocaleString('en-US'),
+        t.exit_time ? new Date(t.exit_time).toLocaleString('en-US') : 'Open',
+        `$${entryPrice.toFixed(2)}`,
+        t.exit_time ? `$${exitPrice.toFixed(2)}` : 'N/A',
+        qty.toFixed(6),
+        `$${grossPnL.toFixed(2)}`,
+        `$${totalFees.toFixed(2)}`,
+        `$${netPnL.toFixed(2)}`,
+        `${netPnLPct.toFixed(2)}%`,
+        t.status,
+        t.exit_reason || 'N/A',
+      ];
+    });
 
     const csv = [
       headers.join(','),
@@ -399,27 +418,48 @@ export async function GET(request: NextRequest) {
         profitLossPercent = Number((((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2));
       }
 
-      // Calculate net P&L (after fees)
+      // Calculate net P&L (after BOTH entry + exit fees)
       let profitLossNet: number | null = null;
       let profitLossPercentNet: number | null = null;
 
-      if (t.status === 'open' && exitPrice !== null) {
-        // For open trades: deduct estimated exit fee
+      if (t.status === 'open') {
+        // For open trades: deduct ONLY entry fee (already paid to exchange)
+        // Exit fee is NOT deducted until trade actually closes — it's hypothetical until then.
+        // Best practice: Kraken/Binance show unrealized P&L with entry fee only.
+        // Exit fee gets deducted in the close endpoint when the sell order executes.
         const feeRate = exchange.toLowerCase() === 'binance'
           ? exchangeFeesConfig.binanceTakerFeeDefault
           : exchangeFeesConfig.krakenTakerFeeDefault;
 
-        const exitPositionValue = exitPrice * quantity;
-        const estimatedExitFee = exitPositionValue * feeRate;
+        const storedEntryFee = t.fee ? parseFloat(String(t.fee)) : null;
+        const entryFeeOnly = storedEntryFee ?? (entryPrice * quantity * feeRate);
 
-        profitLossNet = profitLoss !== null ? Number((profitLoss - estimatedExitFee).toFixed(2)) : null;
-        profitLossPercentNet = profitLossPercent !== null
-          ? Number((profitLossPercent - ((estimatedExitFee / (entryPrice * quantity)) * 100)).toFixed(2))
-          : null;
+        if (profitLoss !== null) {
+          profitLossNet = Number((profitLoss - entryFeeOnly).toFixed(2));
+        }
+        if (profitLossPercent !== null) {
+          const entryFeePct = entryPrice > 0 && quantity > 0 ? (entryFeeOnly / (entryPrice * quantity)) * 100 : 0;
+          profitLossPercentNet = Number((profitLossPercent - entryFeePct).toFixed(2));
+        }
       } else if (t.status === 'closed') {
         // For closed trades: fees already deducted in profitLoss (from close endpoint)
         profitLossNet = profitLoss;
         profitLossPercentNet = profitLossPercent;
+      }
+
+      // Fee data for display
+      const feeRate = exchange.toLowerCase() === 'binance'
+        ? exchangeFeesConfig.binanceTakerFeeDefault
+        : exchangeFeesConfig.krakenTakerFeeDefault;
+      const storedFee = t.fee ? parseFloat(String(t.fee)) : null;
+
+      let feeDisplay: number;
+      if (t.status === 'closed') {
+        // Closed trades: total fees (entry + exit) stored in fee column by close endpoint
+        feeDisplay = storedFee ?? (entryPrice * quantity * feeRate * 2);
+      } else {
+        // Open trades: entry fee only (already paid)
+        feeDisplay = storedFee ?? (entryPrice * quantity * feeRate);
       }
 
       return {
@@ -435,6 +475,7 @@ export async function GET(request: NextRequest) {
         profitLossPercent,
         profitLossNet,
         profitLossPercentNet,
+        fee: Number(feeDisplay.toFixed(2)),
         status: t.status,
         exitReason: t.exit_reason || null,
         pyramidLevels: t.pyramid_levels || null,

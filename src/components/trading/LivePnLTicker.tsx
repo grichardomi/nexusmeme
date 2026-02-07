@@ -31,10 +31,19 @@ export function LivePnLTicker({ bot: providedBot }: LivePnLTickerProps) {
 
       trades.forEach((trade: any) => {
         if (!trade.exitPrice && trade.status !== 'closed') {
-          const currentPrice = prices.get(trade.pair)?.price;
-          if (currentPrice) {
-            unrealized += (currentPrice - trade.entryPrice) * trade.quantity;
+          // Use NET P&L from API (includes estimated round-trip fees)
+          if (trade.profitLossNet !== null && trade.profitLossNet !== undefined) {
+            unrealized += Number(trade.profitLossNet);
+          } else {
+            // Fallback to GROSS if NET not available
+            const currentPrice = prices.get(trade.pair)?.price;
+            if (currentPrice) {
+              unrealized += (currentPrice - trade.entryPrice) * trade.quantity;
+            }
           }
+        } else if (trade.profitLossNet !== null && trade.profitLossNet !== undefined) {
+          // Closed trades: use NET (fees already deducted by close endpoint)
+          closed += Number(trade.profitLossNet);
         } else if (trade.profitLoss !== null && trade.profitLoss !== undefined) {
           closed += Number(trade.profitLoss) || 0;
         }

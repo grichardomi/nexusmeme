@@ -6,7 +6,7 @@
 
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
-import { getEnvironmentConfig } from '@/config/environment';
+import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
 import { analyzeMarket } from '@/services/ai/analyzer';
 import { executionFanOut } from '@/services/execution/fan-out';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
@@ -15,8 +15,9 @@ import { calculateTechnicalIndicators } from '@/services/ai/market-analysis';
 import { regimeDetector } from '@/services/regime/detector';
 import { riskManager } from '@/services/risk/risk-manager';
 import { positionTracker } from '@/services/risk/position-tracker';
+import { capitalPreservation } from '@/services/risk/capital-preservation';
 import { jobQueueManager } from '@/services/job-queue/singleton';
-import { fetchKrakenOHLC } from '@/services/market-data/kraken-ohlc';
+import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import type { TradeDecision } from '@/types/market';
 
 interface BotInstance {
@@ -40,7 +41,7 @@ class TradeSignalOrchestrator {
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
   // Cache structure: Map<pair:timeframe, { data: OHLCCandle[], timestamp: number }>
   private ohlcCache = new Map<string, { data: any[], timestamp: number }>();
-  private readonly OHLC_CACHE_TTL_MS = 30000; // 30 seconds TTL (fresh for 15m candles)
+  private readonly OHLC_CACHE_TTL_MS = 120000; // 120 seconds TTL (15m candles are stable, reduces Kraken API calls)
 
   /**
    * Helper: Parse entry_time correctly (handle string or Date object from database)
@@ -82,7 +83,7 @@ class TradeSignalOrchestrator {
   /**
    * Start the orchestrator (runs on configurable interval)
    */
-  async start(intervalMs: number = 60000) {
+  async start(intervalMs: number = 20000) {
     if (this.isRunning) {
       logger.warn('Trade signal orchestrator already running');
       return;
@@ -156,12 +157,14 @@ class TradeSignalOrchestrator {
         id: string;
         bot_instance_id: string;
         pair: string;
-        price: string;
-        amount: string;
+        entry_price: string;
+        quantity: string;
         entry_time: any;
         user_id: string;
+        fee: string | null;
+        exchange: string;
       }>(
-        `SELECT t.id, t.bot_instance_id, t.pair, t.price as entry_price, t.amount, t.entry_time, b.user_id
+        `SELECT t.id, t.bot_instance_id, t.pair, t.entry_price, t.quantity, t.entry_time, b.user_id, t.fee, b.exchange
          FROM trades t
          INNER JOIN bot_instances b ON t.bot_instance_id = b.id
          WHERE t.status = 'open'`
@@ -187,22 +190,27 @@ class TradeSignalOrchestrator {
         }
 
         const currentPrice = priceData.price;
-        const entryPrice = parseFloat(String((trade as any).entry_price ?? trade.price));
-        const quantity = parseFloat(String(trade.amount));
+        const entryPrice = parseFloat(String(trade.entry_price));
+        const quantity = parseFloat(String(trade.quantity));
 
         // Skip if entry price is invalid (prevents NaN propagation and missed exits)
         if (!isFinite(entryPrice) || entryPrice <= 0) {
           logger.warn('Invalid entry price encountered in peak tracking, skipping trade', {
             tradeId: trade.id,
-            rawEntryPrice: (trade as any).entry_price ?? trade.price,
+            rawEntryPrice: trade.entry_price,
           });
           continue;
         }
 
-        // Calculate profit - use GROSS (no fees) for peak tracking and erosion cap
-        // This protects green trades BEFORE fees turn them red
+        // Calculate NET profit (gross - entry fee - estimated exit fee)
+        // This is what the user ACTUALLY makes after fees
         const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-        const currentProfitPct = grossProfitPct; // Alias for compatibility with existing code
+        const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(trade.exchange));
+        const exitFeeDollars = currentPrice * quantity * getExchangeTakerFee(trade.exchange);
+        const totalFeeDollars = entryFeeDollars + exitFeeDollars;
+        const totalFeePct = (totalFeeDollars / (entryPrice * quantity)) * 100;
+        const netProfitPct = grossProfitPct - totalFeePct;
+        const currentProfitPct = netProfitPct; // All decisions use NET profit
 
         const trackedPositions = positionTracker.getTrackedPositions();
         const isTracked = trackedPositions.includes(trade.id);
@@ -212,40 +220,45 @@ class TradeSignalOrchestrator {
         // Main orchestrator loop (60s) does full regime detection
         const regime = 'moderate';
 
-        // CASE 1: Trade is profitable - update peak AND check erosion cap
-        // Use GROSS profit (no fees) to protect green trades BEFORE fees eat them
+        // CRITICAL FIX: Always record position data for untracked trades (even underwater)
+        // This prevents degraded mode (percentage-only tracking) which causes premature exits
+        if (!isTracked) {
+          const entryTimeMs = this.parseEntryTime(trade.entry_time);
+          await positionTracker.recordPeak(
+            trade.id,
+            netProfitPct,
+            entryTimeMs,
+            entryPrice,
+            quantity,
+            currentPrice,
+            totalFeeDollars
+          );
+          updatedCount++;
+          logger.debug('Peak tracking: recorded initial position data (NET profit)', {
+            tradeId: trade.id,
+            pair: trade.pair,
+            grossProfitPct: grossProfitPct.toFixed(4),
+            netProfitPct: netProfitPct.toFixed(4),
+            totalFeePct: totalFeePct.toFixed(4),
+            entryPrice,
+            quantity,
+            currentPrice,
+          });
+        }
+
+        // CASE 1: Trade is profitable (NET) - update peak AND check erosion cap
+        // Use NET profit so erosion cap only fires on truly profitable trades
         if (currentProfitPct > 0) {
-          if (!isTracked) {
-            // First time tracking this trade - pass position data for absolute value tracking
-            const entryTimeMs = this.parseEntryTime(trade.entry_time);
-            await positionTracker.recordPeak(
-              trade.id,
-              grossProfitPct,
-              entryTimeMs,
-              entryPrice,
-              quantity,
-              currentPrice
-            );
-            updatedCount++;
-            logger.debug('Peak tracking: recorded initial peak (absolute value)', {
-              tradeId: trade.id,
-              pair: trade.pair,
-              peakPct: grossProfitPct.toFixed(4),
-              entryPrice,
-              quantity,
-              currentPrice,
-            });
-          } else {
+          if (isTracked) {
             // Update peak if current is higher - pass currentPrice for absolute value tracking
-            await positionTracker.updatePeakIfHigher(trade.id, grossProfitPct, currentPrice);
+            await positionTracker.updatePeakIfHigher(trade.id, netProfitPct, currentPrice, totalFeeDollars);
             updatedCount++;
 
-            // CHECK EROSION CAP - Exit WHILE STILL GREEN to protect profits
-            // Use GROSS profit (no fees) AND pass currentPrice for absolute value tracking
+            // CHECK EROSION CAP - Exit WHILE STILL GREEN (NET) to protect profits
             const erosionResult = positionTracker.checkErosionCap(
               trade.id,
               trade.pair,
-              grossProfitPct,  // Use GROSS to protect green trades
+              netProfitPct,    // Use NET profit
               regime,
               currentPrice     // Required for absolute value comparison
             );
@@ -264,6 +277,10 @@ class TradeSignalOrchestrator {
               const exitPrice = currentPrice;
               const profitLoss = (exitPrice - entryPrice) * quantity;
 
+              // NO fee guard — erosion cap means CLOSE NOW, even if fees make it net-negative.
+              // A small fee-driven loss is far better than letting the trade go underwater.
+              // "Profitable trades turning negative is a design failure" (CLAUDE.md)
+
               try {
                 const closeResponse = await fetch(
                   `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/bots/trades/close`,
@@ -278,7 +295,8 @@ class TradeSignalOrchestrator {
                       exitPrice,
                       profitLoss,
                       profitLossPercent: grossProfitPct,
-                      exitReason: 'erosion_cap_profit_lock',
+                      // Use reason provided by position tracker when available to standardize naming
+                      exitReason: erosionResult.reason || 'erosion_cap_exceeded',
                       userId: trade.user_id,
                     }),
                   }
@@ -326,80 +344,17 @@ class TradeSignalOrchestrator {
             // 3. underwater_never_profited (never profitable)
           }
         }
-        // CASE 2: Trade is underwater but WAS profitable - PROFIT COLLAPSE PROTECTION (/nexus)
+        // CASE 2: Trade is underwater but WAS profitable
+        // DISABLED: Green-to-red immediate exit was too aggressive
+        // With $2000-5000 positions, even a 0.03% micro-peak (just bid/ask spread) = $1.50
+        // which exceeded the $0.50 threshold and caused EVERY trade to exit immediately
+        // The 15-minute underwater timeout in checkOpenTradesForProfitTargets handles this properly
         else if (currentProfitPct < 0 && isTracked) {
-          // Check if this trade had meaningful profit and collapsed (exit immediately)
-          const underwaterCheck = positionTracker.checkUnderwaterExit(
-            trade.id,
-            trade.pair,
-            currentProfitPct,
-            trade.entry_time,
-            currentPrice,  // Required for absolute value tracking
-            -0.008, // Threshold for early loss scenario
-            0 // minTimeMinutes = 0 for immediate profit collapse exit
-          );
-
-          // If green-to-red protection triggers, exit immediately
-          if (underwaterCheck.shouldExit && underwaterCheck.reason?.includes('underwater_small_peak_timeout')) {
-            logger.warn('🚨 GREEN-TO-RED PROTECTION: Exiting trade immediately', {
-              tradeId: trade.id,
-              pair: trade.pair,
-              peakProfitPct: underwaterCheck.peakProfitPct.toFixed(4),
-              currentProfitPct: currentProfitPct.toFixed(4),
-              reason: underwaterCheck.reason,
-            });
-
-            // Exit the trade immediately
-            const exitPrice = currentPrice;
-            const profitLoss = (exitPrice - entryPrice) * quantity;
-
-            try {
-              const closeResponse = await fetch(
-                `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/bots/trades/close`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    botInstanceId: trade.bot_instance_id,
-                    tradeId: trade.id,
-                    pair: trade.pair,
-                    exitTime: new Date().toISOString(),
-                    exitPrice,
-                    profitLoss,
-                    profitLossPercent: currentProfitPct,
-                    exitReason: 'underwater_small_peak_timeout', // /nexus parity
-                    userId: trade.user_id,
-                  }),
-                }
-              );
-
-              if (closeResponse.ok) {
-                exitCount++;
-                positionTracker.clearPosition(trade.id);
-                logger.info('🛡️ Green-to-red protection: Trade closed successfully', {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  exitPrice,
-                  profitLoss: profitLoss.toFixed(2),
-                  profitLossPct: currentProfitPct.toFixed(2),
-                  peakProfitPct: underwaterCheck.peakProfitPct.toFixed(4),
-                });
-              } else {
-                const errorText = await closeResponse.text();
-                logger.error('Green-to-red protection: Failed to close trade', null, {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  status: closeResponse.status,
-                  error: errorText,
-                });
-              }
-            } catch (closeError) {
-              logger.error('Green-to-red protection: Error closing trade', closeError instanceof Error ? closeError : null, {
-                tradeId: trade.id,
-                pair: trade.pair,
-              });
-            }
-          }
+          logger.debug('Trade underwater with peak data - handled by underwater timeout (15min)', {
+            tradeId: trade.id,
+            pair: trade.pair,
+            currentProfitPct: currentProfitPct.toFixed(4),
+          });
         }
       }
 
@@ -490,6 +445,32 @@ class TradeSignalOrchestrator {
         logger.warn('Failed to fetch BTC momentum for risk manager', error instanceof Error ? error : undefined);
       }
 
+      // CAPITAL PRESERVATION: Layer 1 - BTC Daily Trend Gate (market-wide)
+      // Blocks ALL entries if BTC is below EMA200 (sustained downtrend)
+      // Reduces size 50% if BTC below EMA50 (weakening trend)
+      let globalCpMultiplier = 1.0;
+      try {
+        const btcGateResult = await capitalPreservation.checkBtcTrendGate();
+        if (!btcGateResult.allowTrading) {
+          logger.info('Capital preservation: BTC trend gate blocking ALL entries this cycle', {
+            reason: btcGateResult.reason,
+            layer: btcGateResult.layer,
+          });
+          return; // Skip entire cycle - BTC below EMA200
+        }
+        globalCpMultiplier = btcGateResult.sizeMultiplier;
+        if (globalCpMultiplier < 1.0) {
+          logger.info('Capital preservation: BTC trend gate reducing position sizes', {
+            multiplier: globalCpMultiplier,
+            reason: btcGateResult.reason,
+          });
+        }
+      } catch (error) {
+        logger.warn('Capital preservation: BTC trend gate error, continuing with full size', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
       // ZERO PASS B: Detect market regime for all pairs (critical for entry gating)
       // This ensures the regime gatekeeper has fresh data for entry validation
       // Group pairs by exchange and detect regime per exchange
@@ -515,16 +496,15 @@ class TradeSignalOrchestrator {
         await regimeDetector.detectRegimeForAllPairs(exchangePairs, exchange);
       }
 
-      // FIRST PASS: Check for momentum failure on open trades (exit)
-      // Runs before generating new signals to manage existing positions
-      await this.checkOpenTradesForMomentumFailure();
+      // EXIT CHECKS: Run momentum failure + profit targets in PARALLEL (LATENCY OPTIMIZATION)
+      // Both are independent exit checks on open trades - no ordering dependency
+      // Pyramid pass runs AFTER exits complete (needs to know which trades survived)
+      await Promise.all([
+        this.checkOpenTradesForMomentumFailure(),
+        this.checkOpenTradesForProfitTargets(),
+      ]);
 
-      // SECOND PASS: Check for profit targets and time-based exits
-      // Closes trades that have reached profit targets or exceeded time limits
-      await this.checkOpenTradesForProfitTargets();
-
-      // THIRD PASS: Add pyramid levels to profitable open trades (safe pyramiding)
-      // Runs AFTER profit target check so trades that should exit can exit first
+      // PYRAMID PASS: Add levels to profitable open trades (after exits complete)
       await this.addPyramidLevelsToOpenTrades(allPairs);
 
       // FOURTH PASS: Analyze new signals and generate trade decisions
@@ -586,7 +566,7 @@ class TradeSignalOrchestrator {
           }
 
           // Log indicators BEFORE risk filter (for debugging ADX mismatch with /nexus)
-          console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | ADX: ${indicators.adx?.toFixed(1) || 'N/A'} | RSI: ${indicators.rsi?.toFixed(1) || 'N/A'} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
+          console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | ADX: ${indicators.adx?.toFixed(1) || 'N/A'} | RSI: ${indicators.rsi?.toFixed(1) || 'N/A'} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
 
           // PRE-CHECK: Block entry if spread exceeds maximum (before running full risk filter)
           // Philosophy: Entering at wide spread = instant underwater, erases profit potential
@@ -611,16 +591,18 @@ class TradeSignalOrchestrator {
             continue; // Skip this pair
           }
 
+          // REMOVED: Intrabar confirm gate - NOT in /nexus, blocks valid entries
+          // /nexus uses ADX + momentum + volume for entry gating, not intrabar candle direction
+          // The 5-stage risk filter below handles all entry quality checks
+
           // Run 5-stage risk filter (matching /nexus behavior)
-          const profitTarget = currentPrice * 0.05; // 5% target for cost calculation
           const ticker = { bid, ask, spread: spreadPct }; // Use real bid/ask data
 
           const riskFilter = await riskManager.runFullRiskFilter(
             pair,
             currentPrice,
             indicators,
-            ticker,
-            profitTarget
+            ticker
           );
 
           if (!riskFilter.pass) {
@@ -656,6 +638,16 @@ class TradeSignalOrchestrator {
 
           // Pass current live price + indicators to prevent stale OHLC re-fetch
           // CRITICAL: AI must use same fresh data as risk filter (prevents 1-2% staleness)
+
+          // DEBUG: Log indicators being passed to analyzeMarket
+          console.log(`\n🔍 [ORCHESTRATOR] Passing indicators to analyzeMarket for ${pair}:`, {
+            adx: indicators.adx,
+            momentum1h: indicators.momentum1h,
+            intrabarMomentum: indicators.intrabarMomentum,
+            momentum4h: indicators.momentum4h,
+            rsi: indicators.rsi
+          });
+
           const analysis = await analyzeMarket({
             pair,
             timeframe: '1h',
@@ -747,6 +739,7 @@ class TradeSignalOrchestrator {
                 reason: analysis.regime.analysis,
                 timestamp: analysis.regime.timestamp,
               },
+              capitalPreservationMultiplier: globalCpMultiplier, // Layer 1 BTC trend gate (per-bot Layers 2+3 applied in fan-out)
             };
 
             tradeDecisions.push(decision);
@@ -889,7 +882,7 @@ class TradeSignalOrchestrator {
     }
 
     logger.debug('OHLC cache MISS - fetching fresh', { pair, timeframe, limit });
-    const candles = await fetchKrakenOHLC(pair, limit, timeframe);
+    const candles = await fetchOHLC(pair, limit, timeframe);
     this.ohlcCache.set(cacheKey, { data: candles, timestamp: now });
     return candles;
   }
@@ -964,12 +957,14 @@ class TradeSignalOrchestrator {
           t.id,
           t.bot_instance_id,
           t.pair,
-          t.price as entry_price,
-          t.amount as quantity,
+          t.entry_price,
+          t.quantity,
           t.entry_time,
           t.profit_loss,
           t.profit_loss_percent,
-          b.user_id
+          t.fee,
+          b.user_id,
+          b.exchange
         FROM trades t
         INNER JOIN bot_instances b ON t.bot_instance_id = b.id
         WHERE t.status = 'open'
@@ -1001,16 +996,25 @@ class TradeSignalOrchestrator {
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
           const quantity = parseFloat(String(trade.quantity));
-          const profitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+          const momExchange = trade.exchange || 'kraken';
 
-          // Update profit metrics in database
+          // Calculate NET profit for momentum check
+          const momGrossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+          const momEntryFee = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(momExchange));
+          const momExitFee = currentPrice * quantity * getExchangeTakerFee(momExchange);
+          const momTotalFees = momEntryFee + momExitFee;
+          const momFeePct = (momTotalFees / (entryPrice * quantity)) * 100;
+          const profitPct = momGrossProfitPct - momFeePct;
+
+          // Update GROSS profit metrics in database (trades API adds fee deduction at display)
+          // CRITICAL: Write GROSS, not NET - prevents double fee deduction
           const profitLoss = (currentPrice - entryPrice) * quantity;
           try {
             await query(
               `UPDATE trades
                SET profit_loss = $1, profit_loss_percent = $2
                WHERE id = $3`,
-              [profitLoss, profitPct, trade.id]
+              [profitLoss, momGrossProfitPct, trade.id]
             );
           } catch (updateError) {
             logger.debug('Failed to update momentum check profit metrics', {
@@ -1028,11 +1032,21 @@ class TradeSignalOrchestrator {
           };
 
           // Update peak profit tracking (same as profit target pass)
+          // CRITICAL: Pass position data to prevent degraded mode
           const trackedPositionsMF = positionTracker.getTrackedPositions();
           if (!trackedPositionsMF.includes(trade.id)) {
-            await positionTracker.recordPeak(trade.id, profitPct);
+            const entryTimeMs = this.parseEntryTime(trade.entry_time);
+            await positionTracker.recordPeak(
+              trade.id,
+              profitPct,
+              entryTimeMs,
+              entryPrice,
+              quantity,
+              currentPrice,
+              momTotalFees
+            );
           } else {
-            await positionTracker.updatePeakIfHigher(trade.id, profitPct);
+            await positionTracker.updatePeakIfHigher(trade.id, profitPct, currentPrice, momTotalFees);
           }
 
           // Fetch and calculate real technical indicators
@@ -1158,14 +1172,16 @@ class TradeSignalOrchestrator {
           t.id,
           t.bot_instance_id,
           t.pair,
-          t.price as entry_price,
-          t.amount as quantity,
+          t.entry_price,
+          t.quantity,
           t.entry_time,
           t.profit_loss,
           t.profit_loss_percent,
           t.stop_loss,
+          t.fee,
           b.user_id,
-          b.config
+          b.config,
+          b.exchange
         FROM trades t
         INNER JOIN bot_instances b ON t.bot_instance_id = b.id
         WHERE t.status = 'open'
@@ -1195,12 +1211,15 @@ class TradeSignalOrchestrator {
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
           const quantity = parseFloat(String(trade.quantity));
+          const tradeExchange = trade.exchange || 'kraken';
 
-          // Calculate profit WITH estimated EXIT fee only (entry fee already in entry_price)
-          // CRITICAL: Must use net profit, not gross, to avoid closing underwater trades
+          // Calculate NET profit (gross - entry fee ONLY)
+          // Exit fee deducted at close time, not during open monitoring
+          // This matches /nexus (no fees) and exchange best practice
           const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-          const estimatedExitFeePct = 0.3; // Exit fee only (Kraken taker ~0.26-0.30%)
-          const currentProfitPct = grossProfitPct - estimatedExitFeePct;
+          const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(tradeExchange));
+          const entryFeePct = (entryFeeDollars / (entryPrice * quantity)) * 100;
+          const currentProfitPct = grossProfitPct - entryFeePct;
 
           // Parse entry_time correctly (handle string or Date object)
           const entryTimeMs = this.parseEntryTime(trade.entry_time);
@@ -1219,15 +1238,16 @@ class TradeSignalOrchestrator {
             });
           }
 
-          // CRITICAL: Persist current profit metrics to database for monitoring
-          // This ensures profit_loss and profit_loss_percent are always up-to-date
+          // CRITICAL: Persist GROSS profit metrics to database for monitoring
+          // Write GROSS P&L - the /api/trades endpoint adds fee deduction at display time
+          // Writing NET here would cause DOUBLE FEE DEDUCTION (fees subtracted here + again in /api/trades)
           const currentProfitLoss = (currentPrice - entryPrice) * quantity;
           try {
             await query(
               `UPDATE trades
                SET profit_loss = $1, profit_loss_percent = $2
                WHERE id = $3`,
-              [currentProfitLoss, currentProfitPct, trade.id]
+              [currentProfitLoss, grossProfitPct, trade.id]
             );
           } catch (updateError) {
             logger.warn('Failed to update trade profit metrics', {
@@ -1273,27 +1293,30 @@ class TradeSignalOrchestrator {
 
           if (!trackedPositions.includes(trade.id)) {
             const entryTimeMs = this.parseEntryTime(trade.entry_time);
+            // Use NET profit for peak tracking - peaks must be real (after fees)
             await positionTracker.recordPeak(
               trade.id,
               currentProfitPct,
               entryTimeMs,
               entryPrice,
               quantity,
-              currentPrice
+              currentPrice,
+              entryFeeDollars
             );
-            logger.debug('Position peak profit recorded (absolute value)', {
+            logger.debug('Position peak profit recorded (NET)', {
               tradeId: trade.id,
               pair: trade.pair,
-              initialProfitPct: currentProfitPct.toFixed(2),
-              entryTime: trade.entry_time,
+              grossProfitPct: grossProfitPct.toFixed(2),
+              netProfitPct: currentProfitPct.toFixed(2),
+              entryFeePct: entryFeePct.toFixed(2),
               entryPrice,
               quantity,
               currentPrice,
             });
           } else {
-            // Update peak if current profit exceeds previous peak
-            await positionTracker.updatePeakIfHigher(trade.id, currentProfitPct, currentPrice);
-            logger.debug('Position peak updated if higher', {
+            // Update peak if current NET profit exceeds previous peak
+            await positionTracker.updatePeakIfHigher(trade.id, currentProfitPct, currentPrice, entryFeeDollars);
+            logger.debug('Position peak updated if higher (NET)', {
               tradeId: trade.id,
               currentProfitPct: currentProfitPct.toFixed(2),
             });
@@ -1355,105 +1378,85 @@ class TradeSignalOrchestrator {
           // 3. EMERGENCY STOP - Safety net.
 
           // CHECK 1: EROSION CAP (was profitable → protect it)
-          // If trade ever had profit and erosion exceeds cap → EXIT
-          // Use GROSS profit (no fees) AND absolute value tracking for precision
-          // Exit reason reflects outcome:
-          // - erosion_cap_protected: Closed while still profitable (success)
-          // - green_to_red: Had profit but went underwater (damage control)
+          // If trade ever had NET profit and erosion exceeds cap → EXIT
+          // Use NET profit so erosion only fires on truly green trades
           if (!shouldClose) {
             const erosionCheck = positionTracker.checkErosionCap(
               trade.id,
               trade.pair,
-              grossProfitPct,  // Use GROSS to protect green trades
+              currentProfitPct,  // Use NET profit
               regime,
-              currentPrice     // Required for absolute value comparison
+              currentPrice       // Required for absolute value comparison
             );
 
             if (erosionCheck.shouldExit) {
               shouldClose = true;
-              // Differentiate exit reason based on GROSS profit (before fees)
-              if (grossProfitPct > 0) {
-                exitReason = 'erosion_cap_protected';
-                logger.info('🛡️ EROSION CAP PROTECTED - closing with profit', {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
-                  grossProfitPct: grossProfitPct.toFixed(4),
-                  erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(1),
-                  regime,
-                });
-              } else {
-                exitReason = 'green_to_red';
-                logger.info('💔 GREEN TO RED - had profit, now underwater', {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  peakProfitPct: erosionCheck.peakProfitPct.toFixed(4),
-                  grossProfitPct: grossProfitPct.toFixed(4),
-                  erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(1),
-                  regime,
-                  note: 'Trade had profit but eroded past breakeven',
-                });
-              }
-            }
-          }
-
-          // CHECK 2: UNDERWATER EXIT - Age-based thresholds (matching /nexus)
-          // CRITICAL: Minimum 15 minutes before underwater exit can fire (/nexus parity)
-          // This gives trades time to recover from temporary dips
-          const envConfig = getEnvironmentConfig();
-          const underwaterExitMinTimeMinutes = envConfig.UNDERWATER_EXIT_MIN_TIME_MINUTES || 15;
-          const profitCollapseMinPeakPct = envConfig.PROFIT_COLLAPSE_MIN_PEAK_PCT || 0.01; // 1.0% - meaningful profit threshold
-
-          // DEBUG: Log underwater check inputs
-          if (currentProfitPct < 0) {
-            const earlyLossThresholdDebug = this.getEarlyLossThreshold(tradeAgeMinutes);
-            console.log(`\n🔍 UNDERWATER DEBUG: ${trade.pair} | P&L: ${currentProfitPct.toFixed(4)}% | Age: ${tradeAgeMinutes.toFixed(1)}min | Threshold: ${earlyLossThresholdDebug.toFixed(4)} | shouldClose: ${shouldClose} | meetsMinTime: ${tradeAgeMinutes >= underwaterExitMinTimeMinutes} | meetsThreshold: ${currentProfitPct < earlyLossThresholdDebug}`);
-          }
-
-          if (!shouldClose && currentProfitPct < 0 && tradeAgeMinutes >= underwaterExitMinTimeMinutes) {
-            // /nexus parity: Compare percent value directly with decimal threshold
-            // This makes the effective threshold much tighter (e.g., -0.015 instead of -1.5%)
-            const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes);
-
-            console.log(`\n⚡ UNDERWATER CHECK PASSED GATES: ${trade.pair} | Now checking threshold: ${currentProfitPct.toFixed(4)} < ${earlyLossThreshold.toFixed(4)} = ${currentProfitPct < earlyLossThreshold}`);
-
-            if (currentProfitPct < earlyLossThreshold) {
-              shouldClose = true;
-
-              // Get peak profit to determine specific exit reason (/nexus parity)
-              const trackedPositions = positionTracker.getTrackedPositions();
-              let peakPct = 0;
-              if (trackedPositions.includes(trade.id)) {
-                const peakData = positionTracker.getPeakProfit(trade.id);
-                peakPct = peakData?.peakPct || 0;
-              }
-
-              // Determine exit reason based on peak (/nexus exact logic)
-              if (peakPct >= profitCollapseMinPeakPct * 100) {
-                exitReason = 'underwater_profitable_collapse'; // Had meaningful profit (>= 1%)
-              } else if (peakPct > 0) {
-                exitReason = 'underwater_small_peak_timeout';  // Had small peak, time-based exit
-              } else {
-                exitReason = 'underwater_never_profited';      // Never went positive
-              }
-
-              console.log(`\n🔴 UNDERWATER EXIT TRIGGERED: ${trade.pair} | P&L: ${currentProfitPct.toFixed(4)}% | Age: ${tradeAgeMinutes.toFixed(1)}min | Reason: ${exitReason}`);
-              logger.info('🔴 UNDERWATER EXIT', {
+              exitReason = erosionCheck.reason || 'erosion_cap_exceeded';
+              logger.info('🛡️ EROSION CAP - locking profit (/nexus)', {
                 tradeId: trade.id,
                 pair: trade.pair,
-                currentProfitPct: currentProfitPct.toFixed(2),
-                threshold: earlyLossThreshold.toFixed(4),
-                thresholdPct: `${(earlyLossThreshold * 100).toFixed(2)}%`,
-                tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
-                peakPct: peakPct.toFixed(4),
-                exitReason,
-                minTimeRequired: underwaterExitMinTimeMinutes,
+                peakProfit: '$' + erosionCheck.peakProfit.toFixed(2),
+                currentProfit: '$' + erosionCheck.currentProfit.toFixed(2),
+                erosionUsedPct: (erosionCheck.erosionUsedPct * 100).toFixed(1) + '%',
+                regime,
+                reason: exitReason,
               });
             }
-          } else if (!shouldClose && currentProfitPct < 0) {
-            // Log why underwater exit didn't fire
-            const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes);
-            console.log(`\n⏳ UNDERWATER NOT READY: ${trade.pair} | Age: ${tradeAgeMinutes.toFixed(1)}min < ${underwaterExitMinTimeMinutes}min required | OR | P&L: ${currentProfitPct.toFixed(4)}% > ${earlyLossThreshold.toFixed(4)} threshold`);
+          }
+
+          // CHECK 1b: REMOVED - breakeven_protection caused fee churn on micro-peak trades
+          // Closing near-zero NET trades just pays exit fees for nothing.
+          // /nexus underwater logic (15-min gate + time-scaled thresholds) handles these correctly.
+          // Stale flat trade exit (6h) catches anything that lingers.
+
+          // CHECK 2: UNDERWATER EXIT (/nexus PositionTracker.ts:446-523)
+          // CRITICAL: Uses GROSS profit (/nexus has no fees; NET triggers too early on Kraken)
+          // Three exit reasons, each with its own trigger — NO blanket time gate.
+          // The time-scaled thresholds ARE the protection against exiting on entry noise.
+          //
+          // A) PROFITABLE COLLAPSE: peaked ≥0.5% GROSS, now negative → IMMEDIATE
+          // B) SMALL PEAK TIMEOUT: peaked > 0 but < 0.5%, GROSS loss > age-scaled threshold
+          // C) NEVER PROFITED: never went positive, GROSS loss > age-scaled threshold
+          const profitCollapseMinPeakPct = 0.50; // /nexus: 0.005 decimal = 0.5%
+
+          if (!shouldClose && grossProfitPct < 0) {
+            const peakData = positionTracker.getPeakProfit(trade.id);
+            const peakPct = peakData?.peakPct || 0;
+
+            // A) PROFITABLE COLLAPSE — peaked ≥0.5% GROSS, now underwater → EXIT IMMEDIATELY
+            if (peakPct >= profitCollapseMinPeakPct) {
+              shouldClose = true;
+              exitReason = 'underwater_profitable_collapse';
+              logger.info('🚨 PROFITABLE COLLAPSE - peaked ≥0.5% GROSS, now underwater → IMMEDIATE EXIT', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                peakPct: peakPct.toFixed(2) + '%',
+                grossProfitPct: grossProfitPct.toFixed(2) + '%',
+                netProfitPct: currentProfitPct.toFixed(2) + '%',
+                ageMinutes: tradeAgeMinutes.toFixed(1),
+              });
+            }
+            // B & C) EARLY LOSS — time-scaled thresholds (no blanket 15min gate)
+            // Thresholds scale with age: -1.5% (0-5min), -2.5% (5-30min), -3.5% (30min-3h), etc.
+            // The thresholds themselves provide the patience — tighter early, looser later.
+            else {
+              const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes) * 100;
+
+              if (grossProfitPct < earlyLossThreshold) {
+                shouldClose = true;
+                exitReason = peakPct > 0 ? 'underwater_small_peak_timeout' : 'underwater_never_profited';
+                logger.info('🔴 EARLY LOSS - age-scaled threshold hit', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  grossProfitPct: grossProfitPct.toFixed(2) + '%',
+                  netProfitPct: currentProfitPct.toFixed(2) + '%',
+                  threshold: earlyLossThreshold.toFixed(2) + '%',
+                  peakPct: peakPct.toFixed(2) + '%',
+                  ageMinutes: tradeAgeMinutes.toFixed(1),
+                  exitReason,
+                });
+              }
+            }
           }
 
           // CHECK 3: EMERGENCY STOP (safety net - catastrophic loss)
@@ -1570,13 +1573,15 @@ class TradeSignalOrchestrator {
           t.id,
           t.bot_instance_id,
           t.pair,
-          t.price as entry_price,
-          t.amount as quantity,
+          t.entry_price,
+          t.quantity,
           t.entry_time,
           t.profit_loss_percent,
           t.pyramid_levels,
+          t.fee,
           b.user_id,
-          b.config
+          b.config,
+          b.exchange
         FROM trades t
         INNER JOIN bot_instances b ON t.bot_instance_id = b.id
         WHERE t.status = 'open'
@@ -1600,11 +1605,16 @@ class TradeSignalOrchestrator {
 
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
+          const quantity = parseFloat(String(trade.quantity));
+          const pyramidExchange = trade.exchange || 'kraken';
 
-          // Calculate profit WITH estimated EXIT fee only
+          // Calculate NET profit (gross - entry fee - estimated exit fee)
           const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-          const estimatedExitFeePct = 0.3; // Exit fee only (entry fee already in entry_price)
-          const currentProfitPct = grossProfitPct - estimatedExitFeePct;
+          const pyramidEntryFee = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(pyramidExchange));
+          const pyramidExitFee = currentPrice * quantity * getExchangeTakerFee(pyramidExchange);
+          const pyramidTotalFees = pyramidEntryFee + pyramidExitFee;
+          const pyramidFeePct = (pyramidTotalFees / (entryPrice * quantity)) * 100;
+          const currentProfitPct = grossProfitPct - pyramidFeePct;
 
           // Parse existing pyramid levels (safe defaults if malformed)
           let pyramidLevels: Array<Record<string, any>> = [];

@@ -39,6 +39,7 @@ export interface TradeDecision {
   signalConfidence: number; // 0-100: AI's confidence in the trade signal (used for position sizing)
   stopLoss?: number; // Risk management: exit price on loss
   takeProfit?: number; // Dynamic profit target based on regime
+  capitalPreservationMultiplier?: number; // 0.25-1.0: position size reduction from capital preservation layers
 }
 
 export interface ExecutionPlan {

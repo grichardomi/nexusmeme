@@ -3,7 +3,6 @@
  * Analyzes technical indicators and market patterns
  */
 
-import { getEnvironmentConfig } from '@/config/environment';
 import {
   OHLCCandle,
   TechnicalIndicators,
@@ -327,6 +326,10 @@ export function detectMarketRegime(
   // CRITICAL: Use ADX-based regime classification (matching Nexus)
   // Handle NaN case - default to moderate if ADX is invalid
   const adx = isFinite(indicators.adx) ? indicators.adx : 25;
+
+  // DEBUG: Log ADX value being used for regime detection
+  console.log(`\n🔍 [REGIME DEBUG] ADX value for regime: ${adx} (raw indicators.adx: ${indicators.adx})`);
+
   let regime: MarketRegime;
   if (adx < 20) {
     regime = 'choppy';
@@ -338,62 +341,32 @@ export function detectMarketRegime(
     regime = 'strong';
   }
 
-  // Determine trend direction: USE CALCULATED MOMENTUM INDICATORS
-  // momentum1h and momentum4h are already properly calculated by calculateTechnicalIndicators
-  // Don't recalculate - use the real indicators!
+  console.log(`🔍 [REGIME DEBUG] Regime determined: ${regime} (ADX: ${adx})`);
+
+
+  // /nexus PARITY: Simple momentum-first approach
+  // No reversal logic, no complex regime scoring - just flat 70% when momentum positive
   const momentum1h = indicators.momentum1h ?? 0;
   const momentum4h = indicators.momentum4h ?? 0;
 
-  // Use SMA50 as secondary confirmation
-  const sma50 = indicators.movingAverages.sma50;
-  const trendVsSMA50 = ((currentPrice - sma50) / sma50) * 100;
-
-  // STRICTER BULLISH CLASSIFICATION - Prevent entries in falling markets
-  // Require BOTH 1h AND 4h momentum to be positive for true bullish
-  // Single timeframe positive in falling market = dead cat bounce, NOT bullish
-  const momentum1hPositive = momentum1h > 0.5; // Require meaningful positive momentum (0.5%+)
-  const momentum4hPositive = momentum4h > 0; // 4h must also be positive
+  // /nexus uses 0.5% threshold (catches 0.68% entries)
+  const momentum1hPositive = momentum1h > 0.005; // 0.5% minimum
+  const momentum4hPositive = momentum4h > 0;
   const bothMomentumPositive = momentum1hPositive && momentum4hPositive;
 
-  // Only truly bullish if BOTH timeframes agree
-  const isBullish = bothMomentumPositive || (momentum1h > 1.0 && trendVsSMA50 > 0); // Strong 1h (1%+) + above SMA50
-  const trendScore = Math.abs(momentum1h) > 0.05 ? momentum1h : trendVsSMA50;
+  const isBullish = momentum1hPositive;
+  const trendScore = momentum1h;
 
-  // Generate confidence based on regime strength and trend alignment
-  // CRITICAL: If either momentum is negative, significantly reduce confidence
+  // /nexus FLAT 70% CONFIDENCE: No regime variations
+  // "Despite low volume, the positive momentum suggests early stage recovery"
   let confidence = 0;
-  const env = getEnvironmentConfig();
 
-  // Penalty for misaligned momentum (one positive, one negative = market uncertainty)
-  const momentumMisaligned = (momentum1h > 0 && momentum4h < 0) || (momentum1h < 0 && momentum4h > 0);
-  const bothMomentumNegative = momentum1h < 0 && momentum4h < 0;
-
-  if (bothMomentumNegative) {
-    // BOTH momentums negative = clearly falling market, very low confidence for buys
-    confidence = 35; // Below threshold, will NOT trigger buy
-  } else if (momentumMisaligned) {
-    // Mixed signals = uncertainty, reduce confidence
-    confidence = 50; // Below threshold
-  } else if (regime === 'strong' && bothMomentumPositive) {
-    // Strong trend (ADX >= 35) + both momentums positive: High confidence
-    confidence = 78;
-  } else if (regime === 'moderate' && bothMomentumPositive) {
-    // Moderate trend (ADX 30-35) + both momentums positive: Good confidence
-    confidence = 72;
-  } else if (regime === 'weak' && bothMomentumPositive) {
-    // Weak trend (ADX 20-30) + both momentums positive: Moderate confidence
-    confidence = 65;
-
-    // Creeping uptrend mode: Boost confidence for slow steady uptrends
-    if (env.CREEPING_UPTREND_ENABLED) {
-      confidence = env.CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE;
-    }
-  } else if (regime === 'choppy') {
-    // Choppy regime (ADX < 20): Only trade with strong momentum alignment
-    confidence = bothMomentumPositive && momentum1h > 0.5 ? 62 : 45;
+  if (momentum1h > 0.005) {
+    // /nexus: Flat 70% confidence when momentum positive
+    confidence = 70;
   } else {
-    // Default: insufficient bullish conditions
-    confidence = 50;
+    // Below threshold
+    confidence = 45;
   }
 
   // Volatility analysis
@@ -405,19 +378,15 @@ export function detectMarketRegime(
     confidence = Math.max(35, confidence - 15); // Stronger penalty for high volatility
   }
 
-  const momentumStatus = bothMomentumNegative ? 'BOTH NEGATIVE (falling)' :
-    momentumMisaligned ? 'MISALIGNED (uncertain)' :
-    bothMomentumPositive ? 'BOTH POSITIVE (rising)' : 'WEAK';
+  const alignment4h = bothMomentumPositive ? '4h also positive ✓' : '4h negative';
 
   const analysis = `
-Market is in ${regime} regime (ADX-based classification matching Nexus).
-ADX: ${isFinite(indicators.adx) ? indicators.adx.toFixed(2) : 'N/A'} (${regime === 'strong' ? 'Strong' : regime === 'moderate' ? 'Moderate' : regime === 'weak' ? 'Weak' : 'Choppy'} trend strength)
-Momentum: 1h=${momentum1h.toFixed(3)}% | 4h=${momentum4h.toFixed(3)}% | Status: ${momentumStatus}
-SMA50: ${trendVsSMA50.toFixed(2)}% (price vs 50-period MA)
-Trend Direction: ${isBullish ? 'BULLISH' : 'BEARISH'} (requires BOTH 1h AND 4h positive)
-RSI: ${indicators.rsi.toFixed(2)} (Momentum indicator)
-ATR: ${volatilityPercent.toFixed(2)}% (Volatility)
-AI Confidence for ${isBullish ? 'BUY' : 'HOLD/SELL'}: ${confidence.toFixed(0)}% (${regime} regime + ${momentumStatus})
+Market is in ${regime} regime (ADX-based, matching /nexus).
+ADX: ${isFinite(indicators.adx) ? indicators.adx.toFixed(2) : 'N/A'} (${regime === 'strong' ? 'Strong' : regime === 'moderate' ? 'Moderate' : regime === 'weak' ? 'Weak' : 'Choppy'} trend)
+Momentum: 1h=${momentum1h.toFixed(3)}% | 4h=${momentum4h.toFixed(3)}% | ${alignment4h}
+Trend Direction: ${isBullish ? 'BULLISH' : 'BEARISH'} (1h momentum ${momentum1h > 0 ? 'positive' : 'negative'})
+RSI: ${indicators.rsi.toFixed(2)} | ATR: ${volatilityPercent.toFixed(2)}%
+AI Confidence for ${isBullish ? 'BUY' : 'HOLD'}: ${confidence.toFixed(0)}% (/nexus parity: momentum-first)
   `.trim();
 
   return {

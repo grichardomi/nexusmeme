@@ -11,7 +11,10 @@ export interface Order {
   price: number;
   status: 'open' | 'closed' | 'cancelled';
   timestamp: Date;
-  fee?: number;
+  fee?: number; // Fee value (quote currency if feeAsset=quote)
+  feeAsset?: string; // Asset the exchange charged fee in (e.g., BNB)
+  feeQuote?: number; // Fee converted to quote currency at execution
+  isMaker?: boolean; // Maker/taker flag if known
 }
 
 export interface Balance {
@@ -46,7 +49,10 @@ export interface OrderResult {
   timestamp: Date;
   status: 'pending' | 'filled' | 'error';
   error?: string;
-  fee?: number; // Trading fee in quote currency
+  fee?: number; // Trading fee (raw amount, asset in feeAsset if not quote)
+  feeAsset?: string; // Fee asset symbol (e.g., BNB)
+  feeQuote?: number; // Fee converted to quote currency for accurate P&L
+  isMaker?: boolean; // Whether the fill executed as maker (if uniform across fills)
 }
 
 export interface ExchangeError extends Error {

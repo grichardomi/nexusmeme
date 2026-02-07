@@ -20,7 +20,7 @@ export interface ExchangeAdapter {
   /**
    * Place a buy or sell order
    */
-  placeOrder(order: Omit<Order, 'id' | 'status' | 'timestamp'>): Promise<OrderResult>;
+  placeOrder(order: { pair: string; side: 'buy' | 'sell'; amount: number; price: number; timeInForce?: string; postOnly?: boolean }): Promise<OrderResult>;
 
   /**
    * Cancel an open order
@@ -92,7 +92,7 @@ export abstract class BaseExchangeAdapter implements ExchangeAdapter {
 
   abstract connect(keys: ApiKeys): Promise<void>;
   abstract validateConnection(): Promise<boolean>;
-  abstract placeOrder(order: Omit<Order, 'id' | 'status' | 'timestamp'>): Promise<OrderResult>;
+  abstract placeOrder(order: { pair: string; side: 'buy' | 'sell'; amount: number; price: number; timeInForce?: string; postOnly?: boolean }): Promise<OrderResult>;
   abstract cancelOrder(orderId: string, pair: string): Promise<void>;
   abstract getOrder(orderId: string, pair: string): Promise<Order | null>;
   abstract listOpenOrders(pair: string): Promise<Order[]>;

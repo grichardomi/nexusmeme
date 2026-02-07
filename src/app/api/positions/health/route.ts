@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
 
 /**
  * GET /api/positions/health
@@ -28,9 +29,12 @@ export async function GET(request: NextRequest) {
         t.bot_instance_id,
         t.pair,
         t.entry_price,
+        t.amount as quantity,
         t.entry_time,
+        t.fee,
         t.peak_profit_percent as peak_profit_pct,
-        b.config ->> 'regime' as regime
+        b.config ->> 'regime' as regime,
+        b.exchange
        FROM trades t
        INNER JOIN bot_instances b ON t.bot_instance_id = b.id
        WHERE b.user_id = $1 AND t.status = 'open' ${botId ? 'AND t.bot_instance_id = $2' : ''}
@@ -66,31 +70,45 @@ export async function GET(request: NextRequest) {
     const positions = openTrades.map((trade: any) => {
       const currentPrice = priceMap.get(trade.pair) || parseFloat(trade.entry_price);
       const entryPrice = parseFloat(trade.entry_price);
-      const currentProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const quantity = parseFloat(trade.quantity || '0');
+      const tradeExchange = trade.exchange || 'kraken';
+
+      // Calculate NET profit (gross - round-trip fees)
+      const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+      const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(tradeExchange));
+      const exitFeeDollars = currentPrice * quantity * getExchangeTakerFee(tradeExchange);
+      const totalFeeDollars = entryFeeDollars + exitFeeDollars;
+      const totalFeePct = quantity > 0 && entryPrice > 0 ? (totalFeeDollars / (entryPrice * quantity)) * 100 : 0;
+      const currentProfitPct = grossProfitPct - totalFeePct;
 
       // Get peak profit (if never recorded, current is peak)
       const peakProfitPct = trade.peak_profit_pct ? parseFloat(trade.peak_profit_pct) : currentProfitPct;
 
-      // Calculate erosion in percentage points (peak% - current%)
-      const erosionPct = peakProfitPct > 0 ? peakProfitPct - currentProfitPct : 0;
-
-      // Regime-based erosion cap in percentage points
+      // PEAK-RELATIVE erosion (matches position tracker logic)
+      // erosionRelativePct = how much of the peak profit has been eroded (0-100%)
+      // Example: peak 0.16%, current 0.11% → (0.16-0.11)/0.16 = 31.25% of peak eroded
       const regime = trade.regime || 'moderate';
-      const erosionCapPct = regime === 'choppy' ? 0.6 : 0.75;
+      const env = getEnvironmentConfig();
+      const peakRelativeThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // 0.30 = 30%
 
-      // Health status determination
-      // erosionRatioPct = how much erosion we've used relative to our cap (as %)
-      // If erosionCapPct = 0.75% and erosionPct = 0.3%, then ratio = (0.3/0.75)*100 = 40%
-      const erosionRatioPct = erosionCapPct > 0 ? (erosionPct / erosionCapPct) * 100 : 0;
+      const erosionRelativePct = peakProfitPct > 0
+        ? ((peakProfitPct - currentProfitPct) / peakProfitPct) * 100
+        : 0;
+
+      // erosionRatioPct = how close we are to the threshold (100% = at threshold)
+      // If threshold is 30% and we eroded 31.25%, then (31.25/30)*100 = 104.2% → ALERT
+      const thresholdPct = peakRelativeThreshold * 100; // 30
+      const erosionRatioPct = thresholdPct > 0 ? (erosionRelativePct / thresholdPct) * 100 : 0;
+
       let healthStatus: 'HEALTHY' | 'CAUTION' | 'RISK' | 'ALERT' = 'HEALTHY';
       let alertMessage = '';
 
       if (erosionRatioPct > 100) {
         healthStatus = 'ALERT';
-        alertMessage = `EROSION EXCEEDED: ${erosionRatioPct.toFixed(1)}% (cap: ${erosionCapPct.toFixed(2)}%)`;
+        alertMessage = `Peak eroded ${erosionRelativePct.toFixed(1)}% (threshold: ${thresholdPct.toFixed(0)}%)`;
       } else if (erosionRatioPct > 70) {
         healthStatus = 'RISK';
-        alertMessage = `High erosion: ${erosionRatioPct.toFixed(1)}% of ${erosionCapPct.toFixed(2)}% cap`;
+        alertMessage = `Erosion ${erosionRelativePct.toFixed(1)}% of ${thresholdPct.toFixed(0)}% threshold`;
       } else if (erosionRatioPct > 30) {
         healthStatus = 'CAUTION';
         const ageMinutes = (Date.now() - new Date(trade.entry_time).getTime()) / (1000 * 60);
@@ -106,9 +124,9 @@ export async function GET(request: NextRequest) {
         currentPrice: currentPrice.toFixed(2),
         peakProfitPct: peakProfitPct.toFixed(2),
         currentProfitPct: currentProfitPct.toFixed(2),
-        erosionPct: erosionPct.toFixed(4),
+        erosionPct: erosionRelativePct.toFixed(1),
         erosionRatioPct: erosionRatioPct.toFixed(1),
-        erosionCap: erosionCapPct.toFixed(1),
+        erosionCap: thresholdPct.toFixed(0),
         healthStatus,
         alertMessage,
         regime,

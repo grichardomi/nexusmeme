@@ -49,7 +49,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
   }
 
   async placeOrder(
-    order: Omit<Order, 'id' | 'status' | 'timestamp'>
+    order: { pair: string; side: 'buy' | 'sell'; amount: number; price: number; timeInForce?: string; postOnly?: boolean }
   ): Promise<OrderResult> {
     this.validateKeys();
     this.validatePair(order.pair);
@@ -61,7 +61,8 @@ export class KrakenAdapter extends BaseExchangeAdapter {
     // PAPER TRADING MODE - Simulate order without hitting exchange API
     if (env.KRAKEN_BOT_PAPER_TRADING) {
       const paperOrderId = `PAPER-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      const estimatedFee = order.amount * order.price * 0.0026; // ~0.26% taker fee
+      const feeRate = order.postOnly ? 0.0016 : 0.0026; // maker 0.16% vs taker 0.26%
+      const estimatedFee = order.amount * order.price * feeRate;
 
       logger.info('📝 PAPER TRADE: Simulating Kraken order (not sent to exchange)', {
         orderId: paperOrderId,
@@ -70,6 +71,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         amount: order.amount,
         price: order.price,
         estimatedFee: estimatedFee.toFixed(4),
+        postOnly: order.postOnly || false,
         mode: 'PAPER_TRADING',
       });
 
@@ -83,6 +85,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         timestamp: new Date(),
         status: 'filled', // Paper trades are instantly "filled"
         fee: estimatedFee,
+        isMaker: order.postOnly === true,
       };
     }
 
@@ -106,6 +109,15 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         volume: order.amount.toString(),
         price: order.price.toString(),
       };
+      if (order.timeInForce) {
+        // Kraken expects lowercase 'timeinforce' with values like 'GTC' or 'IOC'
+        params.timeinforce = String(order.timeInForce).toUpperCase();
+      }
+
+      // Post-only flag: Kraken rejects order if it would fill as taker
+      if (order.postOnly) {
+        params.oflags = 'post';
+      }
 
       // Call Kraken API
       const result = await this.privateRequest('/0/private/AddOrder', params);
@@ -123,6 +135,8 @@ export class KrakenAdapter extends BaseExchangeAdapter {
       // Query the order to get fee information
       let fee: number | undefined;
       let avgPrice: number | undefined;
+      let feeAsset: string | undefined;
+      let feeQuote: number | undefined;
       try {
         const queryResult = await this.privateRequest('/0/private/QueryOrders', {
           txid: orderId,
@@ -141,7 +155,13 @@ export class KrakenAdapter extends BaseExchangeAdapter {
               avgPrice = cost / volume;
             }
           }
-          logger.debug('Captured Kraken order fee', { orderId, fee });
+          if (fee && fee > 0) {
+            // Kraken fees are quoted in quote currency
+            const [, quote] = order.pair.split('/');
+            feeAsset = quote;
+            feeQuote = fee;
+          }
+          logger.debug('Captured Kraken order fee', { orderId, fee, feeAsset, feeQuote });
         }
       } catch (feeError) {
         logger.warn('Failed to query order fee from Kraken', {
@@ -151,7 +171,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         // Continue without fee data - will fall back to default calculation
       }
 
-      return {
+      const orderResult: OrderResult = {
         orderId,
         pair: order.pair,
         side: order.side,
@@ -161,7 +181,11 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         timestamp: new Date(),
         status: 'pending',
         fee,
+        isMaker: order.postOnly === true, // Post-only orders are guaranteed maker
       };
+      if (feeAsset) (orderResult as any).feeAsset = feeAsset;
+      if (feeQuote !== undefined) (orderResult as any).feeQuote = feeQuote;
+      return orderResult;
     } catch (error) {
       const duration = Date.now() - startTime;
       const status = (error as any)?.status || 500;
