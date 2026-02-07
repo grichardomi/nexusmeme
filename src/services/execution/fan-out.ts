@@ -91,11 +91,15 @@ class ExecutionFanOut {
    */
   private async getActiveBotsForPair(pair: string): Promise<BotInstance[]> {
     try {
+      // Only return bots for users with valid subscription (active or trialing)
+      // This is a second layer of defense after the orchestrator check
       const result = await query<BotInstance>(
-        `SELECT id, user_id, exchange, enabled_pairs, config
-         FROM bot_instances
-         WHERE status = 'running'
-         AND $1 = ANY(enabled_pairs)`,
+        `SELECT bi.id, bi.user_id, bi.exchange, bi.enabled_pairs, bi.config
+         FROM bot_instances bi
+         INNER JOIN subscriptions s ON s.user_id = bi.user_id
+         WHERE bi.status = 'running'
+           AND s.status IN ('active', 'trialing')
+           AND $1 = ANY(bi.enabled_pairs)`,
         [pair]
       );
 

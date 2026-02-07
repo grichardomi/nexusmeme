@@ -18,6 +18,7 @@ import { positionTracker } from '@/services/risk/position-tracker';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
 import { jobQueueManager } from '@/services/job-queue/singleton';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
+import { sendBotSuspendedEmail } from '@/services/email/triggers';
 import type { TradeDecision } from '@/types/market';
 
 interface BotInstance {
@@ -1852,25 +1853,21 @@ class TradeSignalOrchestrator {
    */
   private async getActiveBots(): Promise<BotInstance[]> {
     try {
-      // First, get all bots for debugging
+      // Get running bots, but ONLY for users with valid subscription
+      // This prevents trading for users with payment_required, cancelled, or past_due status
       const allBots = await query<any>(
-        `SELECT id, user_id, enabled_pairs, status, exchange, config
-         FROM bot_instances
-         ORDER BY created_at DESC`
+        `SELECT bi.id, bi.user_id, bi.enabled_pairs, bi.status, bi.exchange, bi.config
+         FROM bot_instances bi
+         INNER JOIN subscriptions s ON s.user_id = bi.user_id
+         WHERE bi.status = 'running'
+           AND s.status IN ('active', 'trialing')
+         ORDER BY bi.created_at DESC`
       );
 
-      // Filter for bots that are ready to trade
+      // Filter for bots that have enabled pairs
       const activeBots = (allBots || []).filter(bot => {
         const hasEnabledPairs = bot.enabled_pairs && Array.isArray(bot.enabled_pairs) && bot.enabled_pairs.length > 0;
-        const isRunning = bot.status === 'running';
 
-        // Debug log skipped bots
-        if (!isRunning) {
-          logger.debug('Orchestrator: skipping bot - not running', {
-            botId: bot.id,
-            status: bot.status
-          });
-        }
         if (!hasEnabledPairs) {
           logger.debug('Orchestrator: skipping bot - no enabled pairs', {
             botId: bot.id,
@@ -1878,8 +1875,74 @@ class TradeSignalOrchestrator {
           });
         }
 
-        return isRunning && hasEnabledPairs;
+        return hasEnabledPairs;
       });
+
+      // Also check for running bots that were skipped due to subscription issues
+      const skippedBots = await query<any>(
+        `SELECT bi.id, bi.user_id, u.email, u.name, s.status as sub_status
+         FROM bot_instances bi
+         LEFT JOIN subscriptions s ON s.user_id = bi.user_id
+         JOIN users u ON u.id = bi.user_id
+         WHERE bi.status = 'running'
+           AND (s.status IS NULL OR s.status NOT IN ('active', 'trialing'))
+         LIMIT 10`
+      );
+
+      if (skippedBots.length > 0) {
+        logger.warn('Orchestrator: Blocked bots due to subscription status', {
+          blockedCount: skippedBots.length,
+          bots: skippedBots.map(b => ({
+            botId: b.id,
+            userId: b.user_id,
+            subStatus: b.sub_status || 'no_subscription',
+          })),
+        });
+
+        // Auto-pause these bots and notify users
+        for (const bot of skippedBots) {
+          await query(
+            `UPDATE bot_instances SET status = 'paused', updated_at = NOW()
+             WHERE id = $1 AND status = 'running'`,
+            [bot.id]
+          );
+          logger.info('Orchestrator: Auto-paused bot due to invalid subscription', {
+            botId: bot.id,
+            userId: bot.user_id,
+            subStatus: bot.sub_status || 'no_subscription',
+          });
+
+          // Notify user their bot was paused
+          if (bot.email) {
+            const reason = bot.sub_status === 'payment_required'
+              ? 'Your free trial has ended. Please add a payment method to continue trading.'
+              : bot.sub_status === 'cancelled'
+              ? 'Your subscription has been cancelled.'
+              : 'Your subscription requires attention to continue trading.';
+
+            try {
+              await sendBotSuspendedEmail(
+                bot.email,
+                bot.name || 'Trader',
+                bot.id,
+                reason,
+                'Please visit your billing page to resolve this.',
+                '/dashboard/billing'
+              );
+              logger.info('Orchestrator: Sent bot-paused notification email', {
+                botId: bot.id,
+                userId: bot.user_id,
+                email: bot.email,
+              });
+            } catch (emailErr) {
+              logger.error('Orchestrator: Failed to send bot-paused email', emailErr instanceof Error ? emailErr : null, {
+                botId: bot.id,
+                userId: bot.user_id,
+              });
+            }
+          }
+        }
+      }
 
       return activeBots as BotInstance[];
     } catch (error) {

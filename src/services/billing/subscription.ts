@@ -1,5 +1,6 @@
 import { getPool, query } from '@/lib/db';
 import { PRICING_PLANS } from '@/config/pricing';
+import { logger } from '@/lib/logger';
 import { Subscription, SubscriptionPlan, BillingPeriod } from '@/types/billing';
 
 /**
@@ -629,6 +630,19 @@ export async function activateSubscriptionAfterPayment(userId: string): Promise<
 
     if (subResult.rows.length === 0) {
       // No subscription in payment_required state
+      return { activated: false };
+    }
+
+    // SECURITY: Verify payment method actually exists before activating
+    const paymentCheck = await client.query(
+      `SELECT id FROM payment_methods
+       WHERE user_id = $1
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (paymentCheck.rows.length === 0) {
+      logger.warn('Subscription activation blocked - no payment method on file', { userId });
       return { activated: false };
     }
 

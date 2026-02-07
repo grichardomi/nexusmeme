@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import {
   getUserSubscription,
+  initializeSubscription,
   upgradeSubscription,
   cancelUserSubscription,
   getPlanUsage,
@@ -12,6 +13,7 @@ import {
 } from '@/services/billing/subscription';
 import { getRecentFeeTransactions } from '@/services/billing/performance-fee';
 import { Subscription } from '@/types/billing';
+import { query } from '@/lib/db';
 import { z } from 'zod';
 import { getEnvironmentConfig } from '@/config/environment';
 
@@ -35,10 +37,38 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get subscription details
+    // Get subscription details (auto-initialize if missing)
     let subscription: Subscription | null = null;
     try {
       subscription = await getUserSubscription(session.user.id);
+
+      // Auto-initialize trial for users with no subscription (legacy users or failed signup)
+      if (!subscription) {
+        try {
+          subscription = await initializeSubscription(
+            session.user.id,
+            session.user.email || '',
+            session.user.name || undefined
+          );
+          console.log('[BILLING] Auto-initialized trial subscription for user:', session.user.id);
+
+          // Restore any bots that were paused due to missing subscription
+          // Set back to 'running' since the trial is now active
+          const restored = await query(
+            `UPDATE bot_instances
+             SET status = 'running', updated_at = NOW()
+             WHERE user_id = $1 AND status = 'paused'
+             RETURNING id`,
+            [session.user.id]
+          );
+          if (restored.length > 0) {
+            console.log(`[BILLING] Restored ${restored.length} bot(s) to running after trial initialization`);
+          }
+        } catch (initErr) {
+          console.error('Failed to auto-initialize subscription:', initErr);
+          // Continue - will show payment_required as fallback
+        }
+      }
     } catch (err) {
       console.error('Error fetching subscription:', err);
       // Continue - subscription may not exist yet

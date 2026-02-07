@@ -817,6 +817,29 @@ export class JobQueueManager {
         botInstanceId,
       });
 
+      // SECURITY: Verify user has valid subscription before resuming bot
+      const subCheck = await query<{ status: string }>(
+        `SELECT status FROM subscriptions
+         WHERE user_id = $1
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+
+      const subStatus = subCheck[0]?.status;
+      if (!subStatus || !['active', 'trialing'].includes(subStatus)) {
+        logger.warn('Bot resume blocked - no valid subscription', {
+          userId,
+          botInstanceId,
+          subscriptionStatus: subStatus || 'none',
+        });
+        return {
+          jobId: job.id,
+          success: false,
+          error: `Bot resume blocked: subscription status is "${subStatus || 'none'}". Payment required.`,
+          duration: Date.now() - startTime,
+        };
+      }
+
       // Update bot status back to running
       await query(
         `UPDATE bot_instances

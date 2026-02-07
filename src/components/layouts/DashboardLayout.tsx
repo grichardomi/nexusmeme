@@ -44,14 +44,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         // Check if user has any live trading bots
         if (botsResponse.ok) {
           const botsData = await botsResponse.json();
-          console.log('[DashboardLayout] Bots data:', botsData);
-          console.log('[DashboardLayout] Trading modes:', botsData.map((b: any) => ({
-            id: b.id,
-            tradingMode: b.tradingMode,
-            config: b.config?.tradingMode
-          })));
           const hasLive = botsData.some((bot: any) => bot.tradingMode === 'live');
-          console.log('[DashboardLayout] Has live bot?', hasLive);
           setHasLiveBot(hasLive);
         }
 
