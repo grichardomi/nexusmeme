@@ -220,7 +220,11 @@ export function BotTradeStats({ botId }: BotTradeStatsProps) {
           <div className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-2">
             Worst Trade
           </div>
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+          <div className={`text-2xl font-bold ${
+            (stats.worstTrade ?? 0) >= 0
+              ? 'text-green-600 dark:text-green-400'
+              : 'text-red-600 dark:text-red-400'
+          }`}>
             ${(stats.worstTrade ?? 0).toFixed(2)}
           </div>
         </div>

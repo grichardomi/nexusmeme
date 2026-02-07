@@ -201,7 +201,9 @@ export function RiskMetrics({ botId }: RiskMetricsProps) {
     {
       label: 'Worst Trade',
       value: `$${riskMetrics.worstTrade.toFixed(2)}`,
-      color: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 border-red-200 dark:border-red-700',
+      color: riskMetrics.worstTrade >= 0
+        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-300 border-green-200 dark:border-green-700'
+        : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-300 border-red-200 dark:border-red-700',
       icon: '⬇️',
     },
     {

@@ -30,13 +30,33 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   const { data: session } = useSession();
   const [subscription, setSubscription] = useState<(Subscription & { daysRemaining?: number | null }) | null>(null);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
+  const [hasLiveBot, setHasLiveBot] = useState(false);
 
   useEffect(() => {
     async function fetchSubscription() {
       try {
-        const response = await fetch('/api/billing/subscriptions');
-        if (response.ok) {
-          const data = await response.json();
+        // Fetch subscription and bot data in parallel
+        const [subResponse, botsResponse] = await Promise.all([
+          fetch('/api/billing/subscriptions'),
+          fetch('/api/bots'),
+        ]);
+
+        // Check if user has any live trading bots
+        if (botsResponse.ok) {
+          const botsData = await botsResponse.json();
+          console.log('[DashboardLayout] Bots data:', botsData);
+          console.log('[DashboardLayout] Trading modes:', botsData.map((b: any) => ({
+            id: b.id,
+            tradingMode: b.tradingMode,
+            config: b.config?.tradingMode
+          })));
+          const hasLive = botsData.some((bot: any) => bot.tradingMode === 'live');
+          console.log('[DashboardLayout] Has live bot?', hasLive);
+          setHasLiveBot(hasLive);
+        }
+
+        if (subResponse.ok) {
+          const data = await subResponse.json();
           // Get trading mode from planUsage
           const tradingMode = data.planUsage?.limits?.tradingMode as 'paper' | 'live' | undefined;
 
@@ -97,14 +117,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
     { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
   ];
 
-  // Support is only available for live trading users
+  // Support is only available for live trading users (users with at least one live bot)
   const supportItem = { href: '/dashboard/support', label: 'Support', icon: '🎫' };
   const settingsItem = { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' };
 
-  // Conditionally include Support based on trading mode
+  // Conditionally include Support based on actual bot trading mode
   const navItems = [
     ...baseNavItems,
-    ...(subscription?.tradingMode === 'live' ? [supportItem] : []),
+    ...(hasLiveBot ? [supportItem] : []),
     settingsItem,
   ];
 
