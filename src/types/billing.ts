@@ -4,7 +4,7 @@
  *
  * Plans:
  * - live_trial: 10-day live trading trial (new users start here)
- * - performance_fees: Unlimited live trading with 5% fee on profits (after trial)
+ * - performance_fees: Unlimited live trading with 15% fee on profits (after trial)
  * - free: (legacy, deprecated - no longer used)
  */
 

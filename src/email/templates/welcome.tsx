@@ -46,10 +46,10 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
             <ul style="margin: 15px 0;">
               <li>10-day live trading trial - no capital limits</li>
               <li>1 trading bot with real market data</li>
-              <li>Trade up to 5 cryptocurrency pairs</li>
+              <li>Trade BTC & ETH — most liquid crypto markets</li>
               <li>Full AI-powered market regime detection</li>
               <li>No payment required during trial</li>
-              <li>After trial, pay only 5% on profits</li>
+              <li>After trial, pay only 15% on profits</li>
             </ul>
             <p><strong>To get started, please verify your email address:</strong></p>
             <a href="${verificationUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Verify Email Address</a>

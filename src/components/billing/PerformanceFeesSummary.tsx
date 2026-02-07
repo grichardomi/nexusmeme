@@ -9,7 +9,7 @@ interface PerformanceFeesData {
     total_fees_collected: number;
     pending_fees: number;
     billed_fees: number;
-    total_trades: number;
+    profitable_trades: number;
   };
   billing: {
     billing_status: 'active' | 'past_due' | 'suspended';
@@ -53,7 +53,7 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
           </p>
           <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-600">
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-              Ready to earn real profits? You&apos;ll only pay 5% on profitable trades.
+              Ready to earn real profits? You&apos;ll only pay 15% on profitable trades.
             </p>
             <a
               href="/dashboard/bots"
@@ -155,7 +155,7 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
           <p className="text-xs text-slate-500 dark:text-slate-400">Showing last 2 years</p>
         </div>
         <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded w-fit">
-          5% on profits
+          15% on profits
         </span>
       </div>
 
@@ -205,7 +205,7 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
           <p className="text-2xl sm:text-3xl font-bold mt-1">
             ${Number(summary.total_profits || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <p className="text-blue-200 text-sm mt-1">{summary.total_trades} trades</p>
+          <p className="text-blue-200 text-sm mt-1">{summary.profitable_trades} profitable trades</p>
         </div>
 
         {/* Pending Fees - Important secondary metric */}
@@ -328,7 +328,7 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
           </svg>
         </summary>
         <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg text-sm text-slate-600 dark:text-slate-400 space-y-2">
-          <p>1. Trade → 5% of profits added to pending</p>
+          <p>1. Trade → 15% of profits added to pending</p>
           <p>2. Monthly → Pending fees charged on 1st</p>
           <p>3. Losing trades → No fee</p>
         </div>

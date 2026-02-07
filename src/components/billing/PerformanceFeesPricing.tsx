@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 /**
  * Performance Fees Pricing Component
- * Explains the 5% performance fee model
+ * Explains the 15% performance fee model
  * Replaces traditional subscription tiers
  */
 export function PerformanceFeesPricing() {
@@ -16,7 +16,7 @@ export function PerformanceFeesPricing() {
           Performance-Based Pricing
         </div>
         <div className="flex items-baseline justify-center gap-2 mb-6">
-          <span className="text-5xl font-bold text-slate-900 dark:text-white">5%</span>
+          <span className="text-5xl font-bold text-slate-900 dark:text-white">15%</span>
           <span className="text-xl text-slate-600 dark:text-slate-400">of profits</span>
         </div>
         <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
@@ -54,7 +54,7 @@ export function PerformanceFeesPricing() {
             </div>
             <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Trade Closes</h4>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              If profitable, 5% fee is recorded pending
+              If profitable, 15% fee is recorded pending
             </p>
           </div>
 
@@ -118,9 +118,9 @@ export function PerformanceFeesPricing() {
               </div>
             </div>
             <div>
-              <h4 className="font-semibold text-slate-900 dark:text-white">Trade Multiple Pairs</h4>
+              <h4 className="font-semibold text-slate-900 dark:text-white">BTC & ETH Focus</h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Trade up to 5 crypto pairs with your single bot. Fees scale with your success.
+                Trade the most liquid, profitable crypto markets. Fees scale with your success.
               </p>
             </div>
           </div>
@@ -134,7 +134,7 @@ export function PerformanceFeesPricing() {
             <div>
               <h4 className="font-semibold text-slate-900 dark:text-white">Transparent</h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Simple 5% model. No hidden fees or surprise charges.
+                Simple 15% model. No hidden fees or surprise charges.
               </p>
             </div>
           </div>
@@ -165,12 +165,12 @@ export function PerformanceFeesPricing() {
               <span className="font-mono font-semibold">$800</span>
             </div>
             <div className="flex justify-between text-blue-400">
-              <span>Your Fee (5%)</span>
-              <span className="font-mono font-semibold">$40</span>
+              <span>Your Fee (15%)</span>
+              <span className="font-mono font-semibold">$120</span>
             </div>
             <div className="flex justify-between text-green-400 pt-2 border-t border-slate-700">
               <span>You Keep</span>
-              <span className="font-mono font-semibold">$760</span>
+              <span className="font-mono font-semibold">$680</span>
             </div>
           </div>
         </div>
@@ -208,7 +208,7 @@ export function PerformanceFeesPricing() {
                   <span className="text-xs text-slate-600 dark:text-slate-400">Regardless of profit</span>
                 </td>
                 <td className="py-3 px-4 text-center text-slate-900 dark:text-white">
-                  5% of profits
+                  15% of profits
                   <br />
                   <span className="text-xs text-green-600 dark:text-green-400">Only when you profit</span>
                 </td>
@@ -273,7 +273,7 @@ export function PerformanceFeesPricing() {
               <span className="group-open:rotate-180 transition-transform">▼</span>
             </summary>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-4">
-              No. You only pay 5% on profitable trades. If your bot loses money or has no trades, there's no fee.
+              No. You only pay 15% on profitable trades. If your bot loses money or has no trades, there's no fee.
             </p>
           </details>
 
@@ -293,7 +293,7 @@ export function PerformanceFeesPricing() {
               <span className="group-open:rotate-180 transition-transform">▼</span>
             </summary>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-4">
-              Yes! You can configure your bot to trade up to 5 cryptocurrency pairs simultaneously. Fees are calculated on the combined profits across all pairs.
+              Yes! Your bot trades BTC & ETH — the most liquid, profitable crypto markets. Fees are calculated on the combined profits across all pairs.
             </p>
           </details>
 

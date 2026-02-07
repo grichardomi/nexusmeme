@@ -90,12 +90,12 @@ function getFeatureLimits(plan: string): Record<string, any> {
   const limits: Record<string, Record<string, any>> = {
     live_trial: {
       botsPerUser: 1,
-      tradingPairsPerBot: 5,
+      tradingPairsPerBot: 2,
       tradingMode: 'live',
     },
     performance_fees: {
       botsPerUser: 1,
-      tradingPairsPerBot: 5,
+      tradingPairsPerBot: 2,
       tradingMode: 'live',
     },
   };

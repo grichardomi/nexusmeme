@@ -11,11 +11,11 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
   const questions = [
     {
       question: 'How do I create my first trading bot?',
-      answer: `Step-by-step guide to create your first bot:\n\n1. Log in to your NexusMeme account\n2. Go to Dashboard > Create New Bot\n3. Name your bot (e.g., "BTC/ETH Trader")\n4. Select your trading pairs:\n   - Starter plan: Choose up to 2 pairs\n   - Standard plan: Choose up to 5 pairs\n   - Pro plan: Choose up to 10 pairs\n5. Set your trading capital (minimum $1,000)\n6. Choose trading mode:\n   - Paper Trading: Test without real money (recommended first)\n   - Live Trading: Real trades with real capital (requires Standard/Pro plan)\n7. Configure AI strategy settings\n8. Review settings and click "Create Bot"\n\nYour bot is now ready to start trading!`,
+      answer: `Step-by-step guide to create your first bot:\n\n1. Log in to your NexusMeme account\n2. Go to Dashboard > Create New Bot\n3. Name your bot (e.g., "BTC/ETH Trader")\n4. Select your trading pairs (BTC & ETH — the most liquid, profitable markets)\n5. Set your trading capital\n6. Choose trading mode:\n   - Paper Trading: Test without real money (recommended first)\n   - Live Trading: Real trades with real capital\n7. Configure AI strategy settings\n8. Review settings and click "Create Bot"\n\nYour bot is now ready to start trading!`,
     },
     {
       question: 'How do I add or change trading pairs?',
-      answer: `To add or modify trading pairs on your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Edit Trading Pairs"\n3. Select pairs from the available list:\n   - BTC/USD, ETH/USD, SOL/USD, ADA/USD, XRP/USD, etc.\n4. Your plan limit:\n   - Starter: Maximum 2 pairs\n   - Standard: Maximum 5 pairs\n   - Pro: Maximum 10 pairs\n5. If you exceed your limit, you'll see an error. Upgrade your plan or remove pairs.\n6. Click "Save Changes"\n7. Changes take effect immediately\n\nNote: Paper trading bots can be modified anytime. Live trading bots may have brief interruptions when updating pairs.`,
+      answer: `To add or modify trading pairs on your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Edit Trading Pairs"\n3. Select from BTC and ETH pairs (e.g., BTC/USD, ETH/USD)\n4. Click "Save Changes"\n5. Changes take effect immediately\n\nNexusMeme is focused on BTC & ETH — the most liquid, profitable crypto markets. This disciplined approach ensures tighter spreads and more consistent results.\n\nNote: Paper trading bots can be modified anytime. Live trading bots may have brief interruptions when updating pairs.`,
     },
     {
       question: 'How do I connect my exchange account?',
@@ -23,7 +23,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I switch from paper trading to live trading?',
-      answer: `Ready to trade with real money? Here's how:\n\n1. Go to Dashboard and select your bot\n2. Click "Bot Settings"\n3. Find "Trading Mode" section\n4. Click "Switch to Live Trading"\n5. Review the risks and confirm\n6. Enter your capital amount (must be at least $1,000)\n7. Click "Confirm"\n\nWARNING: This cannot be undone. Once live trading starts:\n- Your capital will be at risk\n- Trades will execute with real money\n- Losses are real\n- Make sure you've tested thoroughly in paper mode first\n\nBest practices:\n- Start with a small amount\n- Test your strategy in paper mode for at least a few days\n- Only use capital you can afford to lose`,
+      answer: `Ready to trade with real money? Here's how:\n\n1. Go to Dashboard and select your bot\n2. Click "Bot Settings"\n3. Find "Trading Mode" section\n4. Click "Switch to Live Trading"\n5. Review the risks and confirm\n6. Enter your capital amount\n7. Click "Confirm"\n\nWARNING: This cannot be undone. Once live trading starts:\n- Your capital will be at risk\n- Trades will execute with real money\n- Losses are real\n- Make sure you've tested thoroughly in paper mode first\n\nBest practices:\n- Start with a small amount\n- Test your strategy in paper mode for at least a few days\n- Only use capital you can afford to lose`,
     },
     {
       question: 'How do I stop a bot?',
@@ -31,7 +31,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I view my trading history?',
-      answer: `To see all trades executed by your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Trading History"\n3. You'll see:\n   - Entry price and time\n   - Exit price and time\n   - Profit/loss\n   - Trading pair\n4. Filter by date or pair\n5. Export history (available on Standard and Pro plans)\n\nData retention:\n- Starter plan: 30 days of history\n- Standard plan: 90 days of history\n- Pro plan: 1 year of history`,
+      answer: `To see all trades executed by your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Trading History"\n3. You'll see:\n   - Entry price and time\n   - Exit price and time\n   - Profit/loss\n   - Trading pair\n4. Filter by date or pair\n5. Export history anytime\n\nAll trading data is retained indefinitely — complete history always available.`,
     },
     {
       question: 'How do I adjust risk settings?',
@@ -42,16 +42,16 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
       answer: `View your bot's performance metrics:\n\n1. Go to Dashboard and select your bot\n2. Click "Analytics"\n3. View key metrics:\n   - Total return: Overall profit/loss percentage\n   - Win rate: Percentage of profitable trades\n   - Profit factor: Ratio of gains to losses\n   - Maximum drawdown: Largest peak-to-trough decline\n   - Sharpe ratio: Risk-adjusted returns\n4. Filter by time period (1 week, 1 month, 3 months, etc.)\n5. Export reports (Standard and Pro plans)\n\nAnalytics update in real-time as trades execute.`,
     },
     {
-      question: 'How do I upgrade my plan?',
-      answer: `To upgrade to a higher plan:\n\n1. Go to Account > Billing & Plans\n2. Click "Upgrade to Standard" or "Upgrade to Pro"\n3. Review the new plan features\n4. Enter payment information\n5. Confirm upgrade\n6. Your new limits take effect immediately\n\nWhen upgrading:\n- You'll have more trading pairs available\n- Higher capital limits\n- Better data retention\n- Priority support\n\nBilling:\n- You're charged the new plan price immediately\n- Your billing cycle resets\n- Unused days are credited (if applicable)`,
+      question: 'How do I manage my plan?',
+      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading\n- All exchanges supported\n- Full analytics and trade history\n- 15% on profits only — $0 on losses`,
     },
     {
       question: 'How do I enable trade alerts?',
-      answer: `Get notifications when your bot trades:\n\n1. Go to Account > Notifications\n2. Under "Trade Alerts", toggle "Enable"\n3. Choose notification methods:\n   - Email\n   - In-app notifications\n   - SMS (Pro plan only)\n4. Select when to notify:\n   - On every trade\n   - On profitable trades only\n   - On large trades only\n5. Save preferences\n\nYou'll now receive alerts when:\n- A trade is opened\n- A position is closed\n- A stop loss is hit\n- An error occurs`,
+      answer: `Get notifications when your bot trades:\n\n1. Go to Account > Notifications\n2. Under "Trade Alerts", toggle "Enable"\n3. Choose notification methods:\n   - Email\n   - In-app notifications\n4. Select when to notify:\n   - On every trade\n   - On profitable trades only\n   - On large trades only\n5. Save preferences\n\nYou'll now receive alerts when:\n- A trade is opened\n- A position is closed\n- A stop loss is hit\n- An error occurs`,
     },
     {
-      question: 'How do I cancel my subscription?',
-      answer: `To cancel your paid plan:\n\n1. Go to Account > Billing & Plans\n2. Click "Cancel Subscription"\n3. Select your reason (optional)\n4. Confirm cancellation\n\nWhat happens:\n- Your plan remains active until the end of the billing period\n- You won't be charged again\n- Your bots continue running (but limited to Starter features)\n- Your trading history is preserved\n\nTo reactivate:\n1. Go to Account > Billing & Plans\n2. Click "Upgrade" again\n3. Your plan is reinstated immediately`,
+      question: 'How do I stop paying fees?',
+      answer: `Since NexusMeme uses performance fees (not subscriptions), you stop paying by stopping trading:\n\n1. Go to Dashboard and pause or delete your bot\n2. No more trades = no more fees\n3. Any pending fees from past profits will still be billed on the 1st\n\nThere are no cancellation fees or penalties. You only ever pay for profits your bot already earned. To start again, just create a new bot.`,
     },
   ];
 

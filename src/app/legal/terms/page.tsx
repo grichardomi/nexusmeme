@@ -98,7 +98,7 @@ export default function TermsPage() {
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Fee Model</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            NexusMeme charges a <strong>5% performance fee on profits only</strong>. You are charged when your trading bot generates profitable trades. Losing trades incur no fee.
+            NexusMeme charges a <strong>15% performance fee on profits only</strong>. You are charged when your trading bot generates profitable trades. Losing trades incur no fee.
           </p>
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Billing Schedule</h3>

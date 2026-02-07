@@ -5,7 +5,7 @@
  *
  * MODEL: Performance-Based Pricing
  * - No monthly subscriptions, no setup fees
- * - Only pay 5% of profits from closed trades via Coinbase Commerce (crypto)
+ * - Only pay 15% of profits from closed trades via Coinbase Commerce (crypto)
  * - Everyone starts with 10-day Live Trading Trial
  * - No legacy "paper trading forever" - encourages conversion
  */
@@ -18,15 +18,15 @@ import { SubscriptionPlan } from '@/types/billing';
  * LIVE TRADING TRIAL (10 days):
  * - Real money live trading execution
  * - AI-powered regime detection & market analysis
- * - 1 trading bot with up to 5 pairs
+ * - 1 trading bot focused on BTC & ETH
  * - No capital limits - trade with your own funds
  * - 10-day trial period (no upfront payment needed)
  * - Free to use during trial
- * - After trial: Only pay 5% on profitable closed trades
+ * - After trial: Only pay 15% on profitable closed trades
  *
  * PERFORMANCE FEES (After trial expires):
  * - Continue live trading with unlimited capital
- * - 5% performance fee on all profitable trades only
+ * - 15% performance fee on all profitable trades only
  * - No losing trades = no fees at all
  * - Monthly billing on 1st at 2 AM UTC
  * - No subscription, no monthly fees
@@ -43,7 +43,7 @@ export const PRICING_PLANS = {
     features: [
       'Real money live trading execution',
       '1 trading bot',
-      'Up to 5 trading pairs (BTC, ETH, ALTs)',
+      'Focused on BTC & ETH — highest liquidity, tightest spreads',
       'AI-powered regime detection & market analysis',
       'Automated trade execution on regime signals',
       'Dynamic profit targeting based on market conditions',
@@ -53,11 +53,11 @@ export const PRICING_PLANS = {
       'Real-time market data & price feeds',
       'Complete trade history & performance analytics',
       'Email notifications for trade alerts',
-      'After trial: Only pay 5% on profits',
+      'After trial: 15% on profits — $0 on losses',
     ],
     limits: {
       botsPerUser: 1,
-      tradingPairsPerBot: 5,
+      tradingPairsPerBot: 2,
       tradingMode: 'dynamic', // Determined at runtime from bot config
     },
     highlight: 'Start trading immediately',
@@ -68,14 +68,14 @@ export const PRICING_PLANS = {
   performance_fees: {
     id: 'performance_fees' as SubscriptionPlan,
     name: 'Performance Fees Plan',
-    description: 'Unlimited live trading with 5% fee on profits only',
+    description: 'Unlimited live trading with 15% fee on profits only',
     monthlyPrice: 0, // No subscription
     yearlyPrice: 0,
     features: [
       'Everything in Live Trial, plus:',
       'Unlimited capital - trade as much as you want',
       'Unlimited trading duration - no expiration',
-      'Simple transparent pricing: 5% of profits only',
+      'Simple transparent pricing: 15% of profits only',
       'No monthly subscription fees',
       'No setup costs or hidden charges',
       'Losing trades = $0 fees',
@@ -86,12 +86,12 @@ export const PRICING_PLANS = {
     ],
     limits: {
       botsPerUser: 1,
-      tradingPairsPerBot: 5,
+      tradingPairsPerBot: 2,
       tradingMode: 'dynamic', // Determined at runtime from bot config
     },
     highlight: 'Unlimited profitable trading',
     trialType: 'none',
-    performanceFeePercent: 5,
+    performanceFeePercent: 15,
   },
 };
 
@@ -107,7 +107,7 @@ export function getPricingPlan(planId: string) {
  */
 export const TRIAL_CONFIG = {
   LIVE_TRADING_DURATION_DAYS: 10,
-  PERFORMANCE_FEE_PERCENT: 5,
+  PERFORMANCE_FEE_PERCENT: 15,
   BILLING_DAY_OF_MONTH: 1,
   BILLING_HOUR_UTC: 2,
 };

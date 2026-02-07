@@ -1,6 +1,6 @@
 /**
  * Performance Fee Service
- * Handles 5% fee calculation on profitable trades
+ * Handles 15% fee calculation on profitable trades
  * Manages fee tracking and Coinbase Commerce billing integration
  */
 
@@ -98,11 +98,11 @@ export async function getUserFeeSummary(userId: string) {
   try {
     const result = await query(
       `SELECT
-         SUM(CASE WHEN profit_amount > 0 THEN profit_amount ELSE 0 END)::DECIMAL as total_profits,
+         SUM(profit_amount)::DECIMAL as total_profits,
          SUM(CASE WHEN status = 'paid' THEN fee_amount ELSE 0 END)::DECIMAL as total_fees_collected,
          SUM(CASE WHEN status = 'pending_billing' THEN fee_amount ELSE 0 END)::DECIMAL as pending_fees,
          SUM(CASE WHEN status = 'billed' THEN fee_amount ELSE 0 END)::DECIMAL as billed_fees,
-         COUNT(*)::INT as total_trades
+         COUNT(*)::INT as profitable_trades
        FROM performance_fees
        WHERE user_id = $1`,
       [userId]
@@ -113,7 +113,7 @@ export async function getUserFeeSummary(userId: string) {
       total_fees_collected: 0,
       pending_fees: 0,
       billed_fees: 0,
-      total_trades: 0,
+      profitable_trades: 0,
     };
   } catch (error) {
     logger.error('Failed to get user fee summary', error instanceof Error ? error : null, {

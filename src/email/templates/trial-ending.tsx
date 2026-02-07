@@ -65,7 +65,7 @@ export function TrialEndingEmailTemplate({
             <p>We hope you've enjoyed testing NexusMeme! Your live trading trial includes:</p>
             <ul>
               <li>1 trading bot with live market data</li>
-              <li>Trade up to 5 cryptocurrency pairs</li>
+              <li>Trade BTC & ETH — most liquid crypto markets</li>
               <li>No capital limits - trade with your own funds</li>
               <li>Full AI-powered market regime detection</li>
               <li>Real trading with real market conditions</li>
@@ -74,10 +74,10 @@ export function TrialEndingEmailTemplate({
             <p><strong>Ready to continue trading?</strong> After your trial, keep trading with our simple performance-based model:</p>
 
             <div class="plan-highlight">
-              <h3 style="margin-top: 0;">Performance Fees Model - <strong>5% on Profits Only</strong></h3>
+              <h3 style="margin-top: 0;">Performance Fees Model - <strong>15% on Profits Only</strong></h3>
               <ul style="margin: 10px 0; padding-left: 20px;">
                 <li>1 trading bot</li>
-                <li>Trade up to 5 crypto pairs</li>
+                <li>BTC & ETH — focused where the money is</li>
                 <li>Trade with any amount of capital</li>
                 <li>Only pay when your bot makes money</li>
                 <li>No subscription fees, no setup costs</li>
@@ -85,7 +85,7 @@ export function TrialEndingEmailTemplate({
               </ul>
             </div>
 
-            <p><strong>How it works:</strong> Your bot makes a $1,000 profit? You pay $50 (5% fee). Your bot loses money? You pay nothing. That's it!</p>
+            <p><strong>How it works:</strong> Your bot makes a $1,000 profit? You pay $150 (15% fee). Your bot loses money? You pay nothing. That's it!</p>
 
             <p style="text-align: center;">
               <a href="${upgradePath}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Add Payment Method</a>
@@ -100,7 +100,7 @@ export function TrialEndingEmailTemplate({
               <li>Your bot will pause (not deleted)</li>
               <li>You can add a payment method to continue</li>
               <li>Your historical trade data is preserved</li>
-              <li>You'll only pay 5% on any profits after trial ends</li>
+              <li>You'll only pay 15% on any profits after trial ends</li>
             </ul>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
@@ -127,7 +127,7 @@ Hi ${name || 'Trader'},
 Your 10-day live trading trial will expire on ${trialEndsDate} (${daysRemaining} days remaining).
 
 To keep your trading bot active, add a payment method to continue:
-- Performance Fee Model: 5% on profits only
+- Performance Fee Model: 15% on profits only
 - No subscription fees, no setup costs
 - Only pay when your bot makes money
 - You can trade with any amount of capital
@@ -209,7 +209,7 @@ export function TrialEndingPerformanceFeesEmailTemplate({
               <p><strong>Good news!</strong> You can continue live trading with our performance fees model:</p>
               <ul>
                 <li>✅ Trade with your own capital</li>
-                <li>✅ Trade up to 5 cryptocurrency pairs</li>
+                <li>✅ Trade BTC & ETH — most liquid crypto markets</li>
                 <li>✅ Pay only <strong>${performanceFeePercent}%</strong> on profitable trades</li>
                 <li>✅ No subscription fees or setup costs</li>
               </ul>

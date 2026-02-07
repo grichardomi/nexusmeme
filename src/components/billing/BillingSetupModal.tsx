@@ -41,7 +41,7 @@ export function BillingSetupModal({ botName }: BillingSetupModalProps) {
               <strong>How it works:</strong>
             </p>
             <ul className="text-sm text-blue-900 dark:text-blue-100 space-y-1 ml-4">
-              <li>✓ 5% fee on profits only</li>
+              <li>✓ 15% fee on profits only</li>
               <li>✓ No subscription fees</li>
               <li>✓ Charged monthly on the 1st</li>
               <li>✓ Free if bot loses money</li>

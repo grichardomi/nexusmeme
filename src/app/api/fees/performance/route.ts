@@ -26,8 +26,10 @@ async function handleCSVExport(userId: string): Promise<Response> {
          pf.pair,
          pf.profit_amount,
          pf.fee_amount,
+         pf.fee_rate,
          pf.status,
          pf.paid_at,
+         pf.coinbase_charge_id,
          pf.stripe_invoice_id
        FROM performance_fees pf
        WHERE pf.user_id = $1
@@ -37,15 +39,16 @@ async function handleCSVExport(userId: string): Promise<Response> {
     );
 
     // Build CSV
-    const headers = ['Date', 'Pair', 'Profit', 'Fee (5%)', 'Status', 'Paid Date', 'Invoice ID'];
+    const headers = ['Date', 'Pair', 'Profit', 'Fee Rate', 'Fee Amount', 'Status', 'Paid Date', 'Charge ID'];
     const rows = fees.map((f: any) => [
       new Date(f.created_at).toLocaleDateString('en-US'),
       f.pair || 'N/A',
       `$${parseFloat(f.profit_amount || 0).toFixed(2)}`,
+      `${((parseFloat(f.fee_rate) || 0.05) * 100).toFixed(0)}%`,
       `$${parseFloat(f.fee_amount || 0).toFixed(2)}`,
       f.status,
       f.paid_at ? new Date(f.paid_at).toLocaleDateString('en-US') : 'N/A',
-      f.stripe_invoice_id || 'N/A'
+      f.coinbase_charge_id || f.stripe_invoice_id || 'N/A'
     ]);
 
     const csv = [
@@ -85,6 +88,7 @@ async function handleChargesCSVExport(userId: string): Promise<Response> {
          total_fees_amount,
          total_fees_count,
          status,
+         coinbase_charge_id,
          stripe_invoice_id,
          paid_at,
          created_at
@@ -96,14 +100,14 @@ async function handleChargesCSVExport(userId: string): Promise<Response> {
     );
 
     // Build CSV
-    const headers = ['Billing Period Start', 'Billing Period End', 'Amount', 'Trades', 'Status', 'Invoice ID', 'Paid Date'];
+    const headers = ['Billing Period Start', 'Billing Period End', 'Amount', 'Profitable Trades', 'Status', 'Charge ID', 'Paid Date'];
     const rows = charges.map((c: any) => [
       new Date(c.billing_period_start).toLocaleDateString('en-US'),
       new Date(c.billing_period_end).toLocaleDateString('en-US'),
       `$${parseFloat(c.total_fees_amount || 0).toFixed(2)}`,
       c.total_fees_count,
       c.status,
-      c.stripe_invoice_id || 'N/A',
+      c.coinbase_charge_id || c.stripe_invoice_id || 'N/A',
       c.paid_at ? new Date(c.paid_at).toLocaleDateString('en-US') : 'N/A'
     ]);
 
@@ -164,7 +168,7 @@ export async function GET(request: Request) {
       total_fees_collected: 0,
       pending_fees: 0,
       billed_fees: 0,
-      total_trades: 0,
+      profitable_trades: 0,
     };
 
     let recentTransactions: any[] = [];
@@ -303,6 +307,7 @@ export async function GET(request: Request) {
              total_fees_count,
              stripe_invoice_id,
              stripe_charge_id,
+             coinbase_charge_id,
              status,
              paid_at,
              created_at
@@ -315,11 +320,12 @@ export async function GET(request: Request) {
           [session.user.id, twoYearsAgoDate, offset, chargeLimit]
         );
 
-        chargeHistory = historyResult.map((h) => ({
+        chargeHistory = historyResult.map((h: any) => ({
           id: h.id,
-          invoice_id: h.stripe_invoice_id || `charge-${h.id}`,
+          invoice_id: h.coinbase_charge_id || h.stripe_invoice_id || `charge-${h.id}`,
           stripe_invoice_id: h.stripe_invoice_id,
           stripe_charge_id: h.stripe_charge_id,
+          coinbase_charge_id: h.coinbase_charge_id,
           billing_period_start: h.billing_period_start,
           billing_period_end: h.billing_period_end,
           total_fees: parseFloat(h.total_fees_amount || 0),
@@ -327,8 +333,9 @@ export async function GET(request: Request) {
           status: h.status || 'pending',
           paid_at: h.paid_at,
           created_at: h.created_at,
-          // Generate Stripe invoice URL if we have invoice_id
-          invoice_url: h.stripe_invoice_id
+          invoice_url: h.coinbase_charge_id
+            ? `https://commerce.coinbase.com/charges/${h.coinbase_charge_id}`
+            : h.stripe_invoice_id
             ? `https://dashboard.stripe.com/invoices/${h.stripe_invoice_id}`
             : null,
         }));
@@ -350,7 +357,7 @@ export async function GET(request: Request) {
         total_fees_collected: parseFloat(summary.total_fees_collected || 0),
         pending_fees: parseFloat(summary.pending_fees || 0),
         billed_fees: parseFloat(summary.billed_fees || 0),
-        total_trades: summary.total_trades || 0,
+        profitable_trades: summary.profitable_trades || 0,
       },
       billing: billingStatus,
       recentTransactions,
@@ -367,7 +374,7 @@ export async function GET(request: Request) {
           total_fees_collected: 0,
           pending_fees: 0,
           billed_fees: 0,
-          total_trades: 0,
+          profitable_trades: 0,
         },
         billing: {
           billing_status: 'active',

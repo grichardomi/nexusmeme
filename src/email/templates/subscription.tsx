@@ -287,7 +287,7 @@ function getPlanFeatures(plan: string): string[] {
     ],
     'NexusMeme Standard': [
       '1 trading bot',
-      '5 trading pairs per bot',
+      'BTC & ETH trading pairs',
       'Dynamic profit targeting',
       '1-year trade history',
       'Priority email support',

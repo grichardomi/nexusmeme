@@ -247,7 +247,7 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 
   /* Performance Fees */
-  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.05'), // 5% of profits
+  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.15'), // 15% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
@@ -425,7 +425,7 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_HOUR_1_3: -0.025,
     EARLY_LOSS_HOUR_4_PLUS: -0.035,
     EARLY_LOSS_DAILY: -0.045,
-    PERFORMANCE_FEE_RATE: 0.05,
+    PERFORMANCE_FEE_RATE: 0.15,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     CP_BTC_TREND_GATE_ENABLED: true,
     CP_BTC_EMA_SHORT_PERIOD: 50,
@@ -519,7 +519,7 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
       BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
-      PERFORMANCE_FEE_RATE: 0.05,
+      PERFORMANCE_FEE_RATE: 0.15,
       PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     };
     return (testDefaults[key] ?? process.env[key]) as Environment[T];

@@ -12,15 +12,15 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
   const questions = [
     {
       question: 'How does the performance fee model work?',
-      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ 5% fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Trade up to 5 pairs per bot\n\nExample:\n- Your bot makes $1,000 profit → You pay $50 (5% fee)\n- Your bot loses $500 → You pay $0 (no fee)\n- Your bot breaks even → You pay $0 (no fee)\n\nNo hidden charges, completely transparent billing.`,
+      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ 15% fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Focused on BTC & ETH — highest liquidity\n\nExample:\n- Your bot makes $1,000 profit → You pay $150 (15% fee)\n- Your bot loses $500 → You pay $0 (no fee)\n- Your bot breaks even → You pay $0 (no fee)\n\nNo hidden charges, completely transparent billing. We only earn when you earn.`,
     },
     {
       question: 'Do I need to pay upfront?',
-      answer: `No! There are zero upfront costs:\n\n✓ No setup fee\n✓ No trial period fee\n✓ No subscription fee\n✓ No credit card required to get started\n\nYou only pay 5% of your profits once your bot starts making money. If your bot never makes a profit, you never pay anything.\n\nLearn more: Check your dashboard under Billing & Subscription to see detailed fee calculations and billing history.`,
+      answer: `No! There are zero upfront costs:\n\n✓ No setup fee\n✓ No trial period fee\n✓ No subscription fee\n✓ No credit card required to get started\n\nYou only pay 15% of your profits once your bot starts making money. If your bot never makes a profit, you never pay anything.\n\nLearn more: Check your dashboard under Billing & Subscription to see detailed fee calculations and billing history.`,
     },
     {
       question: 'How is my fee calculated?',
-      answer: `Fees are calculated monthly based on your bot's profitable trades:\n\n1. NexusMeme tracks all profitable trades\n2. Total profit is calculated for the month\n3. Fee = Total profit × 5%\n4. Fee is billed on the 1st of the next month\n\nExample billing:\n- Month 1: $2,000 profit → Fee = $100\n- Month 2: -$500 loss → Fee = $0 (no charge)\n- Month 3: $3,000 profit → Fee = $150\n\nYou can see the exact calculation in your Billing Dashboard under "Performance Fees Summary".`,
+      answer: `Fees are calculated monthly based on your bot's profitable trades:\n\n1. NexusMeme tracks all profitable trades\n2. Total profit is calculated for the month\n3. Fee = Total profit × 15%\n4. Fee is billed on the 1st of the next month\n\nExample billing:\n- Month 1: $2,000 profit → Fee = $300\n- Month 2: -$500 loss → Fee = $0 (no charge)\n- Month 3: $3,000 profit → Fee = $450\n\nYou can see the exact calculation in your Billing Dashboard under "Performance Fees Summary".`,
     },
     {
       question: 'What payment methods do you accept?',
@@ -60,11 +60,11 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
       <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-6 mb-8">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">💳 Performance Fee Model</h2>
         <p className="text-slate-700 dark:text-slate-300 mb-4">
-          Simple, transparent pricing. You only pay 5% of your profits. No subscription fees, no setup costs.
+          Simple, transparent pricing. You only pay 15% of your profits. No subscription fees, no setup costs. We only earn when you earn.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-slate-800 rounded p-3 text-center">
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400">5%</div>
+            <div className="text-2xl font-bold text-green-600 dark:text-green-400">15%</div>
             <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Fee on Profits</div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded p-3 text-center">
@@ -96,7 +96,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
           </li>
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 3:</span>
-            <span>Monthly fee is calculated on the 1st: Your profit × 5%</span>
+            <span>Monthly fee is calculated on the 1st: Your profit × 15%</span>
           </li>
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 4:</span>

@@ -19,7 +19,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What are trading pairs and how many can I have?',
-      answer: `Trading pairs are the cryptocurrencies your bot trades. For example:\n- BTC/USD: Bitcoin vs. US Dollar\n- ETH/USD: Ethereum vs. US Dollar\n- SOL/USD: Solana vs. US Dollar\n\nYour bot can trade up to 5 cryptocurrency pairs simultaneously. Example combinations:\n- BTC/USD + ETH/USD\n- BTC/USD + ETH/USD + SOL/USD + ADA/USD + XRP/USD\n\nYou choose which pairs your bot trades when creating it.`,
+      answer: `Trading pairs are the cryptocurrencies your bot trades:\n- BTC/USD: Bitcoin vs. US Dollar\n- ETH/USD: Ethereum vs. US Dollar\n\nYour bot is focused on BTC and ETH — the most liquid, profitable crypto markets. This disciplined approach means tighter spreads, better fills, and more consistent profitability than spreading across dozens of altcoins.`,
     },
     {
       question: 'How much profit can I expect?',
@@ -27,7 +27,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What if I want to test before going live with my own capital?',
-      answer: `Your 10-day live trading trial is your testing period:\n- You trade with your own funds in real market conditions\n- Real orders execute and you see real P&L\n- No capital limits during trial\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, continue trading and only pay 5% on profits.`,
+      answer: `Your 10-day live trading trial is your testing period:\n- You trade with your own funds in real market conditions\n- Real orders execute and you see real P&L\n- No capital limits during trial\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, continue trading and only pay 15% on profits.`,
     },
     {
       question: 'Why did my trade lose money?',
@@ -59,11 +59,11 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What if I have technical issues?',
-      answer: `For technical support:\n\n1. Check the Help Center (you're reading it!)\n2. Check your bot status:\n   - Go to Dashboard\n   - Look for status indicator (Running, Stopped, Error)\n   - Check bot logs for error messages\n3. Common issues:\n   - Bot stopped? Check exchange API connectivity\n   - No trades executing? Check trading pairs and capital\n   - High latency? Check your internet connection\n4. Contact support:\n   - Email: support@nexusmeme.com\n   - Include bot ID and error message\n   - Standard plan: Priority support response\n   - Pro plan: Dedicated support`,
+      answer: `For technical support:\n\n1. Check the Help Center (you're reading it!)\n2. Check your bot status:\n   - Go to Dashboard\n   - Look for status indicator (Running, Stopped, Error)\n   - Check bot logs for error messages\n3. Common issues:\n   - Bot stopped? Check exchange API connectivity\n   - No trades executing? Check trading pairs and capital\n   - High latency? Check your internet connection\n4. Contact support:\n   - Email: support@nexusmeme.com\n   - Include bot ID and error message\n   - We respond as quickly as possible`,
     },
     {
       question: 'Can I get my money back?',
-      answer: `Your capital and profits are always yours:\n\nTo withdraw your capital and profits:\n1. Stop your bot (optional)\n2. Wait for all trades to close\n3. Go to your exchange account directly\n4. Withdraw to your bank\n\nFees and considerations:\n- Exchange withdrawal fees (set by the exchange)\n- Bank transfer fees may apply\n- Currency conversion fees if applicable\n- Trading losses are your responsibility (you bear trading risk)\n- We only charge 5% on profitable trades`,
+      answer: `Your capital and profits are always yours:\n\nTo withdraw your capital and profits:\n1. Stop your bot (optional)\n2. Wait for all trades to close\n3. Go to your exchange account directly\n4. Withdraw to your bank\n\nFees and considerations:\n- Exchange withdrawal fees (set by the exchange)\n- Bank transfer fees may apply\n- Currency conversion fees if applicable\n- Trading losses are your responsibility (you bear trading risk)\n- We only charge 15% on profitable trades`,
     },
   ];
 

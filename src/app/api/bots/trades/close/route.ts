@@ -26,7 +26,7 @@ import { recordPerformanceFee } from '@/services/billing/performance-fee';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { withRetry } from '@/lib/resilience';
-import { exchangeFeesConfig } from '@/config/environment';
+import { exchangeFeesConfig, getEnvironmentConfig } from '@/config/environment';
 import { getAccountFeeRates, computeMinExitPrice } from '@/services/exchanges/fee-schedule';
 import { z } from 'zod';
 
@@ -467,11 +467,12 @@ export async function POST(req: NextRequest) {
           data.pair
         );
 
+        const feeRate = getEnvironmentConfig().PERFORMANCE_FEE_RATE;
         logger.info('Performance fee recorded for profitable trade', {
           userId,
           tradeId: data.tradeId,
           profitAmount: actualProfitLoss,
-          feeAmount: (actualProfitLoss * 0.05).toFixed(2),
+          feeAmount: (actualProfitLoss * feeRate).toFixed(2),
         });
       } catch (feeError) {
         // Log but don't fail the trade close if fee recording fails
@@ -511,7 +512,7 @@ export async function POST(req: NextRequest) {
         profitLossPercent: actualProfitLossPercent,
         tradingMode,
         feeRecorded: actualProfitLoss > 0 && !isPaperTrading,
-        feeAmount: actualProfitLoss > 0 && !isPaperTrading ? (actualProfitLoss * 0.05).toFixed(2) : null,
+        feeAmount: actualProfitLoss > 0 && !isPaperTrading ? (actualProfitLoss * getEnvironmentConfig().PERFORMANCE_FEE_RATE).toFixed(2) : null,
         paperTrading: isPaperTrading,
       },
       { status: 200 }

@@ -147,13 +147,13 @@ export function PricingPlans({ currentPlan, onSelectPlan, userCanUpgrade = true 
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">Is there a free trial?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Yes! Everyone starts with a 10-day live trading trial. No capital limits - trade with your own funds. No payment required. After the trial, pay only 5% on profits.
+              Yes! Everyone starts with a 10-day live trading trial. No capital limits - trade with your own funds. No payment required. After the trial, pay only 15% on profits.
             </p>
           </div>
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">What happens after my trial?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Add a payment method and continue trading. You only pay 5% on profitable trades. If you lose money, you pay nothing.
+              Add a payment method and continue trading. You only pay 15% on profitable trades. If you lose money, you pay nothing.
             </p>
           </div>
         </div>

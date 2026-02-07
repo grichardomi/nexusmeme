@@ -31,7 +31,7 @@ export default function CreateBotPage() {
         {/* Billing Info Banner */}
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
           <p className="text-sm text-blue-900 dark:text-blue-100">
-            <strong>💳 Billing Setup:</strong> After creating your bot, you'll set up billing to enable live trading. You'll only be charged 5% of your profits when your bot makes money. No subscription fees. <a href="/help/performance-fees" className="underline hover:text-blue-700 dark:hover:text-blue-300 font-semibold">Learn more →</a>
+            <strong>💳 Billing Setup:</strong> After creating your bot, you'll set up billing to enable live trading. You'll only be charged 15% of your profits when your bot makes money. No subscription fees. <a href="/help/performance-fees" className="underline hover:text-blue-700 dark:hover:text-blue-300 font-semibold">Learn more →</a>
           </p>
         </div>
 

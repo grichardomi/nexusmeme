@@ -165,7 +165,7 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
               : 'text-blue-600 dark:text-blue-400'
           }`}>
             <li>✅ Unlimited live trading with your own capital</li>
-            <li>✅ Pay only 5% on profitable trades</li>
+            <li>✅ Pay only 15% on profitable trades</li>
             <li>✅ No subscription fees, no setup costs</li>
             <li>✅ Monthly billing on 1st of month</li>
           </ul>

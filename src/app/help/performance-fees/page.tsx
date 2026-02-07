@@ -10,8 +10,8 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: 'Performance Fees Guide - NexusMeme Trading Bot Platform',
   description:
-    'Learn how NexusMeme performance fees work. You only pay 5% on profits, monthly billing, and complete fee breakdown with examples.',
-  keywords: 'performance fees, trading fees, 5% fee model, billing, crypto trading, NexusMeme',
+    'Learn how NexusMeme performance fees work. You only pay 15% on profits, monthly billing, and complete fee breakdown with examples.',
+  keywords: 'performance fees, trading fees, 15% fee model, billing, crypto trading, NexusMeme',
   alternates: {
     canonical: 'https://nexusmeme.com/help/performance-fees',
   },
@@ -32,7 +32,7 @@ const feeSchema = {
       name: 'How much do NexusMeme fees cost?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme charges 5% performance fee only on profitable trades. You pay nothing on losing trades or if your bot has no activity. The fee is automatically charged monthly on the 1st.',
+        text: 'NexusMeme charges 15% performance fee only on profitable trades. You pay nothing on losing trades or if your bot has no activity. The fee is automatically charged monthly on the 1st.',
       },
     },
     {
@@ -48,7 +48,7 @@ const feeSchema = {
       name: 'What if my bot loses money?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'You are not charged for losing trades. Only profitable trades incur the 5% performance fee. If your bot has no profitable trades in a month, there is no charge.',
+        text: 'You are not charged for losing trades. Only profitable trades incur the 15% performance fee. If your bot has no profitable trades in a month, there is no charge.',
       },
     },
     {
@@ -56,7 +56,7 @@ const feeSchema = {
       name: 'Can I trade multiple pairs?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes. You can configure your single bot to trade up to 5 cryptocurrency pairs simultaneously. Fees are calculated on the combined profits across all pairs in your bot.',
+        text: 'Yes. Your bot trades BTC and ETH — the most liquid, profitable crypto markets. Fees are calculated on the combined profits across all pairs.',
       },
     },
   ],
@@ -73,7 +73,7 @@ export default function PerformanceFeesPage() {
               ← Back to Help Center
             </Link>
             <h1 className="text-4xl font-bold mb-2">Performance Fees Guide</h1>
-            <p className="text-blue-100">Understand how our 5% fee model works</p>
+            <p className="text-blue-100">Understand how our 15% fee model works</p>
           </div>
         </div>
 
@@ -83,12 +83,12 @@ export default function PerformanceFeesPage() {
             <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4">How Performance Fees Work</h2>
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
               <p className="text-lg text-slate-700 dark:text-slate-300 mb-4">
-                NexusMeme uses a <strong>performance-based pricing model</strong>. You only pay <strong>5% of your profits</strong> when your trading bot generates profitable trades. There are no subscription fees, no monthly minimums, and no setup costs.
+                NexusMeme uses a <strong>performance-based pricing model</strong>. You only pay <strong>15% of your profits</strong> when your trading bot generates profitable trades. There are no subscription fees, no monthly minimums, and no setup costs. We only earn when you earn.
               </p>
               <ul className="space-y-2 text-slate-700 dark:text-slate-300">
                 <li>✓ Pay only when profitable</li>
                 <li>✓ Losing trades don't cost anything</li>
-                <li>✓ Transparent 5% fee on profits</li>
+                <li>✓ Transparent 15% fee on profits</li>
                 <li>✓ Monthly billing on the 1st</li>
                 <li>✓ Automatic payment processing via Stripe</li>
               </ul>
@@ -119,12 +119,12 @@ export default function PerformanceFeesPage() {
                     <span className="font-mono">$800</span>
                   </div>
                   <div className="flex justify-between text-blue-400 font-semibold">
-                    <span>Your Fee (5%)</span>
-                    <span className="font-mono">$40</span>
+                    <span>Your Fee (15%)</span>
+                    <span className="font-mono">$120</span>
                   </div>
                   <div className="flex justify-between text-green-400 font-semibold pt-2 border-t border-slate-700">
                     <span>You Keep</span>
-                    <span className="font-mono">$760</span>
+                    <span className="font-mono">$680</span>
                   </div>
                 </div>
               </div>
@@ -146,9 +146,9 @@ export default function PerformanceFeesPage() {
               </div>
 
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-6">
-                <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">Multiple Pairs</h3>
+                <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">BTC & ETH Trading</h3>
                 <p className="text-slate-700 dark:text-slate-300">
-                  Your bot can trade up to 5 cryptocurrency pairs simultaneously. Fees are calculated on <strong>total profits across all pairs</strong> in a single monthly invoice.
+                  Your bot trades BTC and ETH — the most liquid, profitable crypto markets. Fees are calculated on <strong>total profits across all pairs</strong> in a single monthly invoice.
                 </p>
               </div>
 
@@ -208,7 +208,7 @@ export default function PerformanceFeesPage() {
                   <span className="group-open:rotate-180 transition-transform">▼</span>
                 </summary>
                 <p className="text-slate-700 dark:text-slate-300 mt-4">
-                  No. You only pay 5% on profitable trades. If your bot loses money or has no trades, there is no fee. You only pay when you actually make money.
+                  No. You only pay 15% on profitable trades. If your bot loses money or has no trades, there is no fee. You only pay when you actually make money.
                 </p>
               </details>
 
@@ -222,7 +222,7 @@ export default function PerformanceFeesPage() {
                 </p>
                 <ul className="text-slate-700 dark:text-slate-300 mt-3 ml-4 space-y-2">
                   <li>• Total Profits - Sum of all profitable trades</li>
-                  <li>• Fees Collected - 5% already paid out</li>
+                  <li>• Fees Collected - 15% already paid out</li>
                   <li>• Pending Fees - Due on the 1st of next month</li>
                   <li>• Recent Transactions - Individual trades and their fees</li>
                   <li>• Charge History - Monthly billing cycles</li>

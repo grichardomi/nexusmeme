@@ -5,8 +5,8 @@ import { AppInitializer } from '@/components/AppInitializer';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'NexusMeme - AI Trading Bot Platform | 5% Performance Fees',
-  description: 'Scale profitable trading bots to unlimited users. AI-powered strategies, 5% performance fees on profits only, no subscription. Deploy unlimited bots across Kraken, Binance, Coinbase.',
+  title: 'NexusMeme - AI Trading Bot Platform | 15% Performance Fees',
+  description: 'AI-powered crypto trading bots focused on BTC & ETH. 15% performance fees on profits only — $0 on losses. No subscription. Trade across Kraken, Binance, Coinbase.',
   keywords: 'trading bot, crypto trading, automated trading, AI trading strategies, performance fee model, algorithmic trading',
   authors: [{ name: 'NexusMeme' }],
   creator: 'NexusMeme',
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     url: 'https://nexusmeme.com',
     siteName: 'NexusMeme',
     title: 'NexusMeme - Scale Your Trading Bot',
-    description: 'AI-powered trading platform with 5% performance fees on profits. No subscription required.',
+    description: 'AI-powered trading platform with 15% performance fees on profits. We only earn when you earn.',
     images: [
       {
         url: 'https://nexusmeme.com/og-image.png',
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'NexusMeme - AI Trading Bot Platform',
-    description: 'Scale trading bots with AI strategies. 5% performance fees, unlimited bots and users.',
+    description: 'AI-powered crypto trading focused on BTC & ETH. 15% on profits, $0 on losses.',
     images: ['https://nexusmeme.com/og-image.png'],
   },
   robots: {

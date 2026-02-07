@@ -26,7 +26,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     {
       question: 'Do I need to pay upfront?',
       answer:
-        'No! All new users get a 10-day live trading trial with no capital limits. No credit card required. After the trial ends, you only pay 5% on profits if you want to continue trading.',
+        'No! All new users get a 10-day live trading trial with no capital limits. No credit card required. After the trial ends, you only pay 15% on profits if you want to continue trading.',
     },
     {
       question: 'Which exchanges are supported?',
@@ -50,11 +50,11 @@ Note: Never share your secret key with anyone except NexusMeme.`,
     {
       question: 'What is the trial period?',
       answer:
-        'Every new user gets a 10-day live trading trial with no capital limits to test NexusMeme with real market conditions. No payment required during the trial. After the trial ends, you can continue trading by adding a payment method and paying 5% on profits.',
+        'Every new user gets a 10-day live trading trial with no capital limits to test NexusMeme with real market conditions. No payment required during the trial. After the trial ends, you can continue trading by adding a payment method and paying 15% on profits.',
     },
     {
       question: 'Can I trade with my own capital?',
-      answer: `Yes! After your 10-day trial ends, you can connect your own exchange account and trade with your own capital. You'll only pay 5% on your profits. There is no minimum capital requirement - you can trade with any amount you choose.`,
+      answer: `Yes! After your 10-day trial ends, you can connect your own exchange account and trade with your own capital. You'll only pay 15% on your profits. There is no minimum capital requirement - you can trade with any amount you choose.`,
     },
     {
       question: 'What is the minimum capital required?',

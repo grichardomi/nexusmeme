@@ -45,7 +45,7 @@ export default function BillingPage() {
             plan: (planUsage?.plan || 'live_trial') as 'live_trial' | 'performance_fees',
             tradingMode: planUsage?.limits?.tradingMode || 'live',
             botsPerUser: planUsage?.limits?.botsPerUser || 1,
-            tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 5,
+            tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 2,
           });
         }
       } catch (error) {
@@ -102,7 +102,7 @@ export default function BillingPage() {
       case 'live_trial':
         return 'You have a limited-time trial to trade with real money. Add a payment method to continue after the trial ends.';
       case 'performance_fees':
-        return 'You pay 5% only on profitable trades. No subscription fees, no monthly charges. Complete freedom to trade.';
+        return '15% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.';
       default:
         return 'You are on Live Trading Trial. Trade with real money for a limited time.';
     }
@@ -167,7 +167,7 @@ export default function BillingPage() {
                 <li>✓ 10 days to test live trading</li>
                 <li>✓ No capital limits</li>
                 <li>✓ No payment required</li>
-                <li>✓ After trial: 5% on profits</li>
+                <li>✓ After trial: 15% on profits</li>
               </ul>
             </details>
           )}
@@ -196,7 +196,7 @@ export default function BillingPage() {
         ) : (
           <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              💡 <strong>No subscriptions.</strong> Pay 5% only on profits.{' '}
+              💡 <strong>No subscriptions.</strong> 15% on profits — we only earn when you do.{' '}
               <a href="/help/performance-fees" className="underline">Learn more →</a>
             </p>
           </section>

@@ -58,7 +58,7 @@ export function PerformanceFeeChargedEmailTemplate({
             <p>Hi ${name},</p>
             <p>Great news! Your trading bot has generated profits, and we've collected your performance fee.</p>
             <div class="fee-box">
-              <p style="margin: 0; color: #666; font-size: 14px;">Performance Fee (5% of Profits)</p>
+              <p style="margin: 0; color: #666; font-size: 14px;">Performance Fee (15% of Profits)</p>
               <div class="amount">$${amount.toFixed(2)}</div>
               <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${trades} profitable trade(s)</p>
             </div>
@@ -70,7 +70,7 @@ export function PerformanceFeeChargedEmailTemplate({
             ${invoiceUrl ? `<a href="${invoiceUrl}" class="btn" style="background-color: #28a745; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View Receipt</a>` : ''}
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>How Performance Fees Work</h3>
-            <p>You only pay when your bot generates profits. We charge 5% of your realized profits each month. This way, we're aligned with your success.</p>
+            <p>You only pay when your bot generates profits. We charge 15% of your realized profits each month. We only earn when you earn.</p>
             <p><a href="https://nexusmeme.com/billing" style="color: #28a745; text-decoration: none; font-weight: 600;">View your billing dashboard →</a></p>
           </div>
           <div class="footer">
@@ -92,7 +92,7 @@ Hi ${name},
 
 Great news! Your trading bot has generated profits, and we've collected your performance fee.
 
-Performance Fee (5% of Profits): $${amount.toFixed(2)}
+Performance Fee (15% of Profits): $${amount.toFixed(2)}
 From: ${trades} profitable trade(s)
 
 Invoice ID: ${invoiceId}
@@ -162,7 +162,7 @@ export function UpcomingBillingEmailTemplate({
             <p>Hi ${name},</p>
             <p>This is a reminder that your monthly performance fees will be charged on <strong>${billingDate}</strong>.</p>
             <div class="fee-box">
-              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (5% of Profits)</p>
+              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (15% of Profits)</p>
               <div class="amount">$${totalPendingFees.toFixed(2)}</div>
               <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${tradeCount} profitable trade(s)</p>
             </div>
@@ -174,7 +174,7 @@ export function UpcomingBillingEmailTemplate({
             <a href="${billingUrl}" class="btn" style="background-color: #007bff; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Manage Billing</a>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>How Performance Fees Work</h3>
-            <p>You only pay when your bot generates profits. We charge 5% of your realized profits each month. No profits = no charge.</p>
+            <p>You only pay when your bot generates profits. We charge 15% of your realized profits each month. No profits = no charge.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
@@ -195,7 +195,7 @@ Hi ${name},
 
 This is a reminder that your monthly performance fees will be charged on ${billingDate}.
 
-Pending Performance Fees (5% of Profits): $${totalPendingFees.toFixed(2)}
+Pending Performance Fees (15% of Profits): $${totalPendingFees.toFixed(2)}
 From: ${tradeCount} profitable trade(s)
 
 Billing Date: ${billingDate}

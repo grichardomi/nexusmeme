@@ -52,10 +52,10 @@ export default function Home() {
                   </h1>
 
                   <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed mb-2">
-                    AI-powered bots that trade up to 5 crypto pairs across Kraken, Binance, and Coinbase. 10-day free trial with no capital limits.
+                    AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Trade across Kraken, Binance, and Coinbase with a 10-day free trial.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
-                    No subscriptions. Just 5% when your bot makes profit. Zero fees when it loses.
+                    15% only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.
                   </p>
                 </div>
 
@@ -81,8 +81,8 @@ export default function Home() {
                 {/* Trust Signals - Key Benefits */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800 w-full">
                   <div className="space-y-1 text-center">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">Up to 5</div>
-                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Crypto Pairs</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">BTC & ETH</div>
+                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Focused Trading</div>
                   </div>
                   <div className="space-y-1 text-center">
                     <div className="text-2xl sm:text-3xl font-bold text-blue-600">10 days</div>
@@ -204,7 +204,7 @@ export default function Home() {
                   </h3>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-snug sm:leading-relaxed mb-2 sm:mb-3">
-                  One bot trades up to 5 crypto pairs from an intuitive dashboard
+                  One bot trades BTC & ETH — focused where the money is
                 </p>
                 <ul className="space-y-1 sm:space-y-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
                   <li className="flex items-center gap-1 sm:gap-1.5">
@@ -213,7 +213,7 @@ export default function Home() {
                   </li>
                   <li className="flex items-center gap-1 sm:gap-1.5">
                     <span className="w-0.5 h-0.5 sm:w-1 sm:h-1 bg-orange-600 rounded-full flex-shrink-0"></span>
-                    Manage 5 pairs
+                    BTC & ETH pairs
                   </li>
                 </ul>
               </div>
@@ -267,7 +267,7 @@ export default function Home() {
                   </li>
                   <li className="flex items-center gap-1 sm:gap-1.5">
                     <span className="w-0.5 h-0.5 sm:w-1 sm:h-1 bg-indigo-600 rounded-full flex-shrink-0"></span>
-                    Trade up to 5 pairs
+                    BTC & ETH trading
                   </li>
                 </ul>
               </div>
@@ -283,7 +283,7 @@ export default function Home() {
                 Crypto Trading Pricing <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">That Makes Sense</span>
               </h2>
               <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
-                We succeed only when your crypto trades succeed. Pay nothing when you lose, 5% when you win.
+                We only earn when you earn. Pay nothing when you lose, 15% when you win.
               </p>
             </div>
 
@@ -292,7 +292,7 @@ export default function Home() {
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-shadow">
                 <div className="mb-6">
                   <div className="text-6xl font-bold bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent mb-2">
-                    5%
+                    15%
                   </div>
                   <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Performance Fee</h3>
                 </div>
@@ -303,7 +303,7 @@ export default function Home() {
                   {[
                     'Pay 0% when bot loses money',
                     'No hidden fees or subscriptions',
-                    'Trade up to 5 pairs',
+                    'BTC & ETH — most liquid markets',
                     'Monthly transparent billing',
                   ].map((item, idx) => (
                     <li key={idx} className="flex items-start gap-3">
@@ -389,7 +389,7 @@ export default function Home() {
                 <strong>Everyone starts with the same 10-day free crypto trading trial</strong> and no capital limits on Kraken, Binance, or Coinbase.
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                After trial ends, you automatically scale to our performance fee model. Pay 5% on crypto profits, nothing when you lose.
+                After trial ends, you automatically scale to our performance fee model. 15% on profits — $0 on losses. We only earn when you do.
               </p>
             </div>
           </div>

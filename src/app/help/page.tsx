@@ -8,9 +8,9 @@ import { HelpClient } from './HelpClient';
  */
 
 export const metadata: Metadata = {
-  title: 'Help Center - NexusMeme | AI Trading Bot Platform with 5% Performance Fees',
+  title: 'Help Center - NexusMeme | AI Trading Bot Platform with 15% Performance Fees',
   description:
-    'Comprehensive help documentation for NexusMeme. Learn how to create trading bots, manage performance fees, connect exchanges, and start automated AI-powered crypto trading. 5% fee on profits only.',
+    'Comprehensive help documentation for NexusMeme. Learn how to create trading bots, manage performance fees, connect exchanges, and start automated AI-powered crypto trading. 15% fee on profits only — $0 on losses.',
   keywords:
     'help, documentation, trading bot, crypto trading, FAQ, guides, support, performance fees, AI trading',
   alternates: {
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: 'NexusMeme Help Center - Performance Fee Model',
-    description: 'Learn how to use NexusMeme with 5% performance-based pricing. Pay only when you profit.',
+    description: 'Learn how to use NexusMeme with 15% performance-based pricing. We only earn when you earn.',
     url: 'https://nexusmeme.com/help',
     type: 'website',
     images: [
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'NexusMeme Help - 5% Performance Fee Trading Bot',
+    title: 'NexusMeme Help - 15% Performance Fee Trading Bot',
     description: 'Learn about performance-based fees, AI trading strategies, and bot management',
   },
 };
@@ -54,7 +54,7 @@ const faqSchema = {
       name: 'How much does NexusMeme cost?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme uses a simple performance-based pricing model. You pay 5% of your profits only when your bot makes money. There are no setup fees, no subscription fees, and no charges if your bot loses money or breaks even. Billing happens monthly on the 1st.',
+        text: 'NexusMeme uses a simple performance-based pricing model. You pay 15% of your profits only when your bot makes money. There are no setup fees, no subscription fees, and no charges if your bot loses money or breaks even. Billing happens monthly on the 1st.',
       },
     },
     {
@@ -62,7 +62,7 @@ const faqSchema = {
       name: 'Is there a free trial?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes! Everyone gets a 10-day live trading trial with no capital limits. No payment required during the trial. After the trial, you pay only 5% on profits if you want to continue trading.',
+        text: 'Yes! Everyone gets a 10-day live trading trial with no capital limits. No payment required during the trial. After the trial, you pay only 15% on profits if you want to continue trading.',
       },
     },
     {
@@ -70,7 +70,7 @@ const faqSchema = {
       name: 'Do I need to pay upfront?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'No! There are zero upfront costs. No setup fees, no credit card required to get started. You can test with your 10-day $200 trial. You only pay 5% of your profits once your trial ends and you connect a payment method.',
+        text: 'No! There are zero upfront costs. No setup fees, no credit card required to get started. You get a 10-day live trading trial. You only pay 15% of your profits once your trial ends and you connect a payment method.',
       },
     },
     {
@@ -94,7 +94,7 @@ const faqSchema = {
       name: 'How many pairs can I trade?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Each bot can trade up to 5 cryptocurrency pairs simultaneously. You can configure which pairs your bot trades on when creating the bot. This allows diversification while maintaining focused risk management.',
+        text: 'Your bot trades BTC and ETH — the most liquid, profitable crypto markets. This focused approach ensures tighter spreads, better fills, and more consistent profitability.',
       },
     },
   ],

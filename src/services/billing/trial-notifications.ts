@@ -9,7 +9,7 @@ import { TRIAL_CONFIG } from '@/config/pricing';
  * Handles sending trial expiration notifications for live trading trial users
  *
  * After trial expires:
- * - Users transition to performance_fees plan where they pay 5% on profits
+ * - Users transition to performance_fees plan where they pay 15% on profits
  * - Users must add a payment method to continue trading after trial ends
  */
 
