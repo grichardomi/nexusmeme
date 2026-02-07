@@ -118,8 +118,8 @@ export default function BillingPage() {
   return (
     <DashboardLayout title="Billing & Plans">
       <div className="space-y-4 sm:space-y-6">
-        {/* Trial Warning Banner (if applicable - not for paper trading) */}
-        <TrialWarningBanner tradingMode={userPlan?.tradingMode} />
+        {/* Trial Warning Banner (if applicable) */}
+        <TrialWarningBanner />
 
         {/* Current Plan Section - Compact on mobile */}
         <section className={`rounded-xl border p-4 sm:p-6 ${colors.bg} ${colors.border}`}>

@@ -12,30 +12,18 @@ interface TrialInfo {
 
 interface TrialWarningBannerProps {
   minimal?: boolean; // Show minimal version on dashboard
-  tradingMode?: 'paper' | 'live';
 }
 
-export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMode }: TrialWarningBannerProps) {
+export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps) {
   const [trialInfo, setTrialInfo] = useState<TrialInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
-  const [tradingMode, setTradingMode] = useState<'paper' | 'live' | undefined>(propTradingMode);
 
   useEffect(() => {
     const fetchTrialInfo = async () => {
       try {
-        // Fetch both trial info and trading mode
-        const [trialRes, billingRes] = await Promise.all([
-          fetch('/api/billing/trial-info'),
-          !propTradingMode ? fetch('/api/billing/subscriptions') : Promise.resolve(null),
-        ]);
-
-        // Get trading mode if not provided as prop
-        if (billingRes && billingRes.ok) {
-          const billingData = await billingRes.json();
-          const mode = billingData.planUsage?.limits?.tradingMode as 'paper' | 'live' | undefined;
-          setTradingMode(mode);
-        }
+        // Fetch trial info
+        const trialRes = await fetch('/api/billing/trial-info');
 
         if (trialRes.ok) {
           const data = await trialRes.json();
@@ -52,7 +40,7 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
     };
 
     fetchTrialInfo();
-  }, [propTradingMode]);
+  }, []);
 
   if (loading || !showBanner || !trialInfo) {
     return null;
