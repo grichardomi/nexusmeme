@@ -78,7 +78,7 @@ const faqSchema = {
       name: 'Which exchanges are supported?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme supports major exchanges including Kraken, Binance, and Coinbase. You can choose any of these to connect your trading account.',
+        text: 'NexusMeme supports major cryptocurrency exchanges. Connect your exchange account to start automated trading.',
       },
     },
     {

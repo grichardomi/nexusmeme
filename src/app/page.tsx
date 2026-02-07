@@ -38,7 +38,7 @@ export default function Home() {
               <div className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 px-4 py-2 rounded-full border border-blue-200 dark:border-blue-800">
                 <span className="w-2 h-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-pulse"></span>
                 <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-                  🚀 AI Crypto Trading Bots for Kraken, Binance, Coinbase
+                  🚀 AI-Powered Crypto Trading Bots
                 </span>
               </div>
             </div>
@@ -52,7 +52,7 @@ export default function Home() {
                   </h1>
 
                   <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed mb-2">
-                    AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Trade across Kraken, Binance, and Coinbase with a 10-day free trial.
+                    AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Start your 10-day free trial today.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
                     15% only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.
@@ -89,8 +89,8 @@ export default function Home() {
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Free Trial</div>
                   </div>
                   <div className="space-y-1 text-center">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">3 Exchanges</div>
-                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Kraken, Binance, CB</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">15% Fee</div>
+                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Only on Profits</div>
                   </div>
                 </div>
               </div>
@@ -105,7 +105,7 @@ export default function Home() {
                 Crypto Trading Built for <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Real Profits</span>
               </h2>
               <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
-                AI-powered automation designed specifically for cryptocurrency markets on Kraken, Binance, and Coinbase
+                AI-powered automation designed specifically for cryptocurrency markets
               </p>
             </div>
 
@@ -254,16 +254,16 @@ export default function Home() {
                     </svg>
                   </div>
                   <h3 className="text-sm sm:text-base lg:text-lg font-bold text-slate-900 dark:text-white pt-0.5">
-                    3 Major Exchanges
+                    Secure Exchange Integration
                   </h3>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-snug sm:leading-relaxed mb-2 sm:mb-3">
-                  Trade crypto on Kraken, Binance, and Coinbase APIs
+                  Connect your exchange account and start trading crypto
                 </p>
                 <ul className="space-y-1 sm:space-y-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
                   <li className="flex items-center gap-1 sm:gap-1.5">
                     <span className="w-0.5 h-0.5 sm:w-1 sm:h-1 bg-indigo-600 rounded-full flex-shrink-0"></span>
-                    Kraken, Binance, Coinbase
+                    API key encryption
                   </li>
                   <li className="flex items-center gap-1 sm:gap-1.5">
                     <span className="w-0.5 h-0.5 sm:w-1 sm:h-1 bg-indigo-600 rounded-full flex-shrink-0"></span>
@@ -386,7 +386,7 @@ export default function Home() {
             {/* Info Banner */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6 text-center">
               <p className="text-slate-700 dark:text-slate-300 mb-2">
-                <strong>Everyone starts with the same 10-day free crypto trading trial</strong> and no capital limits on Kraken, Binance, or Coinbase.
+                <strong>Everyone starts with the same 10-day free crypto trading trial</strong> with no capital limits.
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 After trial ends, you automatically scale to our performance fee model. 15% on profits — $0 on losses. We only earn when you do.
@@ -408,7 +408,7 @@ export default function Home() {
               Automate Your Crypto Trading Today
             </h2>
             <p className="text-lg sm:text-xl text-blue-100 mb-4 leading-relaxed">
-              Join traders on Kraken, Binance, and Coinbase earning passive income with AI-powered bots.
+              Join traders earning passive income with AI-powered crypto bots.
             </p>
             <p className="text-base text-blue-200 mb-10">
               Your 10-day free crypto trading trial starts today. no capital limits. No credit card needed.

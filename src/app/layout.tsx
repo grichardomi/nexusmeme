@@ -6,7 +6,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'NexusMeme - AI Trading Bot Platform | 15% Performance Fees',
-  description: 'AI-powered crypto trading bots focused on BTC & ETH. 15% performance fees on profits only — $0 on losses. No subscription. Trade across Kraken, Binance, Coinbase.',
+  description: 'AI-powered crypto trading bots focused on BTC & ETH. 15% performance fees on profits only — $0 on losses. No subscription fees.',
   keywords: 'trading bot, crypto trading, automated trading, AI trading strategies, performance fee model, algorithmic trading',
   authors: [{ name: 'NexusMeme' }],
   creator: 'NexusMeme',

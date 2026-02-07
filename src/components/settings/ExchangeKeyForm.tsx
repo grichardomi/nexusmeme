@@ -208,10 +208,6 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
   };
 
   const exchangeNames: Record<string, { name: string; docUrl: string }> = {
-    kraken: {
-      name: 'Kraken',
-      docUrl: 'https://support.kraken.com/hc/en-us/articles/360000919966',
-    },
     binance: {
       name: 'Binance',
       docUrl: 'https://www.binance.com/en/support/faq/360002502072',

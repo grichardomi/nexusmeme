@@ -47,7 +47,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What exchanges does NexusMeme support?',
-      answer: `We support three major exchanges:\n\n1. Kraken - Secure, US-based, great for USD trading\n2. Binance - Largest exchange, lowest fees, most pairs\n3. Coinbase - Beginner-friendly, high liquidity\n\nEach exchange has:\n- Different fee structures\n- Different available trading pairs\n- Different security features\n\nPick the exchange you're comfortable with.`,
+      answer: `NexusMeme supports major cryptocurrency exchanges with secure API integrations.\n\nKey features:\n- Encrypted API key storage\n- Read-only balance access\n- Trade execution permissions\n- No withdrawal capabilities\n\nConnect your exchange account in Settings > Connected Exchanges to get started.`,
     },
     {
       question: 'Can I export my trading data?',

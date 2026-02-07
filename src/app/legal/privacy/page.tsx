@@ -73,7 +73,7 @@ export default function PrivacyPage() {
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Exchange API Credentials</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            You provide exchange API keys (Kraken, Binance, Coinbase) to enable trading. These credentials are:
+            You provide exchange API keys to enable trading. These credentials are:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
             <li>• Encrypted at rest using industry-standard AES-256 encryption</li>
@@ -135,7 +135,7 @@ export default function PrivacyPage() {
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
             <li>• <strong>Payment Processors:</strong> Stripe for billing and payment processing</li>
-            <li>• <strong>Exchanges:</strong> Only API credentials you provide to Kraken, Binance, or Coinbase</li>
+            <li>• <strong>Exchanges:</strong> Only API credentials you provide to connect your exchange account</li>
             <li>• <strong>Legal Authorities:</strong> When required by law or court order</li>
             <li>• <strong>Service Providers:</strong> Only as needed to operate the platform</li>
           </ul>

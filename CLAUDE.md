@@ -13,10 +13,10 @@
 - A loss does not affect the validity of the next setup
 - Do NOT add cooldown/pause/throttle/delay logic under ANY name
 
-**Test-Production Parity**
-- Kraken and Binance configurations must match (different pairs/fees only)
-- Both environments use same logic paths
-- Changes to one must apply to both
+**Exchange Focus**
+- Primary exchange: **Binance** (low fees: 0.10% maker/taker)
+- Additional exchanges only with negotiated pricing (to ensure profitability)
+- High exchange fees (e.g., Kraken 0.42% round-trip) destroy edge in weak regimes
 
 **Single Source of Truth**
 - `.env.local` is the authoritative configuration
@@ -85,17 +85,17 @@ The bot's entire purpose is to capture profitable opportunities without leaving 
 E[trade] = (WinRate × AvgWin) - ((1-WinRate) × AvgLoss) - Costs
 ```
 
-### Exchange Cost Comparison
+### Exchange Cost Analysis
 
-| Cost Component | Kraken | Binance |
-|----------------|--------|---------|
-| Maker fee | 0.16% | 0.10% |
-| Taker fee | 0.26% | 0.10% |
-| Round-trip total | ~0.42% | ~0.20% |
-| Typical slippage | 0.1-0.3% | 0.05-0.15% |
-| **Effective cost floor** | **0.5-0.7%** | **0.25-0.35%** |
+**Current Exchange: Binance**
+- Maker/Taker: 0.10% each
+- Round-trip: ~0.20% fees + 0.05-0.15% slippage = 0.25-0.35% total cost
+- Profitable in all market regimes (weak/moderate/strong)
 
-**Critical insight:** Weak regime on Kraken (0.7% cost) may be **negative expectancy**. Consider skipping weak regime entries on Kraken or using limit orders only.
+**Why Single Exchange:**
+- Cost structure critical to edge preservation (0.25% cost difference = significant P&L impact)
+- Additional exchanges require negotiated pricing to ensure positive expectancy
+- Standard retail fees (0.5-0.7%+ total cost) create negative expectancy in weak regimes
 
 ---
 
@@ -273,7 +273,7 @@ Similar return, **much lower risk** (blowup rate 8% → 3%)
   - Positive momentum verified
 - **Single source of truth for ADX thresholds:**
   - `.env.local` → `PYRAMID_L1_MIN_ADX=35`, `PYRAMID_L2_MIN_ADX=40`
-  - Global (Kraken/Binance share the same ADX gates)
+  - Global thresholds (consistent across all trading pairs)
 - **NEVER pyramid in:**
   - Low confidence AI signals
   - Choppy/sideways markets (low ADX)
@@ -356,12 +356,11 @@ Trading means discipline. Get in green, get out fast. No complex overlapping che
 | `.env.local` | All configuration | Never commit secrets, never hardcode in code |
 | `src/config/environment.ts` | Env schema validation | Add new vars here first |
 | `src/services/risk/risk-manager.ts` | 5-stage risk filter | Uses RISK_* env vars |
-| `src/services/exchanges/kraken.ts` | Kraken adapter | Captures fees on order execution |
-| `src/services/exchanges/binance.ts` | Binance adapter | Captures fees on order execution |
+| `src/services/exchanges/binance.ts` | Binance adapter | Primary exchange, captures fees on order execution |
 | `src/app/api/bots/trades/close/route.ts` | Trade exit handler | Deducts fees from P&L |
 | `src/services/orchestration/trade-signal-orchestrator.ts` | Trade orchestrator | Direct execution, position checks |
 | `src/services/execution/fan-out.ts` | Trade execution | Direct execution (no job queue) |
-| `src/services/market-data/aggregator.ts` | Price fetcher | Uses Kraken public API |
+| `src/services/market-data/aggregator.ts` | Price fetcher | Real-time market data |
 | `src/services/market-data/background-fetcher.ts` | Background prices | Dynamic pairs from active bots |
 
 ## Execution Architecture (/nexus Parity)
@@ -377,10 +376,11 @@ Trading means discipline. Get in green, get out fast. No complex overlapping che
 3. Execute trade directly via `executeTradesDirect()` (not queued)
 4. Each execution has duplicate check before insert
 
-**Dynamic Exchange/Pair Handling:**
-- Market data aggregator uses Kraken public API (no auth required)
+**Dynamic Pair Handling:**
+- Market data aggregator uses exchange public API for real-time prices
 - Background fetcher queries active bots for pairs: `SELECT enabled_pairs FROM bot_instances WHERE status = 'running'`
 - No hardcoded pair lists - pairs come from bot config in dashboard
+- All bots use Binance as primary exchange
 
 ## Common Patterns
 
@@ -415,21 +415,20 @@ const value = '1.5';  // ❌ HARDCODED STRING
 const value = process.env.MY_NEW_PARAM;  // ❌ BYPASSES VALIDATION
 ```
 
-## Exchange Configuration Pattern
+## Exchange Configuration
 
-All exchange-specific settings follow this pattern in `.env.local`:
+Binance configuration in `.env.local`:
 
 ```
-# Kraken
-KRAKEN_BOT_PYRAMIDING_ENABLED=true
-KRAKEN_BOT_PYRAMID_LEVELS=2
-...
-
-# Binance (must match Kraken unless intentionally different)
+# Binance (Primary Exchange)
 BINANCE_BOT_PYRAMIDING_ENABLED=true
 BINANCE_BOT_PYRAMID_LEVELS=2
+BINANCE_API_KEY=your_api_key
+BINANCE_API_SECRET=your_api_secret
 ...
 ```
+
+**Note:** Additional exchanges can be added only with negotiated fee structures to ensure positive expectancy.
 
 ## Risk Management Guardrails
 
@@ -444,17 +443,18 @@ Update `.env.local`, not code.
 
 ## Fee Handling
 
-- Kraken adapter queries fees on order placement
-- Binance adapter sums commission from fills
+- Binance adapter captures actual fees from order fills
 - Trade close endpoint deducts: `P&L = grossProfit - entryFee - exitFee`
-- Fallback fees configurable: `KRAKEN_TAKER_FEE_DEFAULT`, `BINANCE_TAKER_FEE_DEFAULT`
+- Fallback fee configurable: `BINANCE_TAKER_FEE_DEFAULT` (default: 0.10%)
+- Fee accuracy critical for exit logic and P&L display
 
 ## Testing Changes
 
 1. Update parameter in `.env.local`
-2. Restart server (`npm run dev`)
-3. Verify both Kraken and Binance bots behave identically
+2. Restart server (`pnpm dev`)
+3. Verify bots behave as expected with new configuration
 4. Check logs for new values being read from environment
+5. Test with small position sizes before deploying changes
 
 ## Type Checking
 

@@ -31,7 +31,7 @@
 
 ### What We're Building
 A **SaaS trading platform** that lets users:
-1. **Connect their exchange accounts** (Kraken, Binance, Coinbase)
+1. **Connect their Binance exchange account** (additional exchanges via negotiated partnerships)
 2. **Create trading bots** configured for BTC, ETH, and other pairs
 3. **Subscribe** to different plan tiers (Free/Pro/Enterprise)
 4. **Monitor trades** in real-time with optional email alerts
@@ -55,7 +55,7 @@ A **SaaS trading platform** that lets users:
 | **Auth** | next-auth with Google Cloud OAuth + email/password |
 | **Billing** | Stripe (subscriptions + webhooks) |
 | **Email** | Resend (transactional emails only) |
-| **Exchanges** | RESTful APIs (Kraken, Binance, Coinbase) |
+| **Exchanges** | Binance RESTful API (extensible for partnerships) |
 | **AI/LLM** | OpenAI (abstracted to allow Claude, etc.) |
 | **Deployment** | Vercel (frontend) + Railway/Render (backend) |
 | **CI/CD** | GitHub Actions |
@@ -97,15 +97,16 @@ A **SaaS trading platform** that lets users:
 
 **Benefit**: Scalable, asynchronous, reliable trade execution
 
-### 4. Pluggable Exchange Adapters
-**Problem**: Different exchanges have different APIs
+### 4. Exchange Adapter Architecture
+**Problem**: Exchange fees critical to profitability
 
 **Solution**:
-- Define common interface for all exchanges
-- Implement adapters for Kraken, Binance, Coinbase
-- Easy to add new exchanges
+- Define common interface for exchange integrations
+- Binance adapter as primary (low fees: 0.10% maker/taker)
+- Extensible design for negotiated partnerships
+- Fee structure validation before onboarding new exchanges
 
-**Benefit**: Support multiple exchanges without changing core logic
+**Benefit**: Maintain positive expectancy across all market regimes
 
 ### 5. UNLOGGED Tables for High-Volume Data
 **Problem**: Database writes bottleneck at scale
@@ -135,7 +136,7 @@ A **SaaS trading platform** that lets users:
 ### Foundation & Core Trading (Weeks 1-8)
 - **Phase 1**: Project setup, database, environment validation
 - **Phase 2**: Market data aggregation, regime gatekeeper, execution fan-out
-- **Phase 3**: Exchange adapters (Kraken, Binance, Coinbase)
+- **Phase 3**: Exchange adapter (Binance primary, extensible architecture)
 - **Phase 4**: Job queue (mgpg), caching, rate limiting
 
 **Deliverable**: Working trading engine that can fetch market data and queue trades

@@ -19,7 +19,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I connect my exchange account?',
-      answer: `NexusMeme supports Kraken and Binance. Here's how to connect:\n\n1. Log in to your exchange account\n2. Go to Settings > API Management\n3. Create new API credentials with these permissions:\n   - View account balance\n   - Place orders\n   - Cancel orders\n4. Copy the API Key and Secret Key\n5. In NexusMeme, go to Account > Connected Exchanges\n6. Select your exchange\n7. Paste your API Key and Secret Key\n8. Click "Connect Exchange"\n9. You'll see a confirmation when successful\n\nIMPORTANT: Never share your Secret Key with anyone except NexusMeme. You can revoke API access anytime from your exchange.`,
+      answer: `Here's how to connect your exchange account:\n\n1. Log in to your exchange account\n2. Go to Settings > API Management\n3. Create new API credentials with these permissions:\n   - View account balance\n   - Place orders\n   - Cancel orders\n4. Copy the API Key and Secret Key\n5. In NexusMeme, go to Account > Connected Exchanges\n6. Select your exchange\n7. Paste your API Key and Secret Key\n8. Click "Connect Exchange"\n9. You'll see a confirmation when successful\n\nIMPORTANT: Never share your Secret Key with anyone except NexusMeme. You can revoke API access anytime from your exchange.`,
     },
     {
       question: 'How do I switch from paper trading to live trading?',

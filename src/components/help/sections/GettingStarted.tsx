@@ -18,7 +18,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
       question: 'How do I get started?',
       answer: `1. Sign up for a free account - you'll get a 10-day live trading trial with no capital limits
 2. Verify your email address
-3. Connect your exchange API keys (Kraken or Binance)
+3. Connect your exchange API keys
 4. Create your first trading bot
 5. Configure your trading pairs and risk parameters
 6. Start live trading during your trial period`,
@@ -30,12 +30,12 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     },
     {
       question: 'Which exchanges are supported?',
-      answer: 'NexusMeme supports Kraken and Binance. You can choose either exchange to connect your trading account.',
+      answer: 'NexusMeme supports major cryptocurrency exchanges. Connect your exchange account to start automated trading.',
     },
     {
       question: 'What are API keys and how do I get them?',
       answer: `API keys are credentials that allow NexusMeme to connect to your exchange account. Here's how to get them:
-1. Log in to your exchange account (Kraken or Binance)
+1. Log in to your exchange account
 2. Go to Settings > API Management
 3. Create new API credentials
 4. Copy the public key and secret key

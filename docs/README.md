@@ -68,7 +68,7 @@ Reference during team coordination: **[WORKFLOW.md](./WORKFLOW.md)** (reference)
 - next-auth + Google Cloud OAuth
 - Stripe subscriptions
 - Resend for email
-- Kraken, Binance, Coinbase adapters
+- Binance exchange adapter (primary), extensible for negotiated partnerships
 
 **Timeline**: 24 weeks (6 months) across 14 phases
 
