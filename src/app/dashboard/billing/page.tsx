@@ -82,29 +82,34 @@ export default function BillingPage() {
   };
 
   const getPlanName = () => {
+    // Show different name based on trading mode during trial
+    if (userPlan?.tradingMode === 'paper') {
+      return '10-Day Free Trial (Paper Trading)';
+    }
+
     switch (userPlan?.plan) {
       case 'live_trial':
-        return '10-Day Live Trading Trial';
+        return '10-Day Free Trial';
       case 'performance_fees':
-        return 'Performance Fees Plan (Unlimited Trading)';
+        return 'Live Trading (Performance Fees)';
       default:
-        return 'Live Trading Trial';
+        return 'Free Trial';
     }
   };
 
   const getPlanDescription = () => {
-    // Paper trading doesn't require payment
+    // Paper trading is the free trial period
     if (userPlan?.tradingMode === 'paper') {
-      return 'Paper trading mode - practice with simulated trades. No payment required. Switch to live trading when ready.';
+      return 'Free trial - practice with paper trading (simulated trades, zero risk). Upgrade to live trading to trade with real money.';
     }
 
     switch (userPlan?.plan) {
       case 'live_trial':
-        return 'You have a limited-time trial to trade with real money. Add a payment method to continue after the trial ends.';
+        return 'You are on a free trial with paper trading. Add a payment method to upgrade to live trading with real money.';
       case 'performance_fees':
         return '15% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.';
       default:
-        return 'You are on Live Trading Trial. Trade with real money for a limited time.';
+        return 'You are on a free trial. Upgrade to live trading when ready.';
     }
   };
 

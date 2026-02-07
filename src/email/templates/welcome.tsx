@@ -41,15 +41,15 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
           <div class="content">
             <p>Hi ${name || 'Trader'},</p>
             <p>Welcome to NexusMeme! We're excited to have you on board.</p>
-            <p>NexusMeme is your AI-powered trading bot platform designed to help you execute profitable trades across multiple exchanges with intelligent risk management.</p>
-            <p><strong>You've been assigned to our live trading trial:</strong></p>
+            <p>NexusMeme is your AI-powered trading bot platform designed to help you execute profitable trades with intelligent risk management.</p>
+            <p><strong>You've been assigned to our free trial:</strong></p>
             <ul style="margin: 15px 0;">
-              <li>10-day live trading trial - no capital limits</li>
+              <li>10-day free trial with paper trading (simulated, zero risk)</li>
               <li>1 trading bot with real market data</li>
               <li>Trade BTC & ETH — most liquid crypto markets</li>
               <li>Full AI-powered market regime detection</li>
               <li>No payment required during trial</li>
-              <li>After trial, pay only 15% on profits</li>
+              <li>Upgrade to live trading anytime - pay only 15% on profits</li>
             </ul>
             <p><strong>To get started, please verify your email address:</strong></p>
             <a href="${verificationUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Verify Email Address</a>
@@ -58,9 +58,9 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
             <h2>What's Next?</h2>
             <ol>
               <li>Verify your email address</li>
-              <li>Configure your API keys for exchanges (Kraken, Binance, Coinbase)</li>
+              <li>Test your bot with paper trading (simulated, risk-free)</li>
               <li>Choose your first trading strategy</li>
-              <li>Deploy your bot and start trading</li>
+              <li>When ready, upgrade to live trading with your own capital</li>
             </ol>
             <p>Our documentation and tutorials are available at <a href="https://docs.nexusmeme.com">docs.nexusmeme.com</a></p>
             <p style="margin-top: 30px; font-size: 14px; color: #666;">Have questions? Reply to this email or visit our support center.</p>

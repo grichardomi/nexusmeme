@@ -661,18 +661,27 @@ export default function BotDetailPage() {
 
               <div>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">Trading Mode</p>
-                <button
-                  onClick={handleToggleTradingMode}
-                  disabled={isTogglingMode || bot.isActive}
-                  title={bot.isActive ? 'Stop the bot to change trading mode' : 'Click to toggle trading mode'}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition cursor-pointer ${
-                    bot.tradingMode === 'paper'
-                      ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50'
-                  } ${isTogglingMode || bot.isActive ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {isTogglingMode ? 'Updating...' : (bot.tradingMode === 'paper' ? '📄 Paper Trading' : '🔴 Live Trading')}
-                </button>
+                {bot.tradingMode === 'paper' ? (
+                  // Paper mode: Allow upgrade to live
+                  <button
+                    onClick={handleToggleTradingMode}
+                    disabled={isTogglingMode || bot.isActive}
+                    title={bot.isActive ? 'Stop the bot to change trading mode' : 'Click to upgrade to live trading'}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition cursor-pointer bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 ${
+                      isTogglingMode || bot.isActive ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {isTogglingMode ? 'Updating...' : '📄 Paper Trading'}
+                  </button>
+                ) : (
+                  // Live mode: Show as static badge (cannot go back to paper)
+                  <div
+                    className="px-4 py-2 rounded-full text-sm font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 inline-block"
+                    title="Live trading mode (cannot switch back to paper)"
+                  >
+                    💰 Live Trading
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1009,9 +1018,9 @@ export default function BotDetailPage() {
       {/* Live Trading Confirmation Modal */}
       <ConfirmationModal
         isOpen={showLiveTradeConfirm}
-        title="⚠️ Switch to Live Trading"
-        message="WARNING: Live trading uses REAL funds! Make sure you have tested your bot in Paper mode first. You will be trading with actual money. Are you sure you want to proceed?"
-        confirmText="Switch to Live Trading"
+        title="⚠️ Upgrade to Live Trading"
+        message="WARNING: Live trading uses REAL funds! Once you upgrade to live trading, you cannot switch back to paper mode. Make sure you have tested your bot thoroughly. You will be trading with actual money. Are you sure you want to proceed?"
+        confirmText="Upgrade to Live Trading"
         cancelText="Cancel"
         isDangerous={true}
         isLoading={isTogglingMode}

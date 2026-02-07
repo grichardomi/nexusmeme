@@ -88,15 +88,24 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
     await signOut({ redirect: true, callbackUrl: '/auth/signin' });
   };
 
-  const navItems = [
+  // Base navigation items
+  const baseNavItems = [
     { href: '/dashboard', label: 'Overview', icon: '📊' },
     { href: '/dashboard/bots', label: 'Trading Bot', icon: '🤖' },
     { href: '/dashboard/trading', label: 'Live Trading', icon: '💹' },
     { href: '/dashboard/portfolio', label: 'Portfolio', icon: '💼' },
     { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
+  ];
 
-    { href: '/dashboard/support', label: 'Support', icon: '🎫' },
-    { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
+  // Support is only available for live trading users
+  const supportItem = { href: '/dashboard/support', label: 'Support', icon: '🎫' };
+  const settingsItem = { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' };
+
+  // Conditionally include Support based on trading mode
+  const navItems = [
+    ...baseNavItems,
+    ...(subscription?.tradingMode === 'live' ? [supportItem] : []),
+    settingsItem,
   ];
 
   return (
@@ -184,30 +193,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             {/* Center: Plan Badge - Prominent display */}
             {!isLoadingSubscription && subscription && (
               <>
-                {/* Paper Trading Badge - No payment required */}
-                {subscription.tradingMode === 'paper' && (
-                  <Link
-                    href="/dashboard/billing"
-                    className="hidden sm:flex items-center bg-slate-100 dark:bg-slate-700 rounded-full border border-slate-200 dark:border-slate-600 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors overflow-hidden flex-shrink-0"
-                  >
-                    <span className="px-3 py-1.5 text-slate-700 dark:text-slate-300 text-sm font-semibold">
-                      📊 Paper Trading
-                    </span>
-                  </Link>
-                )}
 
-                {/* Mobile Paper Trading Badge */}
-                {subscription.tradingMode === 'paper' && (
-                  <Link
-                    href="/dashboard/billing"
-                    className="sm:hidden px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-full text-xs font-bold flex-shrink-0"
-                  >
-                    📊 Paper
-                  </Link>
-                )}
-
-                {/* Trial Expired - Needs Payment (only for live trading) */}
-                {subscription.tradingMode !== 'paper' && (subscription.status === 'payment_required' ||
+                {/* Trial Expired Badge - Desktop (for ALL users) */}
+                {(subscription.status === 'payment_required' ||
                   ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                     subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
                   <Link
@@ -215,63 +203,61 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                     className="hidden sm:flex items-center bg-red-100 rounded-full border border-red-200 hover:bg-red-200 transition-colors overflow-hidden flex-shrink-0 animate-pulse"
                   >
                     <span className="px-3 py-1.5 text-red-800 text-sm font-semibold">
-                      Trial Expired
+                      Trial Ended
                     </span>
                     <span className="px-3 py-1.5 bg-red-700 text-white text-sm font-bold">
-                      Add Payment
+                      Upgrade Now
                     </span>
                   </Link>
                 )}
 
-                {/* Mobile Trial Expired Badge (only for live trading) */}
-                {subscription.tradingMode !== 'paper' && (subscription.status === 'payment_required' ||
+                {/* Trial Expired Badge - Mobile (for ALL users) */}
+                {(subscription.status === 'payment_required' ||
                   ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                     subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
                   <Link
                     href="/dashboard/billing"
                     className="sm:hidden px-2 py-1 bg-red-700 text-white rounded-full text-xs font-bold flex-shrink-0 animate-pulse"
                   >
-                    Expired
+                    Trial Ended
                   </Link>
                 )}
 
-                {/* Active Trial (still has days remaining, live trading only) */}
-                {subscription.tradingMode !== 'paper' &&
-                  (subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                {/* Active Trial Badge - Desktop (10-day free trial, paper trading mode) */}
+                {(subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                   subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
-                    className="hidden sm:flex items-center bg-amber-100 rounded-full border border-amber-200 hover:bg-amber-200 transition-colors overflow-hidden flex-shrink-0"
+                    className="hidden sm:flex items-center bg-blue-100 rounded-full border border-blue-200 hover:bg-blue-200 transition-colors overflow-hidden flex-shrink-0"
                   >
-                    <span className="px-3 py-1.5 text-amber-800 text-sm font-semibold">
-                      On Trial
+                    <span className="px-3 py-1.5 text-blue-800 text-sm font-semibold">
+                      📄 Free Trial
                     </span>
-                    <span className="px-3 py-1.5 bg-amber-700 text-white text-sm font-bold flex items-center justify-center min-w-[60px]">
+                    <span className="px-3 py-1.5 bg-blue-700 text-white text-sm font-bold flex items-center justify-center min-w-[60px]">
                       {subscription.daysRemaining}d left
                     </span>
                   </Link>
                 )}
 
-                {/* Mobile Active Trial Badge (live trading only) */}
-                {subscription.tradingMode !== 'paper' &&
-                  (subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                {/* Active Trial Badge - Mobile (10-day free trial) */}
+                {(subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                   subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
-                    className="sm:hidden px-2 py-1 bg-amber-700 text-white rounded-full text-xs font-bold flex-shrink-0"
+                    className="sm:hidden px-2 py-1 bg-blue-700 text-white rounded-full text-xs font-bold flex-shrink-0"
                   >
-                    {subscription.daysRemaining}d
+                    Trial: {subscription.daysRemaining}d
                   </Link>
                 )}
 
-                {/* Active status badge (live trading, after trial) */}
+                {/* Active Live Trading badge (after trial) */}
                 {subscription.tradingMode !== 'paper' &&
                   subscription.status === 'active' && subscription.plan !== 'free' && subscription.plan !== 'live_trial' && (
                   <Link
                     href="/dashboard/billing"
                     className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-semibold border border-green-200 hover:bg-green-200 transition-colors flex-shrink-0"
                   >
-                    ✓ Active
+                    💰 Live Trading
                   </Link>
                 )}
 

@@ -480,47 +480,22 @@ export async function PATCH(request: NextRequest) {
       const currentConfig = bot[0].config || {};
       const currentTradingMode = currentConfig.tradingMode || 'paper';
 
-      // Switching from LIVE to PAPER requires no unpaid fees
-      // This prevents users from avoiding fees by switching to paper mode
+      // BLOCK: Switching from LIVE to PAPER is not allowed (one-way progression)
+      // Paper trading is only available during the free trial. After upgrading to live,
+      // users cannot switch back to avoid performance fees.
       if (currentTradingMode === 'live' && tradingMode === 'paper') {
-        // Check for pending or billed (unpaid) fees
-        const unpaidFeesResult = await query(
-          `SELECT
-             COALESCE(SUM(fee_amount), 0)::DECIMAL as total_unpaid,
-             COUNT(*)::INT as fee_count
-           FROM performance_fees
-           WHERE user_id = $1
-             AND status IN ('pending_billing', 'billed')`,
-          [session.user.id]
-        );
-
-        const unpaidFees = unpaidFeesResult[0];
-        const totalUnpaid = Number(unpaidFees?.total_unpaid || 0);
-        const feeCount = unpaidFees?.fee_count || 0;
-
-        if (totalUnpaid > 0) {
-          logger.warn('Live to paper switch blocked - unpaid fees', {
-            userId: session.user.id,
-            botId,
-            unpaidAmount: totalUnpaid,
-            feeCount,
-          });
-
-          return NextResponse.json(
-            {
-              error: `Cannot switch to paper trading while you have $${totalUnpaid.toFixed(2)} in unpaid performance fees. Please pay your outstanding fees first.`,
-              code: 'UNPAID_FEES',
-              unpaidAmount: totalUnpaid,
-              feeCount,
-            },
-            { status: 403 }
-          );
-        }
-
-        logger.info('Live to paper switch allowed - no unpaid fees', {
+        logger.warn('Live to paper switch blocked - not allowed after trial', {
           userId: session.user.id,
           botId,
         });
+
+        return NextResponse.json(
+          {
+            error: 'Cannot switch back to paper trading. Paper trading is only available during the free trial. Live trading is required after your trial ends.',
+            code: 'LIVE_TO_PAPER_BLOCKED',
+          },
+          { status: 403 }
+        );
       }
 
       // Paper to live switch is always allowed (user opting into fees)

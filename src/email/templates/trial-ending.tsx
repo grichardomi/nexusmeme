@@ -55,30 +55,30 @@ export function TrialEndingEmailTemplate({
           </div>
           <div class="content">
             <p>Hi ${name || 'Trader'},</p>
-            <p>Your NexusMeme <strong>10-day live trading trial</strong> is about to expire!</p>
+            <p>Your NexusMeme <strong>10-day free trial</strong> is about to expire!</p>
 
             <div class="warning-box">
               <strong>Your trial ends on ${trialEndsDate}</strong><br>
               <div class="countdown">${daysRemaining} day${daysRemaining !== 1 ? 's' : ''} remaining</div>
             </div>
 
-            <p>We hope you've enjoyed testing NexusMeme! Your live trading trial includes:</p>
+            <p>We hope you've enjoyed testing NexusMeme with paper trading! Your free trial includes:</p>
             <ul>
-              <li>1 trading bot with live market data</li>
+              <li>1 trading bot with real market data</li>
               <li>Trade BTC & ETH — most liquid crypto markets</li>
-              <li>No capital limits - trade with your own funds</li>
+              <li>Paper trading (simulated, zero risk)</li>
               <li>Full AI-powered market regime detection</li>
-              <li>Real trading with real market conditions</li>
+              <li>Risk-free testing environment</li>
             </ul>
 
-            <p><strong>Ready to continue trading?</strong> After your trial, keep trading with our simple performance-based model:</p>
+            <p><strong>Ready to trade with real money?</strong> Upgrade to live trading with our simple performance-based model:</p>
 
             <div class="plan-highlight">
-              <h3 style="margin-top: 0;">Performance Fees Model - <strong>15% on Profits Only</strong></h3>
+              <h3 style="margin-top: 0;">Upgrade to Live Trading - <strong>15% on Profits Only</strong></h3>
               <ul style="margin: 10px 0; padding-left: 20px;">
-                <li>1 trading bot</li>
-                <li>BTC & ETH — focused where the money is</li>
-                <li>Trade with any amount of capital</li>
+                <li>Switch from paper to live trading with real capital</li>
+                <li>1 trading bot - BTC & ETH focused</li>
+                <li>Trade with any amount of capital (no minimum)</li>
                 <li>Only pay when your bot makes money</li>
                 <li>No subscription fees, no setup costs</li>
                 <li>Monthly billing on the 1st</li>
@@ -95,12 +95,12 @@ export function TrialEndingEmailTemplate({
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
 
             <h2>What Happens When Your Trial Ends?</h2>
-            <p>When your 10-day trial expires:</p>
+            <p>When your 10-day free trial expires:</p>
             <ul>
-              <li>Your bot will pause (not deleted)</li>
-              <li>You can add a payment method to continue</li>
+              <li>Paper trading ends - your bot will pause (not deleted)</li>
+              <li>Add a payment method to upgrade to live trading</li>
               <li>Your historical trade data is preserved</li>
-              <li>You'll only pay 15% on any profits after trial ends</li>
+              <li>Start trading with real money - pay only 15% on profits</li>
             </ul>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">

@@ -164,9 +164,43 @@ async function transitionExpiredTrial(subscriptionId: string, userId: string, ha
       [newPlan, newStatus, subscriptionId],
     );
 
-    // If no payment method, pause only LIVE trading bots (paper trading can continue)
+    // Pause ALL paper trading bots - paper mode ends with trial
+    // Users must upgrade to live trading to continue
+    const paperBotsResult = await client.query(
+      `UPDATE bot_instances
+       SET status = 'paused',
+           updated_at = NOW()
+       WHERE user_id = $1
+         AND status IN ('running', 'active')
+         AND config->>'tradingMode' = 'paper'
+       RETURNING id`,
+      [userId],
+    );
+
+    const pausedPaperCount = paperBotsResult.rows?.length || 0;
+
+    if (pausedPaperCount > 0) {
+      await client.query(
+        `INSERT INTO bot_suspension_log (bot_instance_id, user_id, reason, suspended_at)
+         SELECT id, $1, 'trial_expired_paper_mode_ended', NOW()
+         FROM bot_instances
+         WHERE user_id = $1
+           AND status = 'paused'
+           AND config->>'tradingMode' = 'paper'`,
+        [userId],
+      );
+
+      logger.info('Trial expired - paper bots paused', {
+        userId,
+        subscriptionId,
+        pausedPaperBots: pausedPaperCount,
+        note: 'Paper trading only available during trial',
+      });
+    }
+
+    // If no payment method, also pause LIVE trading bots
     if (!hasPaymentMethod) {
-      const botsResult = await client.query(
+      const liveBotsResult = await client.query(
         `UPDATE bot_instances
          SET status = 'paused',
              updated_at = NOW()
@@ -177,10 +211,9 @@ async function transitionExpiredTrial(subscriptionId: string, userId: string, ha
         [userId],
       );
 
-      const pausedCount = botsResult.rows?.length || 0;
+      const pausedLiveCount = liveBotsResult.rows?.length || 0;
 
-      // Log the suspension
-      if (pausedCount > 0) {
+      if (pausedLiveCount > 0) {
         await client.query(
           `INSERT INTO bot_suspension_log (bot_instance_id, user_id, reason, suspended_at)
            SELECT id, $1, 'trial_expired_no_payment', NOW()
@@ -192,11 +225,12 @@ async function transitionExpiredTrial(subscriptionId: string, userId: string, ha
         );
       }
 
-      logger.info('Trial expired - live bots paused (no payment method)', {
+      logger.info('Trial expired - live bots also paused (no payment method)', {
         userId,
         subscriptionId,
-        pausedLiveBots: pausedCount,
-        note: 'Paper trading bots continue running',
+        pausedLiveBots: pausedLiveCount,
+        totalPaused: pausedPaperCount + pausedLiveCount,
+        note: 'User must add payment method to continue live trading',
       });
     }
 

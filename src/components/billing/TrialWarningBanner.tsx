@@ -35,12 +35,6 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
           const billingData = await billingRes.json();
           const mode = billingData.planUsage?.limits?.tradingMode as 'paper' | 'live' | undefined;
           setTradingMode(mode);
-
-          // Paper trading doesn't need trial warning
-          if (mode === 'paper') {
-            setLoading(false);
-            return;
-          }
         }
 
         if (trialRes.ok) {
@@ -59,11 +53,6 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
 
     fetchTrialInfo();
   }, [propTradingMode]);
-
-  // Paper trading doesn't require payment - don't show trial warning
-  if (tradingMode === 'paper') {
-    return null;
-  }
 
   if (loading || !showBanner || !trialInfo) {
     return null;
@@ -127,10 +116,10 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
               : 'text-blue-700 dark:text-blue-300'
           }`}>
             {isEndingTomorrow
-              ? '🚨 Your Live Trading Trial Expires Tomorrow!'
+              ? '🚨 Your Free Trial Expires Tomorrow!'
               : isEnding
-              ? `⏰ Your Trial Expires in ${trialInfo.daysRemaining} Day${trialInfo.daysRemaining !== 1 ? 's' : ''}`
-              : `ℹ️ Live Trading Trial Active`}
+              ? `⏰ Your Free Trial Expires in ${trialInfo.daysRemaining} Day${trialInfo.daysRemaining !== 1 ? 's' : ''}`
+              : `ℹ️ Free Trial Active (Paper Trading)`}
           </h3>
 
           <p className={`text-sm mb-4 ${
@@ -154,7 +143,7 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
               ? 'text-yellow-600 dark:text-yellow-400'
               : 'text-blue-600 dark:text-blue-400'
           }`}>
-            After your trial ends, you can continue with our <strong>performance fees plan</strong>:
+            Upgrade to <strong>live trading</strong> and trade with real money:
           </p>
 
           <ul className={`text-sm space-y-1 mb-4 ${
@@ -164,10 +153,10 @@ export function TrialWarningBanner({ minimal = false, tradingMode: propTradingMo
               ? 'text-yellow-600 dark:text-yellow-400'
               : 'text-blue-600 dark:text-blue-400'
           }`}>
-            <li>✅ Unlimited live trading with your own capital</li>
+            <li>✅ Trade with your own capital (no minimum)</li>
             <li>✅ Pay only 15% on profitable trades</li>
             <li>✅ No subscription fees, no setup costs</li>
-            <li>✅ Monthly billing on 1st of month</li>
+            <li>✅ Cancel anytime</li>
           </ul>
         </div>
 

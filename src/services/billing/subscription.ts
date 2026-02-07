@@ -17,6 +17,8 @@ import { Subscription, SubscriptionPlan, BillingPeriod } from '@/types/billing';
 /**
  * Initialize subscription for a new user
  * Creates a live_trial subscription in database (no external payment provider)
+ *
+ * IMPORTANT: Users can only get ONE trial per account (prevents abuse)
  */
 export async function initializeSubscription(
   userId: string,
@@ -26,11 +28,39 @@ export async function initializeSubscription(
   const client = await getPool().connect();
 
   try {
+    // CHECK: Prevent multiple trials per user
+    // Look for ANY previous subscription (including cancelled/expired)
+    const existingTrialCheck = await client.query(
+      `SELECT id, plan_tier, status, created_at, trial_started_at
+       FROM subscriptions
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+
+    if (existingTrialCheck.rows.length > 0) {
+      const previousSub = existingTrialCheck.rows[0];
+
+      // If user already has an active subscription, return it
+      if (previousSub.status !== 'cancelled') {
+        return { ...previousSub, plan: previousSub.plan_tier } as Subscription;
+      }
+
+      // If user had a trial before (even if cancelled), block new trial
+      if (previousSub.trial_started_at) {
+        throw new Error(
+          'You have already used your free trial. Only one trial per account is allowed. ' +
+          'Please add a payment method to continue using NexusMeme.'
+        );
+      }
+    }
+
     const now = new Date();
     const trialEnd = new Date(now);
     trialEnd.setDate(trialEnd.getDate() + 10); // 10-day trial
 
-    // Create live_trial subscription
+    // Create live_trial subscription (first and only trial for this user)
     const result = await client.query(
       `INSERT INTO subscriptions (
         user_id, plan_tier, status,
@@ -160,10 +190,10 @@ export async function checkActionAllowed(
   // For bot creation and startup, check if user can trade first
   if (action === 'createBot' || action === 'startBot') {
     // Check subscription status (trial expired, payment required, etc.)
-    // Paper trading bypasses payment requirements
+    // Paper trading only allowed during active trial
     const tradingStatus = await canUserTrade(userId, options?.tradingMode);
 
-    // Paper trading is always allowed
+    // Paper trading allowed only during trial period
     if (tradingStatus.isPaperTrading) {
       // Still check plan limits for bot creation
       if (action === 'createBot') {
@@ -448,13 +478,30 @@ export async function canUserTrade(userId: string, tradingMode?: 'paper' | 'live
   requiresPaymentMethod?: boolean;
   isPaperTrading?: boolean;
 }> {
-  // Paper trading always allowed - no real money, no fees
+  // Paper trading only allowed during active trial
   if (tradingMode === 'paper') {
     const subscription = await getUserSubscription(userId);
+
+    // Check if trial is still active
+    if (subscription?.status === 'trialing' && subscription.trial_ends_at) {
+      const trialEndDate = new Date(subscription.trial_ends_at);
+      if (trialEndDate >= new Date()) {
+        // Trial still active - paper trading allowed
+        return {
+          canTrade: true,
+          subscription,
+          isPaperTrading: true,
+        };
+      }
+    }
+
+    // Trial expired - paper trading no longer allowed
     return {
-      canTrade: true,
+      canTrade: false,
+      reason: 'Paper trading is only available during your 10-day free trial. Please upgrade to live trading to continue.',
       subscription,
-      isPaperTrading: true,
+      requiresPaymentMethod: true,
+      isPaperTrading: false,
     };
   }
 

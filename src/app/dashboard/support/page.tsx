@@ -19,6 +19,8 @@ export default function SupportPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [fetchedTicketIds, setFetchedTicketIds] = useState<Set<string>>(new Set());
+  const [canAccessSupport, setCanAccessSupport] = useState(false);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
 
   // Memoize fetch function to prevent infinite re-renders
   const fetchTicketsData = useCallback(async (offset: number, limit: number) => {
@@ -39,18 +41,35 @@ export default function SupportPage() {
     fetchFn: fetchTicketsData,
   });
 
+  // Check support access (live trading users only)
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetch('/api/billing/subscriptions')
+        .then(res => res.json())
+        .then(data => {
+          const tradingMode = data.planUsage?.limits?.tradingMode;
+          setCanAccessSupport(tradingMode === 'live');
+          setIsCheckingAccess(false);
+        })
+        .catch(err => {
+          console.error('Failed to check support access:', err);
+          setIsCheckingAccess(false);
+        });
+    }
+  }, [status]);
+
   // Initialize on mount
   useEffect(() => {
     if (status === 'unauthenticated') {
       redirect('/auth/signin');
     }
 
-    if (status === 'authenticated') {
+    if (status === 'authenticated' && canAccessSupport) {
       // Ensure job processor is running
       fetch('/api/init').catch(err => console.warn('Failed to initialize processor:', err));
       load();
     }
-  }, [status, load]);
+  }, [status, canAccessSupport, load]);
 
   // Refetch unread counts when page comes back to focus (user returns from detail page)
   useEffect(() => {
@@ -172,11 +191,57 @@ export default function SupportPage() {
     }
   };
 
-  if (status === 'loading') {
+  if (status === 'loading' || isCheckingAccess) {
     return (
       <DashboardLayout title="Support">
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-slate-900 dark:text-white text-lg">Loading...</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Show upgrade prompt for non-live trading users
+  if (!canAccessSupport) {
+    return (
+      <DashboardLayout title="Support">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500 rounded-xl p-8 text-center">
+            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">
+              Support Available for Live Trading
+            </h2>
+            <p className="text-slate-700 dark:text-slate-300 mb-6">
+              Upgrade to live trading to access support tickets. Live traders get priority support to maximize profitability.
+            </p>
+            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 mb-6 border border-slate-200 dark:border-slate-700">
+              <h3 className="font-semibold text-slate-900 dark:text-white mb-3">Live Trading Includes:</h3>
+              <ul className="space-y-2 text-left text-slate-700 dark:text-slate-300">
+                <li className="flex items-center gap-2">
+                  <span className="text-green-600">✓</span> Priority support tickets
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="text-green-600">✓</span> Real-time trading with your capital
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="text-green-600">✓</span> 15% performance fees (only on profits)
+                </li>
+              </ul>
+            </div>
+            <Link
+              href="/dashboard/billing"
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition"
+            >
+              Upgrade to Live Trading
+            </Link>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-4">
+              Need help during trial? Check our <Link href="/help" className="underline hover:text-blue-600">Help Center</Link> or email us at support@nexusmeme.com
+            </p>
+          </div>
         </div>
       </DashboardLayout>
     );

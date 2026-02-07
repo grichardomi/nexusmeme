@@ -44,7 +44,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
     },
     {
       question: 'How do I dispute a fee?',
-      answer: `If you believe a fee is incorrect:\n\n1. Go to Dashboard > Support > Create Ticket\n2. Explain the issue with the fee\n3. Our support team will review within 24 hours\n4. We can adjust or waive fees if there's an error\n\nContact us immediately at support@nexusmeme.com if you notice any billing discrepancies.`,
+      answer: `If you believe a fee is incorrect:\n\n1. Go to Dashboard > Support > Create Ticket (live trading users only)\n2. Explain the issue with the fee\n3. Our support team will review within 24 hours\n4. We can adjust or waive fees if there's an error\n\nTrial users: Email support@nexusmeme.com for urgent issues. Full support access available when you upgrade to live trading.`,
     },
   ];
 
