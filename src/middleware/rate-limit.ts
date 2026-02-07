@@ -75,7 +75,14 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
       return response;
     } catch (error) {
       logger.error('Rate limit check failed', error instanceof Error ? error : null);
-      // Allow request if rate limit check fails (fail-open policy)
+      // Fail closed in production - reject if we can't verify rate limit
+      if (process.env.NODE_ENV === 'production') {
+        return NextResponse.json(
+          { error: 'Service temporarily unavailable' },
+          { status: 503 }
+        );
+      }
+      // In development, allow for easier testing
       return NextResponse.next();
     }
   };
@@ -123,10 +130,11 @@ async function checkRateLimit(
     };
   } catch (error) {
     logger.error('Failed to check rate limit', error instanceof Error ? error : null, { key });
-    // Fail open - allow request if check fails
+    // Fail closed in production to prevent brute-force during Redis outage
+    const isProduction = process.env.NODE_ENV === 'production';
     return {
-      allowed: true,
-      remaining: maxRequests,
+      allowed: !isProduction,
+      remaining: isProduction ? 0 : maxRequests,
       resetAt,
     };
   }

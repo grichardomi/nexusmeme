@@ -1,9 +1,13 @@
 /**
  * DEBUG: Manual trigger to start the background market data fetcher
  * Use this to test if there are errors during initialization
+ * PROTECTED: Admin-only access
  */
 
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth';
+import { query } from '@/lib/db';
 import { initializeBackgroundFetcher, getBackgroundMarketDataFetcher } from '@/services/market-data/background-fetcher';
 import { logger } from '@/lib/logger';
 
@@ -11,6 +15,16 @@ export const runtime = 'nodejs';
 
 export async function GET(): Promise<Response> {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const adminCheck = await query(`SELECT role FROM users WHERE id = $1`, [session.user.id]);
+    if (!adminCheck[0] || adminCheck[0].role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     console.log('[DEBUG] Manually starting background fetcher...');
 
     // Try to initialize the fetcher
@@ -23,12 +37,6 @@ export async function GET(): Promise<Response> {
     const isRunning = fetcher.isActive();
     const stats = fetcher.getStats();
     const health = fetcher.getCacheHealth();
-
-    console.log('[DEBUG] Fetcher status after init:', {
-      isRunning,
-      stats,
-      health,
-    });
 
     return NextResponse.json(
       {
@@ -46,9 +54,7 @@ export async function GET(): Promise<Response> {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
 
-    console.error('[DEBUG] Error starting fetcher:', error);
     logger.error('Manual fetcher startup failed', error instanceof Error ? error : null);
 
     return NextResponse.json(
@@ -56,7 +62,6 @@ export async function GET(): Promise<Response> {
         status: 'error',
         message: 'Failed to start fetcher',
         error: errorMessage,
-        stack: errorStack?.split('\n').slice(0, 10),
       },
       { status: 500 }
     );

@@ -22,14 +22,22 @@ export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    // TODO: Add admin role check
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Verify admin role
+    const adminCheck = await query(
+      `SELECT role FROM users WHERE id = $1`,
+      [session.user.id]
+    );
+    if (!adminCheck[0] || adminCheck[0].role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const searchParams = request.nextUrl.searchParams;
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(searchParams.get('pageSize') || '20', 10);
+    const page = Math.max(parseInt(searchParams.get('page') || '1', 10), 1);
+    const pageSize = Math.min(Math.max(parseInt(searchParams.get('pageSize') || '20', 10), 1), 100);
     const status = searchParams.get('status');
 
     const offset = (page - 1) * pageSize;
@@ -110,9 +118,17 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    // TODO: Add admin role check
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Verify admin role
+    const adminCheck = await query(
+      `SELECT role FROM users WHERE id = $1`,
+      [session.user.id]
+    );
+    if (!adminCheck[0] || adminCheck[0].role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();

@@ -2,32 +2,37 @@
  * DEBUG: Test direct Binance API connectivity
  * This endpoint attempts to fetch a BTC/USDT ticker directly from Binance
  * to verify API connectivity and data format
+ * PROTECTED: Admin-only access
  */
 
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth';
+import { query } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
 export async function GET(): Promise<Response> {
   try {
-    console.log('[DEBUG] Testing BinanceUS API connectivity...');
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const adminCheck = await query(`SELECT role FROM users WHERE id = $1`, [session.user.id]);
+    if (!adminCheck[0] || adminCheck[0].role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const symbol = 'BTCUSDT';
-    // Use BinanceUS API endpoint (better geographic compatibility)
     const url = `https://api.binance.us/api/v3/ticker/24hr?symbol=${symbol}`;
-
-    console.log('[DEBUG] Fetching from:', url);
 
     const startTime = Date.now();
     const response = await fetch(url);
     const fetchDuration = Date.now() - startTime;
 
-    console.log('[DEBUG] Response status:', response.status, response.statusText);
-    console.log('[DEBUG] Fetch duration:', fetchDuration, 'ms');
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[DEBUG] Binance API error response:', errorText.slice(0, 200));
       return NextResponse.json(
         {
           status: 'error',
@@ -40,13 +45,6 @@ export async function GET(): Promise<Response> {
     }
 
     const data = await response.json();
-
-    console.log('[DEBUG] Successfully fetched Binance data:', {
-      symbol: data.symbol,
-      lastPrice: data.lastPrice,
-      bidPrice: data.bidPrice,
-      askPrice: data.askPrice,
-    });
 
     return NextResponse.json({
       status: 'ok',
@@ -64,7 +62,6 @@ export async function GET(): Promise<Response> {
       },
     });
   } catch (error) {
-    console.error('[DEBUG] Error testing Binance API:', error);
     return NextResponse.json(
       {
         status: 'error',
