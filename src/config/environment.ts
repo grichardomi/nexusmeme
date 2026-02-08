@@ -94,6 +94,13 @@ const envSchema = z.object({
   /* AI Configuration */
   AI_MIN_CONFIDENCE_THRESHOLD: z.string().transform(Number).default('70'),
 
+  /* AI Confidence Boost - Hybrid AI layer for entry decisions */
+  /* Deterministic 3-path gate remains primary. AI adjusts confidence ±15 as advisor. */
+  /* Uses existing OPENAI_API_KEY - no additional API key needed */
+  AI_CONFIDENCE_BOOST_ENABLED: z.string().transform(val => val === 'true').default('false'),
+  AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: z.string().transform(Number).default('15'), // Max ±15 confidence adjustment
+  AI_CONFIDENCE_BOOST_TIMEOUT_MS: z.string().transform(Number).default('5000'), // 5s timeout for AI call
+
   /* Pyramiding Rules (from existing profitable bot - Kraken aggressive config) */
   KRAKEN_BOT_PYRAMIDING_ENABLED: z.string().transform(val => val === 'true').default('true'),
   KRAKEN_BOT_PYRAMID_LEVELS: z.string().transform(Number).default('2'),
@@ -334,6 +341,9 @@ function getDefaultEnvironment(): Environment {
     CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
     CREEPING_UPTREND_PULLBACK_THRESHOLD: 0.95,
     AI_MIN_CONFIDENCE_THRESHOLD: 70,
+    AI_CONFIDENCE_BOOST_ENABLED: false,
+    AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
+    AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
     ENCRYPTION_KEY: 'build-phase-encryption-key-1234567890',
     LOG_LEVEL: 'info',
     LOG_FORMAT: 'json',
@@ -530,6 +540,9 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
       PERFORMANCE_FEE_RATE: 0.15,
       PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
+      AI_CONFIDENCE_BOOST_ENABLED: false,
+      AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
+      AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
     };
     return (testDefaults[key] ?? process.env[key]) as Environment[T];
   }
@@ -760,6 +773,15 @@ export const aiConfig = {
   },
   get openaiApiKey() {
     return getEnv('OPENAI_API_KEY');
+  },
+  get confidenceBoostEnabled() {
+    return getEnv('AI_CONFIDENCE_BOOST_ENABLED');
+  },
+  get confidenceBoostMaxAdjustment() {
+    return getEnv('AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT');
+  },
+  get confidenceBoostTimeoutMs() {
+    return getEnv('AI_CONFIDENCE_BOOST_TIMEOUT_MS');
   },
 };
 

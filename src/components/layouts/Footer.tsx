@@ -73,34 +73,36 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Company */}
+          {/* Support */}
           <div>
             <h3 className="font-semibold text-slate-900 dark:text-white text-sm mb-4">
-              Company
+              Support
             </h3>
             <ul className="space-y-2 text-xs">
               <li>
                 <Link
-                  href="/"
+                  href="/help"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  Blog
+                  Help Center
                 </Link>
               </li>
               <li>
-                <Link
-                  href="/"
+                <a
+                  href={process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv'}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  Contact
-                </Link>
+                  Discord Community
+                </a>
               </li>
               <li>
                 <Link
-                  href="/"
+                  href="/help#faq"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  Support
+                  FAQ
                 </Link>
               </li>
             </ul>
@@ -149,11 +151,13 @@ export function Footer() {
             </p>
             <div className="flex items-center gap-4">
               <a
-                href="#"
+                href={process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv'}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="hover:text-slate-900 dark:hover:text-white transition"
-                aria-label="Twitter"
+                aria-label="Discord"
               >
-                Twitter
+                Discord
               </a>
               <a
                 href={process.env.NEXT_PUBLIC_GITHUB_REPO || 'https://github.com/nexusmeme/nexusmeme'}
@@ -163,15 +167,6 @@ export function Footer() {
                 aria-label="GitHub"
               >
                 GitHub
-              </a>
-              <a
-                href={process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-slate-900 dark:hover:text-white transition"
-                aria-label="Discord"
-              >
-                Discord
               </a>
             </div>
           </div>

@@ -13,8 +13,10 @@ import {
   analyzeSentimentAI,
   generateTradeSignalAI,
   predictPriceAI,
+  aiConfidenceBoost,
   // analyzeRiskAI - DISABLED: Result was explicitly ignored (signal confidence is PRIMARY per /nexus)
 } from './inference';
+import { aiConfig } from '@/config/environment';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import {
   AIAnalysisRequest,
@@ -185,7 +187,7 @@ export async function analyzeMarket(
         sentiment
       );
 
-      logger.info('Trade signal generated', {
+      logger.info('Trade signal generated (deterministic)', {
         pair: request.pair,
         signal: result.signal.signal,
         strength: result.signal.strength,
@@ -195,6 +197,53 @@ export async function analyzeMarket(
         takeProfit: result.signal.takeProfit,
         riskRewardRatio: result.signal.riskRewardRatio,
       });
+
+      // AI Confidence Boost - Hybrid layer (deterministic base + LLM advisor)
+      // Only runs when AI_CONFIDENCE_BOOST_ENABLED=true and API key is configured
+      // Falls back to 0 adjustment on any failure (safe default)
+      if (aiConfig.confidenceBoostEnabled) {
+        const boostResult = await aiConfidenceBoost(
+          request.pair,
+          candles,
+          indicators,
+          result.signal.signal,
+          result.signal.confidence,
+          regime.regime
+        );
+
+        if (boostResult.adjustment !== 0) {
+          const originalConfidence = result.signal.confidence;
+          result.signal.confidence = Math.min(100, Math.max(0, result.signal.confidence + boostResult.adjustment));
+
+          // Recalculate strength based on new confidence
+          result.signal.strength =
+            result.signal.confidence >= 80 ? 'strong' :
+            result.signal.confidence >= 65 ? 'moderate' :
+            'weak';
+
+          result.signal.factors.push(
+            `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
+          );
+
+          logger.info('AI confidence boost applied', {
+            pair: request.pair,
+            provider: boostResult.provider,
+            originalConfidence,
+            adjustment: boostResult.adjustment,
+            newConfidence: result.signal.confidence,
+            newStrength: result.signal.strength,
+            reasoning: boostResult.reasoning,
+            latencyMs: boostResult.latencyMs,
+          });
+        } else {
+          logger.debug('AI confidence boost: no adjustment needed', {
+            pair: request.pair,
+            provider: boostResult.provider,
+            confidence: result.signal.confidence,
+            latencyMs: boostResult.latencyMs,
+          });
+        }
+      }
 
       // DISABLED: Risk Analysis - result was explicitly ignored (signal confidence is PRIMARY)
       // Per /nexus behavior: "Do NOT reduce confidence based on regime or risk analysis"

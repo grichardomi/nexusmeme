@@ -4,7 +4,7 @@
  */
 
 import { logger } from '@/lib/logger';
-import { getEnv } from '@/config/environment';
+import { getEnv, aiConfig } from '@/config/environment';
 import {
   TechnicalIndicators,
   MarketRegimeAnalysis,
@@ -13,6 +13,7 @@ import {
   TradeSignalAnalysis,
   TradeSignal,
   SignalStrength,
+  OHLCCandle,
 } from '@/types/ai';
 
 
@@ -593,5 +594,124 @@ Format as JSON:
       maxGain: rewardAmount,
       recommendation: 'Unable to assess risk at this time',
     };
+  }
+}
+
+/**
+ * AI Confidence Boost Result
+ */
+export interface AIConfidenceBoostResult {
+  adjustment: number; // -15 to +15
+  reasoning: string;
+  provider: string;
+  latencyMs: number;
+}
+
+/**
+ * Format candles for LLM prompt (compact representation)
+ */
+function formatCandlesForPrompt(candles: OHLCCandle[]): string {
+  return candles.map((c, i) => {
+    const change = ((c.close - c.open) / c.open * 100).toFixed(2);
+    const direction = c.close >= c.open ? '+' : '';
+    return `${i + 1}. O:${c.open.toFixed(2)} H:${c.high.toFixed(2)} L:${c.low.toFixed(2)} C:${c.close.toFixed(2)} V:${c.volume.toFixed(0)} (${direction}${change}%)`;
+  }).join('\n');
+}
+
+/**
+ * AI Confidence Boost - Hybrid AI Layer
+ *
+ * Called AFTER deterministic confidence is calculated.
+ * Sends last 10 candles + indicators to Claude/OpenAI.
+ * Returns confidence adjustment (-15 to +15).
+ * Falls back to 0 adjustment on API failure (safe default).
+ *
+ * The deterministic 3-path gate makes the yes/no signal decision.
+ * This function only adjusts HOW confident we are in that decision.
+ */
+export async function aiConfidenceBoost(
+  pair: string,
+  candles: OHLCCandle[],
+  indicators: TechnicalIndicators,
+  deterministicSignal: TradeSignal,
+  deterministicConfidence: number,
+  regime: string
+): Promise<AIConfidenceBoostResult> {
+  const startTime = Date.now();
+  const maxAdj = aiConfig.confidenceBoostMaxAdjustment;
+
+  // Take last 10 candles for context
+  const recentCandles = candles.slice(-10);
+
+  const prompt = `You are a crypto trading confidence advisor. Analyze these recent 15-minute candles and indicators for ${pair}.
+
+RECENT CANDLES (oldest to newest):
+${formatCandlesForPrompt(recentCandles)}
+
+CURRENT INDICATORS:
+- RSI: ${indicators.rsi.toFixed(1)}
+- ADX: ${indicators.adx.toFixed(1)} (regime: ${regime})
+- MACD histogram: ${indicators.macd.histogram.toFixed(4)}
+- 1h momentum: ${(indicators.momentum1h || 0).toFixed(3)}%
+- 4h momentum: ${(indicators.momentum4h || 0).toFixed(3)}%
+- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x
+
+DETERMINISTIC SYSTEM says: ${deterministicSignal.toUpperCase()} with ${deterministicConfidence}% confidence.
+
+Should confidence be adjusted? Consider:
+1. Price action pattern (higher highs/lows, consolidation, reversal candles)
+2. Volume confirmation (is volume supporting the move?)
+3. Momentum divergence (indicators disagreeing with price?)
+4. Candle structure (wicks, dojis, engulfing patterns)
+
+Respond with ONLY valid JSON, no other text:
+{"adjustment": <number from -${maxAdj} to ${maxAdj}>, "reasoning": "<one sentence>"}
+
+Rules:
+- Positive adjustment = more confident in the signal
+- Negative adjustment = less confident in the signal
+- 0 = no change needed
+- Stay within -${maxAdj} to +${maxAdj} range`;
+
+  try {
+    const responseText = await callOpenAI(prompt, 200);
+
+    // Parse JSON response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      logger.warn('AI confidence boost: no JSON in response', { pair, response: responseText.slice(0, 200) });
+      return { adjustment: 0, reasoning: 'No valid response', provider: 'openai', latencyMs: Date.now() - startTime };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const rawAdjustment = typeof parsed.adjustment === 'number' ? parsed.adjustment : 0;
+    // Clamp to ±maxAdj
+    const adjustment = Math.min(maxAdj, Math.max(-maxAdj, Math.round(rawAdjustment)));
+    const reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning : 'No reasoning provided';
+
+    const latencyMs = Date.now() - startTime;
+
+    logger.info('AI confidence boost result', {
+      pair,
+      deterministicSignal,
+      deterministicConfidence,
+      adjustment,
+      reasoning,
+      latencyMs,
+    });
+
+    return { adjustment, reasoning, provider: 'openai', latencyMs };
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+
+    // Safe fallback: 0 adjustment (no impact on trading)
+    logger.warn('AI confidence boost failed, using 0 adjustment (safe fallback)', {
+      pair,
+      error: errorMsg,
+      latencyMs,
+    });
+
+    return { adjustment: 0, reasoning: `Fallback: ${errorMsg}`, provider: 'openai', latencyMs };
   }
 }
