@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 interface CryptoPayButtonProps {
   onPaymentCreated?: (chargeUrl: string) => void;
   tradingMode?: 'paper' | 'live';
+  onGoLive?: () => void;
 }
 
 interface PendingCharge {
@@ -31,7 +32,7 @@ interface ChargeStatus {
   };
 }
 
-export function CryptoPayButton({ onPaymentCreated, tradingMode }: CryptoPayButtonProps) {
+export function CryptoPayButton({ onPaymentCreated, tradingMode, onGoLive }: CryptoPayButtonProps) {
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
   const [status, setStatus] = useState<ChargeStatus | null>(null);
@@ -55,14 +56,16 @@ export function CryptoPayButton({ onPaymentCreated, tradingMode }: CryptoPayButt
           </div>
         </div>
         <div className="text-center py-4 text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
-          <p className="font-medium">No payment required</p>
-          <p className="text-sm mt-2">Ready to trade with real money?</p>
-          <a
-            href="/dashboard/bots"
-            className="inline-flex items-center justify-center px-4 py-2 mt-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition"
+          <p className="font-medium">No payment required during trial</p>
+          <p className="text-sm mt-2 mb-3">
+            After switching to live, fees are billed monthly via crypto (BTC, ETH, USDC).
+          </p>
+          <button
+            onClick={onGoLive}
+            className="inline-flex items-center justify-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition"
           >
             Switch to Live Trading →
-          </a>
+          </button>
         </div>
       </div>
     );
@@ -140,7 +143,7 @@ export function CryptoPayButton({ onPaymentCreated, tradingMode }: CryptoPayButt
   const pendingCharge = status.pendingCharges[0];
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+    <div id="crypto-pay-section" className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
           <svg className="w-6 h-6 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

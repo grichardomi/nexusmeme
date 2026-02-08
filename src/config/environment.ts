@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 import { z } from 'zod';
 
 /**
@@ -456,6 +458,13 @@ export function getEnvironmentConfig(): Environment {
     validatedEnv = envSchema.parse(process.env);
     return validatedEnv;
   } catch (error) {
+    // In the browser, process.env will be mostly empty; fall back to defaults to avoid runtime crashes
+    if (typeof window !== 'undefined') {
+      buildPhaseMode = true;
+      validatedEnv = getDefaultEnvironment();
+      return validatedEnv;
+    }
+
     // During build, return defaults instead of throwing
     if (process.env.__NEXT_PRIVATE_PREBUILD === 'true' || process.env.NODE_ENV === 'production') {
       if (error instanceof z.ZodError && Object.keys(process.env).length < 5) {

@@ -525,9 +525,30 @@ export async function PATCH(request: NextRequest) {
         );
       }
 
-      // Paper to live switch is always allowed (user opting into fees)
+      // Paper to live switch requires payment method / active subscription
       if (currentTradingMode === 'paper' && tradingMode === 'live') {
-        logger.info('Paper to live switch - user opting into performance fees', {
+        const liveCheck = await checkActionAllowed(session.user.id, 'startBot', {
+          tradingMode: 'live',
+        });
+
+        if (!liveCheck.allowed) {
+          logger.warn('Paper to live switch blocked - payment required', {
+            userId: session.user.id,
+            botId,
+            reason: liveCheck.reason,
+          });
+
+          return NextResponse.json(
+            {
+              error: liveCheck.reason || 'Please add a payment method before switching to live trading.',
+              code: liveCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED' : 'SUBSCRIPTION_REQUIRED',
+              requiresPaymentMethod: liveCheck.requiresPaymentMethod,
+            },
+            { status: 403 }
+          );
+        }
+
+        logger.info('Paper to live switch approved', {
           userId: session.user.id,
           botId,
         });

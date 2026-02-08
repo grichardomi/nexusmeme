@@ -178,10 +178,10 @@ export function ChargeHistory() {
                 📥 Export CSV
               </button>
               <button
-                onClick={() => (window.location.href = '/api/billing/customer-portal')}
+                onClick={() => document.getElementById('crypto-pay-section')?.scrollIntoView({ behavior: 'smooth' })}
                 className="text-sm px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition font-medium"
               >
-                Open Stripe Portal
+                Pay with Crypto
               </button>
             </div>
           )}
@@ -248,12 +248,9 @@ export function ChargeHistory() {
                           View Invoice
                         </a>
                       ) : (
-                        <button
-                          onClick={() => (window.location.href = '/api/billing/customer-portal')}
-                          className="text-blue-600 dark:text-blue-400 text-sm font-medium"
-                        >
-                          View
-                        </button>
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">
+                          No invoice
+                        </span>
                       )}
                     </div>
                   </div>
@@ -328,12 +325,9 @@ export function ChargeHistory() {
                           Download
                         </a>
                       ) : (
-                        <button
-                          onClick={() => (window.location.href = '/api/billing/customer-portal')}
-                          className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium"
-                        >
-                          View
-                        </button>
+                        <span className="text-slate-400 dark:text-slate-500 text-sm">
+                          No invoice
+                        </span>
                       )}
                     </div>
                   </div>
@@ -431,14 +425,7 @@ export function ChargeHistory() {
           {/* Help Section */}
           <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-900 dark:text-blue-100">
-              <strong>Need help?</strong> For detailed invoice information, visit your{' '}
-              <button
-                onClick={() => (window.location.href = '/api/billing/customer-portal')}
-                className="underline font-semibold hover:text-blue-700 dark:hover:text-blue-300"
-              >
-                Stripe billing portal
-              </button>{' '}
-              or{' '}
+              <strong>Need help?</strong> For invoice questions, contact{' '}
               <Link href="/dashboard/support" className="underline font-semibold hover:text-blue-700 dark:hover:text-blue-300">
                 contact support
               </Link>

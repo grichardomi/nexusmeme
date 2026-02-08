@@ -260,8 +260,8 @@ export default function PerformanceFeesPage() {
                     support@nexusmeme.com
                   </a>
                   . We're happy to explain your charges or discuss any billing issues. You can also visit your{' '}
-                  <a href="/api/billing/customer-portal" className="text-blue-600 dark:text-blue-400 hover:underline">
-                    Stripe billing portal
+                  <a href="/dashboard/billing" className="text-blue-600 dark:text-blue-400 hover:underline">
+                    billing dashboard
                   </a>{' '}
                   for detailed invoice information.
                 </p>

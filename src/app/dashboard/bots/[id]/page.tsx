@@ -8,6 +8,7 @@ import { PositionHealthMonitor } from '@/components/bots/PositionHealthMonitor';
 import { BillingSetupModal } from '@/components/billing/BillingSetupModal';
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { ConfirmationModal } from '@/components/modals/ConfirmationModal';
+import { GoLiveWizard } from '@/components/billing/GoLiveWizard';
 import { useSession } from 'next-auth/react';
 import { redirect, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
@@ -264,6 +265,13 @@ export default function BotDetailPage() {
             count: data.feeCount,
           });
           setError(null); // Clear generic error, use specific unpaid fees banner
+        } else if (data.code === 'PAYMENT_REQUIRED' || data.requiresPaymentMethod) {
+          setError(null);
+          setUnpaidFeesError(null);
+          // Redirect to billing to add payment method
+          if (confirm('A payment method is required before switching to live trading. Go to billing now?')) {
+            window.location.href = '/dashboard/billing';
+          }
         } else {
           setError(data.error || 'Failed to update trading mode');
           setUnpaidFeesError(null);
@@ -283,11 +291,7 @@ export default function BotDetailPage() {
     }
   };
 
-  const confirmToggleTradingMode = () => {
-    if (!bot) return;
-    const newMode = bot.tradingMode === 'paper' ? 'live' : 'paper';
-    performToggleTradingMode(newMode);
-  };
+  // Note: confirmToggleTradingMode removed - GoLiveWizard handles the paper→live flow
 
   const handleStartBot = async () => {
     if (!bot) return;
@@ -1015,18 +1019,16 @@ export default function BotDetailPage() {
       {/* Billing Setup Modal - shown after bot creation */}
       {showBillingSetup && bot && <BillingSetupModal botId={bot.id} botName={`${bot.exchange} Bot`} />}
 
-      {/* Live Trading Confirmation Modal */}
-      <ConfirmationModal
-        isOpen={showLiveTradeConfirm}
-        title="⚠️ Upgrade to Live Trading"
-        message="WARNING: Live trading uses REAL funds! Once you upgrade to live trading, you cannot switch back to paper mode. Make sure you have tested your bot thoroughly. You will be trading with actual money. Are you sure you want to proceed?"
-        confirmText="Upgrade to Live Trading"
-        cancelText="Cancel"
-        isDangerous={true}
-        isLoading={isTogglingMode}
-        onConfirm={confirmToggleTradingMode}
-        onCancel={() => setShowLiveTradeConfirm(false)}
-      />
+      {/* Go Live Wizard - switches ALL user bots to live */}
+      {showLiveTradeConfirm && (
+        <GoLiveWizard
+          onClose={() => setShowLiveTradeConfirm(false)}
+          onComplete={async () => {
+            setShowLiveTradeConfirm(false);
+            await fetchBot(); // Refresh current bot data
+          }}
+        />
+      )}
 
       {/* Stop Bot Confirmation Modal */}
       <ConfirmationModal

@@ -9,6 +9,7 @@ import { RecentTransactions } from '@/components/billing/RecentTransactions';
 import { ChargeHistory } from '@/components/billing/ChargeHistory';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
 import { CryptoPayButton } from '@/components/billing/CryptoPayButton';
+import { GoLiveWizard } from '@/components/billing/GoLiveWizard';
 
 /**
  * Billing & Plan Page
@@ -27,6 +28,7 @@ export default function BillingPage() {
   const { status } = useSession();
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showGoLiveWizard, setShowGoLiveWizard] = useState(false);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -34,27 +36,27 @@ export default function BillingPage() {
     }
   }, [status]);
 
-  useEffect(() => {
-    const fetchUserPlan = async () => {
-      try {
-        const res = await fetch('/api/billing/subscriptions');
-        if (res.ok) {
-          const data = await res.json();
-          const planUsage = data.planUsage;
-          setUserPlan({
-            plan: (planUsage?.plan || 'live_trial') as 'live_trial' | 'performance_fees',
-            tradingMode: planUsage?.limits?.tradingMode || 'live',
-            botsPerUser: planUsage?.limits?.botsPerUser || 1,
-            tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 2,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to fetch user plan:', error);
-      } finally {
-        setLoading(false);
+  const fetchUserPlan = async () => {
+    try {
+      const res = await fetch('/api/billing/subscriptions');
+      if (res.ok) {
+        const data = await res.json();
+        const planUsage = data.planUsage;
+        setUserPlan({
+          plan: (planUsage?.plan || 'live_trial') as 'live_trial' | 'performance_fees',
+          tradingMode: planUsage?.limits?.tradingMode || 'live',
+          botsPerUser: planUsage?.limits?.botsPerUser || 1,
+          tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 2,
+        });
       }
-    };
+    } catch (error) {
+      console.error('Failed to fetch user plan:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     if (status === 'authenticated') {
       fetchUserPlan();
     }
@@ -180,23 +182,23 @@ export default function BillingPage() {
 
         {/* Info Banner - Compact */}
         {userPlan?.tradingMode === 'paper' ? (
-          <section className="bg-slate-50 dark:bg-slate-900/10 rounded-xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5">
+          <section className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl border border-green-200 dark:border-green-800 p-4 sm:p-5">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <p className="text-sm text-slate-700 dark:text-slate-300">
-                  📊 <strong>Paper Trading Mode.</strong> Practice with simulated trades - no real money, no fees.
+                <h3 className="text-base font-bold text-green-800 dark:text-green-200">
+                  Ready to trade with real money?
+                </h3>
+                <p className="text-sm text-green-600 dark:text-green-400 mt-1">
+                  15% on profits only — paid monthly via crypto
                 </p>
               </div>
-              <a
-                href="/dashboard/bots"
-                className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition whitespace-nowrap"
+              <button
+                onClick={() => setShowGoLiveWizard(true)}
+                className="inline-flex items-center justify-center px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition whitespace-nowrap"
               >
                 Switch to Live Trading →
-              </a>
+              </button>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-              Go to your bot settings to enable live trading with real funds.
-            </p>
           </section>
         ) : (
           <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
@@ -208,10 +210,10 @@ export default function BillingPage() {
         )}
 
         {/* Performance Fees - Full width on mobile, priority position */}
-        <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} />
+        <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
 
         {/* Crypto Payment - Below fees on mobile */}
-        <CryptoPayButton tradingMode={userPlan?.tradingMode} />
+        <CryptoPayButton tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
 
         {/* Recent Transactions */}
         <RecentTransactions />
@@ -219,26 +221,31 @@ export default function BillingPage() {
         {/* Charge History */}
         <ChargeHistory />
 
-        {/* Payment Methods Section - Compact */}
+        {/* Payment Info Section */}
         <section className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Payment Methods</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Manage cards and payment options
-              </p>
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">How Payments Work</h2>
+          <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+            <p>Performance fees are billed monthly on the 1st. Pay with crypto:</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded text-xs font-medium">BTC</span>
+              <span className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">ETH</span>
+              <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded text-xs font-medium">USDC</span>
+              <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-xs font-medium">+ more</span>
             </div>
-            <button
-              onClick={() => {
-                window.location.href = '/api/billing/customer-portal';
-              }}
-              className="px-4 py-2 bg-blue-600 active:bg-blue-700 text-white rounded-lg font-semibold text-sm shrink-0"
-            >
-              Manage
-            </button>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+              No stored payment methods needed. Pay each invoice directly via Coinbase Commerce.
+            </p>
           </div>
         </section>
       </div>
+
+      {/* Go Live Wizard Modal */}
+      {showGoLiveWizard && (
+        <GoLiveWizard
+          onClose={() => setShowGoLiveWizard(false)}
+          onComplete={() => fetchUserPlan()}
+        />
+      )}
     </DashboardLayout>
   );
 }

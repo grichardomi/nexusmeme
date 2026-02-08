@@ -20,6 +20,7 @@ interface PerformanceFeesData {
 
 interface PerformanceFeesSummaryProps {
   tradingMode?: 'paper' | 'live';
+  onGoLive?: () => void;
 }
 
 /**
@@ -27,7 +28,7 @@ interface PerformanceFeesSummaryProps {
  * Shows overview of profits, fees by status, and billing lifecycle
  * Best practice: Clear fee status progression and actionable next steps
  */
-export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryProps) {
+export function PerformanceFeesSummary({ tradingMode, onGoLive }: PerformanceFeesSummaryProps) {
   const [data, setData] = useState<PerformanceFeesData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,19 +50,14 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
             Paper Trading Mode
           </h3>
           <p className="text-slate-500 dark:text-slate-400 text-sm mb-4">
-            You&apos;re practicing with simulated trades. No real money is involved and no fees are charged.
+            No real money involved, no fees charged. Switch to live trading in your bot settings when ready.
           </p>
-          <div className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-600">
-            <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-              Ready to earn real profits? You&apos;ll only pay 15% on profitable trades.
-            </p>
-            <a
-              href="/dashboard/bots"
-              className="inline-flex items-center justify-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition"
-            >
-              Go to Bots → Switch to Live
-            </a>
-          </div>
+          <button
+            onClick={onGoLive}
+            className="inline-flex items-center justify-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition"
+          >
+            Switch to Live Trading →
+          </button>
         </div>
       </section>
     );
@@ -184,7 +180,7 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
               </p>
             </div>
             <button
-              onClick={() => (window.location.href = '/api/billing/customer-portal')}
+              onClick={() => document.getElementById('crypto-pay-section')?.scrollIntoView({ behavior: 'smooth' })}
               className={`px-3 py-1.5 rounded-lg font-semibold text-xs text-white shrink-0 ${
                 billing.billing_status === 'suspended'
                   ? 'bg-red-600 active:bg-red-700'
@@ -336,12 +332,6 @@ export function PerformanceFeesSummary({ tradingMode }: PerformanceFeesSummaryPr
 
       {/* Quick Actions */}
       <div className="flex flex-col sm:flex-row gap-2 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-        <button
-          onClick={() => (window.location.href = '/api/billing/customer-portal')}
-          className="flex-1 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg active:bg-slate-200 dark:active:bg-slate-600"
-        >
-          Manage Payment
-        </button>
         <button
           onClick={() => (window.location.href = '/api/fees/performance?type=export')}
           className="flex-1 px-3 py-2 text-sm font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded-lg active:bg-green-100 dark:active:bg-green-900/40"
