@@ -1,5 +1,6 @@
 import { type NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
+import DiscordProvider from 'next-auth/providers/discord';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { query, transaction } from '@/lib/db';
 import { verifyHash } from '@/lib/crypto';
@@ -15,6 +16,11 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    }),
+
+    DiscordProvider({
+      clientId: process.env.DISCORD_CLIENT_ID || '',
+      clientSecret: process.env.DISCORD_CLIENT_SECRET || '',
     }),
 
     CredentialsProvider({
@@ -77,10 +83,10 @@ export const authOptions: NextAuthOptions = {
       const isUuid = (value: unknown) =>
         typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
-      // OAuth (Google)
-      if (account?.provider === 'google' && user) {
+      // OAuth (Google, Discord)
+      if ((account?.provider === 'google' || account?.provider === 'discord') && user) {
         if (!user.email) {
-          throw new Error('Google login missing email');
+          throw new Error(`${account.provider} login missing email`);
         }
 
         try {
@@ -93,7 +99,7 @@ export const authOptions: NextAuthOptions = {
             ?? await createOAuthUser({
               email: user.email,
               name: user.name ?? '',
-              provider: 'google',
+              provider: account.provider,
               providerAccountId: account.providerAccountId,
             });
 
@@ -101,7 +107,7 @@ export const authOptions: NextAuthOptions = {
           token.sub = userId; // keep NextAuth subject aligned
           token.role = existing[0]?.role ?? 'user';
         } catch (error) {
-          logger.error('Failed to resolve Google user ID', error instanceof Error ? error : null);
+          logger.error(`Failed to resolve ${account.provider} user ID`, error instanceof Error ? error : null);
           throw error;
         }
       }

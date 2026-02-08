@@ -5,6 +5,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import { MinimalFooter } from './MinimalFooter';
+import { BackButton } from '@/components/navigation/BackButton';
+import { BetaBadge } from '@/components/common/BetaBadge';
 
 /**
  * Dashboard Layout
@@ -30,23 +32,11 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   const { data: session } = useSession();
   const [subscription, setSubscription] = useState<(Subscription & { daysRemaining?: number | null }) | null>(null);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
-  const [hasLiveBot, setHasLiveBot] = useState(false);
 
   useEffect(() => {
     async function fetchSubscription() {
       try {
-        // Fetch subscription and bot data in parallel
-        const [subResponse, botsResponse] = await Promise.all([
-          fetch('/api/billing/subscriptions'),
-          fetch('/api/bots'),
-        ]);
-
-        // Check if user has any live trading bots
-        if (botsResponse.ok) {
-          const botsData = await botsResponse.json();
-          const hasLive = botsData.some((bot: any) => bot.tradingMode === 'live');
-          setHasLiveBot(hasLive);
-        }
+        const subResponse = await fetch('/api/billing/subscriptions');
 
         if (subResponse.ok) {
           const data = await subResponse.json();
@@ -110,14 +100,14 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
     { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
   ];
 
-  // Support is only available for live trading users (users with at least one live bot)
+  // Support is available to all users for private/account-specific issues
   const supportItem = { href: '/dashboard/support', label: 'Support', icon: '🎫' };
   const settingsItem = { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' };
 
-  // Conditionally include Support based on actual bot trading mode
+  // Include Support for all authenticated users
   const navItems = [
     ...baseNavItems,
-    ...(hasLiveBot ? [supportItem] : []),
+    supportItem,
     settingsItem,
   ];
 
@@ -151,6 +141,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             />
             <span>NexusMeme</span>
           </Link>
+          <div className="mt-2">
+            <BetaBadge size="sm" />
+          </div>
         </div>
 
         {/* Navigation */}
@@ -190,9 +183,10 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
       <div className="flex-1 flex flex-col overflow-hidden w-full">
         {/* Header */}
         <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-3 md:py-4">
-          <div className="flex items-center justify-between gap-4">
-            {/* Left: Menu & Title */}
-            <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 sm:gap-4">
+            {/* Left: Back Button, Menu & Title */}
+            <div className="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
+              <BackButton className="mr-0 sm:mr-1" />
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 className="md:hidden p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition flex-shrink-0"
@@ -200,7 +194,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               >
                 ☰
               </button>
-              <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">{title}</h1>
+              <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">{title}</h1>
             </div>
 
             {/* Center: Plan Badge - Prominent display */}

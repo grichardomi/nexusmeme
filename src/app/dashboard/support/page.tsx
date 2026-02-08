@@ -6,6 +6,7 @@ import { DashboardLayout } from '@/components/layouts/DashboardLayout';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
 import { useLoadMore } from '@/hooks/useLoadMore';
+import { DiscordInvite } from '@/components/community/DiscordInvite';
 import type { SupportTicket } from '@/types/support';
 
 /**
@@ -41,20 +42,12 @@ export default function SupportPage() {
     fetchFn: fetchTicketsData,
   });
 
-  // Check support access (live trading users only)
+  // Check support access (all authenticated users can access support)
   useEffect(() => {
     if (status === 'authenticated') {
-      fetch('/api/billing/subscriptions')
-        .then(res => res.json())
-        .then(data => {
-          const tradingMode = data.planUsage?.limits?.tradingMode;
-          setCanAccessSupport(tradingMode === 'live');
-          setIsCheckingAccess(false);
-        })
-        .catch(err => {
-          console.error('Failed to check support access:', err);
-          setIsCheckingAccess(false);
-        });
+      // Support is now available to all users for private/account-specific issues
+      setCanAccessSupport(true);
+      setIsCheckingAccess(false);
     }
   }, [status]);
 
@@ -201,60 +194,53 @@ export default function SupportPage() {
     );
   }
 
-  // Show upgrade prompt for non-live trading users
-  if (!canAccessSupport) {
-    return (
-      <DashboardLayout title="Support">
-        <div className="max-w-2xl mx-auto">
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500 rounded-xl p-8 text-center">
-            <div className="w-16 h-16 bg-blue-100 dark:bg-blue-800 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">
-              Support Available for Live Trading
-            </h2>
-            <p className="text-slate-700 dark:text-slate-300 mb-6">
-              Upgrade to live trading to access support tickets. Live traders get priority support to maximize profitability.
-            </p>
-            <div className="bg-white dark:bg-slate-800 rounded-lg p-6 mb-6 border border-slate-200 dark:border-slate-700">
-              <h3 className="font-semibold text-slate-900 dark:text-white mb-3">Live Trading Includes:</h3>
-              <ul className="space-y-2 text-left text-slate-700 dark:text-slate-300">
-                <li className="flex items-center gap-2">
-                  <span className="text-green-600">✓</span> Priority support tickets
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-green-600">✓</span> Real-time trading with your capital
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="text-green-600">✓</span> 15% performance fees (only on profits)
-                </li>
-              </ul>
-            </div>
-            <Link
-              href="/dashboard/billing"
-              className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition"
-            >
-              Upgrade to Live Trading
-            </Link>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-4">
-              Need help during trial? Check our <Link href="/help" className="underline hover:text-blue-600">Help Center</Link> or email us at support@nexusmeme.com
-            </p>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
+  // All users now have access to support for private/account-specific issues
 
   return (
     <DashboardLayout title="Support">
       <div className="space-y-4 md:space-y-6 max-w-full overflow-x-hidden">
+        {/* Discord Community Support - First Option */}
+        <DiscordInvite variant="banner" />
+
+        {/* When to Use Guide */}
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-blue-900 dark:text-blue-100 mb-2 flex items-center gap-2">
+                <span>💬</span> Use Discord for:
+              </h3>
+              <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                <li>• General questions & quick answers</li>
+                <li>• Trading strategy discussions</li>
+                <li>• Bot setup help</li>
+                <li>• Community tips & tricks</li>
+              </ul>
+            </div>
+            <div className="w-px bg-blue-200 dark:bg-blue-700 hidden sm:block" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-100 mb-2 flex items-center gap-2">
+                <span>🎫</span> Use Support Tickets for:
+              </h3>
+              <ul className="text-xs text-indigo-700 dark:text-indigo-300 space-y-1">
+                <li>• Account or billing issues</li>
+                <li>• Security concerns</li>
+                <li>• Bug reports needing investigation</li>
+                <li>• Private/sensitive matters</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         {/* Header - Mobile First: Stack on mobile, row on desktop */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
-            Support Tickets
-          </h1>
+          <div>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
+              Support Tickets
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
+              Available to all users • Response within 24-48 hours
+            </p>
+          </div>
           <button
             onClick={() => setShowCreateForm(true)}
             className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition text-sm sm:text-base touch-manipulation"
@@ -289,7 +275,8 @@ export default function SupportPage() {
                 No support tickets yet
               </p>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-500">
-                If you need help, click "Create Ticket" above to get in touch with our support team.
+                💡 For quick answers, try <strong>Discord</strong> first (see banner above).<br />
+                For private or account-specific issues, click "Create Ticket" above.
               </p>
             </div>
           ) : (

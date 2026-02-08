@@ -281,8 +281,18 @@ export async function generateTradeSignalAI(
   const rsi = indicators.rsi;
   const macdHistogram = indicators.macd.histogram;
 
-  // Signal decision: momentum1h > 0.5% AND RSI <= 85 → buy, else hold
-  const signal: TradeSignal = (momentum1h > 0.5 && rsi <= 85) ? 'buy' : 'hold';
+  // Signal decision: Use same thresholds as risk filter's 3-path gate
+  // Read from environment to match risk-manager.ts exactly
+  const minMomentum1h = getEnv('RISK_MIN_MOMENTUM_1H') ?? 0.5;
+  const minMomentum4h = getEnv('RISK_MIN_MOMENTUM_4H') ?? 0.15;
+  const volumeBreakoutRatio = getEnv('RISK_VOLUME_BREAKOUT_RATIO') ?? 1.3;
+
+  // 3-path gate (matches risk-manager.ts)
+  const hasStrongMomentum = momentum1h >= minMomentum1h;
+  const hasBothPositive = momentum1h >= minMomentum1h && momentum4h >= minMomentum4h;
+  const hasVolumeBreakout = volumeRatio >= volumeBreakoutRatio && momentum1h > 0;
+
+  const signal: TradeSignal = ((hasStrongMomentum || hasBothPositive || hasVolumeBreakout) && rsi <= 85) ? 'buy' : 'hold';
 
   // Confidence score: base 50, apply boosters and penalties, clamp 0-100
   let confidence = 50;

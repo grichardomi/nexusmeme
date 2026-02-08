@@ -14,6 +14,9 @@ interface DashboardStats {
   totalTickets: number;
   totalUsers: number;
   avgResolutionTime: string;
+  discordMembers: number;
+  discordOnline: number;
+  discordChannels: number;
 }
 
 export default function AdminDashboardPage() {
@@ -28,16 +31,24 @@ export default function AdminDashboardPage() {
   const fetchStats = async () => {
     try {
       setIsLoading(true);
-      // Fetch open tickets count
-      const ticketsRes = await fetch('/api/admin/tickets?pageSize=1');
-      const ticketsData = await ticketsRes.json();
 
-      // For now, set placeholder stats
+      // Fetch tickets and Discord stats in parallel
+      const [ticketsRes, discordRes] = await Promise.all([
+        fetch('/api/admin/tickets?pageSize=100'),
+        fetch('/api/admin/discord-stats'),
+      ]);
+
+      const ticketsData = await ticketsRes.json();
+      const discordData = await discordRes.json();
+
       setStats({
-        openTickets: ticketsData.tickets?.filter((t: any) => t.status === 'open').length || 0,
+        openTickets: ticketsData.tickets?.filter((t: any) => t.status === 'open' || t.status === 'in_progress').length || 0,
         totalTickets: ticketsData.total || 0,
         totalUsers: 0, // TODO: Implement user count API
         avgResolutionTime: 'N/A', // TODO: Calculate from tickets
+        discordMembers: discordData.stats?.totalMembers || 0,
+        discordOnline: discordData.stats?.onlineMembers || 0,
+        discordChannels: discordData.stats?.channels?.length || 0,
       });
     } catch (error) {
       console.error('Failed to fetch stats:', error);
@@ -53,6 +64,14 @@ export default function AdminDashboardPage() {
       icon: '🎫',
       href: '/admin/tickets',
       color: 'from-blue-500 to-blue-600',
+    },
+    {
+      title: 'Discord Analytics',
+      description: 'Community engagement, activity, and support metrics',
+      icon: '💬',
+      href: '/admin/discord',
+      color: 'from-indigo-500 to-purple-600',
+      badge: 'New',
     },
     {
       title: 'Performance Fees',
@@ -84,6 +103,16 @@ export default function AdminDashboardPage() {
     },
   ];
 
+  const resolvedStats: DashboardStats = stats ?? {
+    openTickets: 0,
+    totalTickets: 0,
+    totalUsers: 0,
+    avgResolutionTime: 'N/A',
+    discordMembers: 0,
+    discordOnline: 0,
+    discordChannels: 0,
+  };
+
   return (
     <div className="space-y-8">
       {/* Welcome Header */}
@@ -96,36 +125,84 @@ export default function AdminDashboardPage() {
         </p>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard
-          label="Open Tickets"
-          value={stats?.openTickets || 0}
-          change="+2 today"
-          icon="🎫"
-          isLoading={isLoading}
-        />
-        <StatCard
-          label="Total Tickets"
-          value={stats?.totalTickets || 0}
-          change="All time"
-          icon="📋"
-          isLoading={isLoading}
-        />
-        <StatCard
-          label="Total Users"
-          value={stats?.totalUsers || 0}
-          change="Active"
-          icon="👥"
-          isLoading={isLoading}
-        />
-        <StatCard
-          label="Avg Resolution"
-          value={stats?.avgResolutionTime || 'N/A'}
-          change="Per ticket"
-          icon="⏱️"
-          isLoading={isLoading}
-        />
+      {/* Quick Stats - Support Overview */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
+          Support Overview
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Discord Members"
+            value={resolvedStats.discordMembers}
+            change={`🟢 ${resolvedStats.discordOnline} online`}
+            icon="💬"
+            isLoading={isLoading}
+            color="indigo"
+          />
+          <StatCard
+            label="Open Tickets"
+            value={resolvedStats.openTickets}
+            change="Needs response"
+            icon="🎫"
+            isLoading={isLoading}
+            color="blue"
+          />
+          <StatCard
+            label="Support Ratio"
+            value={resolvedStats.discordMembers > 0 && resolvedStats.totalTickets > 0
+              ? `${Math.round((resolvedStats.discordMembers / (resolvedStats.discordMembers + resolvedStats.totalTickets)) * 100)}%`
+              : 'N/A'}
+            change="Discord vs Tickets"
+            icon="📊"
+            isLoading={isLoading}
+            color="green"
+          />
+          <StatCard
+            label="Avg Response"
+            value={resolvedStats.avgResolutionTime || 'N/A'}
+            change="Ticket resolution"
+            icon="⚡"
+            isLoading={isLoading}
+            color="orange"
+          />
+        </div>
+      </div>
+
+      {/* Community Stats */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
+          Community Engagement
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            label="Total Tickets"
+            value={resolvedStats.totalTickets}
+            change="All time"
+            icon="📋"
+            isLoading={isLoading}
+          />
+          <StatCard
+            label="Discord Channels"
+            value={resolvedStats.discordChannels}
+            change="Active channels"
+            icon="📡"
+            isLoading={isLoading}
+          />
+          <StatCard
+            label="Total Users"
+            value={resolvedStats.totalUsers}
+            change="Platform users"
+            icon="👥"
+            isLoading={isLoading}
+          />
+          <StatCard
+            label="Community Health"
+            value={resolvedStats.discordOnline > 0 ? '🟢 Good' : '⚪ N/A'}
+            change={`${resolvedStats.discordOnline} active`}
+            icon="❤️"
+            isLoading={isLoading}
+          />
+        </div>
       </div>
 
       {/* Admin Sections */}
@@ -145,7 +222,14 @@ export default function AdminDashboardPage() {
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="text-4xl">{section.icon}</div>
-                  <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${section.color} opacity-10 group-hover:opacity-20 transition`} />
+                  <div className="flex flex-col items-end gap-2">
+                    {(section as any).badge && (
+                      <span className="px-2 py-1 bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-bold rounded-full">
+                        {(section as any).badge}
+                      </span>
+                    )}
+                    <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${section.color} opacity-10 group-hover:opacity-20 transition`} />
+                  </div>
                 </div>
 
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
@@ -190,11 +274,23 @@ interface StatCardProps {
   change: string;
   icon: string;
   isLoading: boolean;
+  color?: 'indigo' | 'blue' | 'green' | 'orange' | 'purple' | 'red';
 }
 
-function StatCard({ label, value, change, icon, isLoading }: StatCardProps) {
+function StatCard({ label, value, change, icon, isLoading, color }: StatCardProps) {
+  const colorClasses = {
+    indigo: 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800',
+    blue: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800',
+    green: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800',
+    orange: 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800',
+    purple: 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800',
+    red: 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800',
+  };
+
+  const bgClass = color ? colorClasses[color] : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700';
+
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+    <div className={`rounded-lg border p-6 ${bgClass}`}>
       <div className="flex items-start justify-between mb-4">
         <span className="text-3xl">{icon}</span>
       </div>

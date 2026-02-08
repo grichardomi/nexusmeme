@@ -156,14 +156,18 @@ export function Footer() {
                 Twitter
               </a>
               <a
-                href="#"
+                href={process.env.NEXT_PUBLIC_GITHUB_REPO || 'https://github.com/nexusmeme/nexusmeme'}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="hover:text-slate-900 dark:hover:text-white transition"
                 aria-label="GitHub"
               >
                 GitHub
               </a>
               <a
-                href="#"
+                href={process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv'}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="hover:text-slate-900 dark:hover:text-white transition"
                 aria-label="Discord"
               >

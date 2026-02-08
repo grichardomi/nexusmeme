@@ -27,6 +27,7 @@ export interface PerformanceFeeRecord {
 /**
  * Record a performance fee when a trade closes profitably
  * Called after trade.exit_time is set and profit_loss is calculated
+ * Records for ALL profitable trades - status is 'waived' for trial users, 'pending_billing' for live
  */
 export async function recordPerformanceFee(
   userId: string,
@@ -43,13 +44,34 @@ export async function recordPerformanceFee(
 
   const feeAmount = profitAmount * getFeeRate();
 
+  // Check if user is on free trial (waive fees)
+  const userCheck = await query(
+    `SELECT
+      us.plan,
+      us.trial_ends_at,
+      bi.config
+     FROM users u
+     LEFT JOIN user_subscriptions us ON u.id = us.user_id
+     LEFT JOIN bot_instances bi ON bi.id = $2
+     WHERE u.id = $1`,
+    [userId, botInstanceId]
+  );
+
+  const isFreeTrial = userCheck[0]?.plan === 'live_trial' ||
+                     (userCheck[0]?.trial_ends_at && new Date(userCheck[0].trial_ends_at) > new Date());
+  const tradingMode = userCheck[0]?.config?.tradingMode || 'paper';
+  const isPaperTrading = tradingMode === 'paper';
+
+  // Waive fees for: free trial OR paper trading
+  const status = (isFreeTrial || isPaperTrading) ? 'waived' : 'pending_billing';
+
   try {
     const result = await query(
       `INSERT INTO performance_fees
        (user_id, trade_id, bot_instance_id, profit_amount, fee_amount, status, pair)
-       VALUES ($1, $2, $3, $4, $5, 'pending_billing', $6)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [userId, tradeId, botInstanceId, profitAmount, feeAmount, pair]
+      [userId, tradeId, botInstanceId, profitAmount, feeAmount, status, pair]
     );
 
     logger.info('Performance fee recorded', {
@@ -57,6 +79,7 @@ export async function recordPerformanceFee(
       tradeId,
       profitAmount,
       feeAmount,
+      status,
       feePercent: getFeeRate() * 100,
     });
 

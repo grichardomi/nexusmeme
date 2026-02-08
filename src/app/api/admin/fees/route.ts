@@ -39,16 +39,25 @@ export async function GET(request: NextRequest) {
     const page = Math.max(parseInt(searchParams.get('page') || '1', 10), 1);
     const pageSize = Math.min(Math.max(parseInt(searchParams.get('pageSize') || '20', 10), 1), 100);
     const status = searchParams.get('status');
+    const search = searchParams.get('search');
 
     const offset = (page - 1) * pageSize;
 
-    // Build query with optional status filter
+    // Build query with optional filters
     let whereClause = '1=1';
     const params: any[] = [];
+    let paramIndex = 1;
 
     if (status && status !== 'all') {
-      whereClause += ' AND pf.status = $1';
+      whereClause += ` AND pf.status = $${paramIndex}`;
       params.push(status);
+      paramIndex++;
+    }
+
+    if (search) {
+      whereClause += ` AND (LOWER(u.email) LIKE $${paramIndex} OR LOWER(u.name) LIKE $${paramIndex})`;
+      params.push(`%${search.toLowerCase()}%`);
+      paramIndex++;
     }
 
     // Get total count
@@ -59,7 +68,8 @@ export async function GET(request: NextRequest) {
     const total = countResult[0]?.total || 0;
 
     // Get fees with user info
-    const paramIndex = params.length + 1;
+    const limitIndex = paramIndex;
+    const offsetIndex = paramIndex + 1;
     const feesResult = await query(
       `SELECT
         pf.id,
@@ -70,15 +80,19 @@ export async function GET(request: NextRequest) {
         pf.pair,
         pf.profit_amount,
         pf.fee_amount,
+        pf.original_fee_amount,
+        pf.adjustment_reason,
         pf.status,
         pf.created_at,
         pf.billed_at,
-        pf.notes
+        pf.paid_at,
+        pf.stripe_invoice_id,
+        pf.coinbase_charge_id
       FROM performance_fees pf
       JOIN users u ON pf.user_id = u.id
       WHERE ${whereClause}
       ORDER BY pf.created_at DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       [...params, pageSize, offset]
     );
 
@@ -91,10 +105,14 @@ export async function GET(request: NextRequest) {
       pair: f.pair,
       profit_amount: parseFloat(f.profit_amount),
       fee_amount: parseFloat(f.fee_amount),
+      original_fee_amount: f.original_fee_amount ? parseFloat(f.original_fee_amount) : null,
+      adjustment_reason: f.adjustment_reason,
       status: f.status,
       created_at: f.created_at,
       billed_at: f.billed_at,
-      notes: f.notes,
+      paid_at: f.paid_at,
+      stripe_invoice_id: f.stripe_invoice_id,
+      coinbase_charge_id: f.coinbase_charge_id,
     }));
 
     return NextResponse.json({
@@ -187,10 +205,12 @@ export async function POST(request: NextRequest) {
         `UPDATE performance_fees
          SET status = $1,
              fee_amount = $2,
-             notes = $3,
+             adjustment_reason = $3,
+             adjusted_at = NOW(),
+             adjusted_by_admin = $4,
              updated_at = NOW()
-         WHERE id = $4`,
-        [newStatus, newFeeAmount, reason, feeId]
+         WHERE id = $5`,
+        [newStatus, newFeeAmount, reason, session.user?.id, feeId]
       );
 
       // Create audit trail in fee_adjustments_audit table

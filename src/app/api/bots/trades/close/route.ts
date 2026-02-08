@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
     const userId = bot.user_id;
     const botConfig = bot.config || {};
     const tradingMode = (botConfig.tradingMode as 'paper' | 'live') || 'paper';
+    const isPaperTrading = tradingMode === 'paper';
 
     // Fetch the original trade to get quantity
     const tradeData = await query(
@@ -454,10 +455,8 @@ export async function POST(req: NextRequest) {
     });
 
     // STEP 3: Record performance fee if profitable (separate from transaction)
-    // Skip fee recording for paper trading - no real profits, no real fees
-    const isPaperTrading = tradingMode === 'paper';
-
-    if (actualProfitLoss > 0 && !isPaperTrading) {
+    // Record for ALL profitable trades - status will be 'waived' for trial users
+    if (actualProfitLoss > 0) {
       try {
         await recordPerformanceFee(
           userId,

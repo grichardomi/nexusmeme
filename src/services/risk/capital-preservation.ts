@@ -80,8 +80,29 @@ class CapitalPreservationService {
         return { allowTrading: true, sizeMultiplier: 1.0, reason: 'Insufficient BTC data, allowing trading' };
       }
 
+      // Get current live BTC price (more responsive than yesterday's close)
+      let btcClose: number;
+      try {
+        const baseUrl = getEnvironmentConfig().BINANCE_API_BASE_URL;
+        const tickerUrl = `${baseUrl}/api/v3/ticker/price?symbol=BTCUSDT`;
+        const tickerResponse = await fetch(tickerUrl);
+        if (tickerResponse.ok) {
+          const tickerData = await tickerResponse.json();
+          btcClose = parseFloat(tickerData.price);
+          logger.debug('Capital preservation: using live BTC price', { btcClose });
+        } else {
+          // Fallback to last candle close if ticker fails
+          btcClose = candles[candles.length - 1].close;
+          logger.debug('Capital preservation: ticker failed, using candle close', { btcClose });
+        }
+      } catch (error) {
+        // Fallback to last candle close if ticker fails
+        btcClose = candles[candles.length - 1].close;
+        logger.debug('Capital preservation: ticker error, using candle close', { btcClose });
+      }
+
+      // Use historical closes for EMA, but current price for comparison
       const closes = candles.map(c => c.close);
-      const btcClose = closes[closes.length - 1];
       const ema50 = calculateEMA(closes, env.CP_BTC_EMA_SHORT_PERIOD);
       const ema200 = calculateEMA(closes, env.CP_BTC_EMA_LONG_PERIOD);
 
@@ -100,17 +121,17 @@ class CapitalPreservationService {
     const { btcClose, ema50, ema200 } = cache;
 
     if (btcClose < ema200) {
-      console.log(`\n🛡️ [CAPITAL PRESERVATION] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) - BLOCKING all entries`);
-      logger.info('Capital preservation: BTC below EMA200, blocking entries', {
+      console.log(`\n🛡️ [CAPITAL PRESERVATION] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) - reducing to 25% size (opportunistic mode)`);
+      logger.info('Capital preservation: BTC below EMA200, reducing size but staying opportunistic', {
         btcClose: btcClose.toFixed(2),
         ema50: ema50.toFixed(2),
         ema200: ema200.toFixed(2),
         layer: 'btc_trend_gate',
       });
       return {
-        allowTrading: false,
-        sizeMultiplier: 0,
-        reason: `BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)})`,
+        allowTrading: true,
+        sizeMultiplier: 0.25,
+        reason: `BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}), cautious but opportunistic`,
         layer: 'btc_trend_gate',
       };
     }
@@ -470,6 +491,15 @@ class CapitalPreservationService {
         updates,
       });
     }
+  }
+
+  /**
+   * Manually clear BTC trend cache to force fresh data fetch
+   * Useful when EMA data appears stale or after market volatility
+   */
+  public clearBtcCache(): void {
+    this.btcTrendCache = null;
+    logger.info('Capital preservation: BTC trend cache manually cleared');
   }
 }
 

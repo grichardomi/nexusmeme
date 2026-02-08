@@ -6,6 +6,8 @@ import { GettingStarted } from '@/components/help/sections/GettingStarted';
 import { PlanFeatures } from '@/components/help/sections/PlanFeatures';
 import { HowToGuides } from '@/components/help/sections/HowToGuides';
 import { FAQSection } from '@/components/help/sections/FAQSection';
+import { BetaInfo } from '@/components/help/sections/BetaInfo';
+import { DiscordInvite } from '@/components/community/DiscordInvite';
 
 interface HelpClientProps {
   initialSection: string;
@@ -17,12 +19,44 @@ interface HelpClientProps {
  */
 export function HelpClient({ initialSection }: HelpClientProps) {
   const [activeSection, setActiveSection] = React.useState<
-    'getting-started' | 'pricing' | 'how-to' | 'faq'
-  >(initialSection as 'getting-started' | 'pricing' | 'how-to' | 'faq');
+    'getting-started' | 'pricing' | 'how-to' | 'faq' | 'beta'
+  >(() => {
+    // Check hash on initial render
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.slice(1);
+      if (hash === 'beta') return 'beta';
+    }
+    return initialSection as 'getting-started' | 'pricing' | 'how-to' | 'faq' | 'beta';
+  });
   const [searchQuery, setSearchQuery] = React.useState('');
+
+  // Handle hash navigation (e.g., /help#beta)
+  React.useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash === 'beta') {
+        setActiveSection('beta');
+        // Scroll to top of content area
+        setTimeout(() => {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }, 100);
+      }
+    };
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+
+    // Check hash on mount
+    handleHashChange();
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
 
   const sections = [
     { id: 'getting-started', label: 'Getting Started', icon: '🚀' },
+    { id: 'beta', label: 'Beta Program', icon: '🧪' },
     { id: 'pricing', label: 'Performance Fees', icon: '💳' },
     { id: 'how-to', label: 'How-To Guides', icon: '📖' },
     { id: 'faq', label: 'FAQ', icon: '❓' },
@@ -40,8 +74,13 @@ export function HelpClient({ initialSection }: HelpClientProps) {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Search Bar */}
-        <div className="mb-12">
+        <div className="mb-8">
           <SearchHelp onSearch={setSearchQuery} query={searchQuery} />
+        </div>
+
+        {/* Discord Community Banner */}
+        <div className="mb-12">
+          <DiscordInvite variant="banner" />
         </div>
 
         {/* Navigation Tabs */}
@@ -66,9 +105,12 @@ export function HelpClient({ initialSection }: HelpClientProps) {
         </div>
 
         {/* Content Sections */}
-        <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-8 min-h-screen">
+        <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 sm:p-8 min-h-screen">
           {activeSection === 'getting-started' && (
             <GettingStarted searchQuery={searchQuery} />
+          )}
+          {activeSection === 'beta' && (
+            <BetaInfo searchQuery={searchQuery} />
           )}
           {activeSection === 'pricing' && (
             <PlanFeatures searchQuery={searchQuery} />

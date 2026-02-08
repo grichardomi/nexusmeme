@@ -5,6 +5,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/components/providers/ThemeProvider';
+import { BackButton } from '@/components/navigation/BackButton';
+import { BetaBadge } from '@/components/common/BetaBadge';
+import { usePathname } from 'next/navigation';
 
 /**
  * Header Component
@@ -16,36 +19,48 @@ export function Header() {
   const { theme, toggleTheme } = useTheme();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Show back button on detail/sub pages (not on main landing pages)
+  const showBackButton = pathname !== '/' &&
+                         pathname !== '/pricing' &&
+                         pathname !== '/auth/signin' &&
+                         pathname !== '/auth/signup' &&
+                         !pathname.startsWith('/dashboard'); // Dashboard has its own back button in DashboardLayout
+
   return (
     <header className="sticky top-0 z-50 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo - Left Justified */}
-          <Link
-            href={session?.user ? '/dashboard' : '/'}
-            className="flex items-center gap-2 hover:opacity-80 transition flex-shrink-0 md:mr-8"
-          >
-            <Image
-              src="/logo.png"
-              alt="NexusMeme Logo"
-              width={32}
-              height={32}
-              className="w-8 h-8"
-              priority
-            />
-            <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base md:text-lg">
-              NexusMeme
-            </div>
-          </Link>
+          {/* Back Button, Logo & Beta Badge - Left Justified */}
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+            {showBackButton && <BackButton />}
+            <Link
+              href={session?.user ? '/dashboard' : '/'}
+              className="flex items-center gap-2 hover:opacity-80 transition flex-shrink-0"
+            >
+              <Image
+                src="/logo.png"
+                alt="NexusMeme Logo"
+                width={32}
+                height={32}
+                className="w-8 h-8"
+                priority
+              />
+              <div className="font-bold text-slate-900 dark:text-white text-sm sm:text-base md:text-lg">
+                NexusMeme
+              </div>
+            </Link>
+            <BetaBadge size="sm" />
+          </div>
 
           {/* Desktop Navigation - Only show for non-authenticated users */}
           {!session?.user && (
-            <nav className="hidden md:flex items-center gap-6 md:flex-1">
+            <nav className="hidden md:flex items-center gap-6 md:flex-1 md:ml-8">
               <Link
                 href="/#features"
                 className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition"
