@@ -30,6 +30,8 @@ interface PositionHealth {
   erosionPct: number;
   erosionRatioPct: number;
   erosionCap: number;
+  erosionDollars: number;
+  erosionCapDollars: number;
   status?: 'healthy' | 'warning' | 'critical' | 'underwater';
   healthStatus: 'HEALTHY' | 'CAUTION' | 'RISK' | 'ALERT';
   alertMessage?: string;
@@ -170,44 +172,25 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         positions.forEach((pos: any) => {
           const peakProfitPct = Number(pos.peakProfitPct) || 0;
           const currentProfitPct = Number(pos.currentProfitPct) || 0;
-          const erosionCapFraction = Number(pos.erosionCapFraction) || 0;
           const erosionRatioPct = Number(pos.erosionRatioPct) || 0;
-          const erosionAbsolutePct = Number(pos.erosionAbsolutePct) || (peakProfitPct > 0 ? peakProfitPct - currentProfitPct : 0);
-          const status = (pos.status as PositionHealth['status']) || 'healthy';
+          const erosionDollars = Number(pos.erosionDollars) || 0;
+          const erosionCapDollars = Number(pos.erosionCapDollars) || 0;
+          const erosionCap = Number(pos.erosionCap) || 0;
 
-          // Derive UI status
-          // Micro-peaks (< 0.1%) are spread noise - derive health from P&L, not erosion
-          const isMicroPeak = peakProfitPct < 0.1;
-          let healthStatus: PositionHealth['healthStatus'] = 'HEALTHY';
-          if (isMicroPeak) {
-            // No meaningful peak yet - status based on current P&L only
-            if (currentProfitPct < -3) healthStatus = 'ALERT';
-            else if (currentProfitPct < -1) healthStatus = 'RISK';
-            else if (currentProfitPct < 0) healthStatus = 'CAUTION';
-          } else if (status === 'critical') {
-            healthStatus = 'ALERT';
-          } else if (status === 'warning' || status === 'underwater') {
-            healthStatus = 'RISK';
-          } else if (erosionRatioPct > 100) {
-            healthStatus = 'ALERT';
-          } else if (erosionRatioPct > 70) {
-            healthStatus = 'RISK';
-          } else if (erosionRatioPct > 30) {
-            healthStatus = 'CAUTION';
-          } else if (currentProfitPct < 0) {
-            healthStatus = 'CAUTION';
-          }
+          // Use server-computed health status (matches actual exit trigger logic)
+          const healthStatus = (pos.healthStatus as PositionHealth['healthStatus']) || 'HEALTHY';
 
           newHealthMap.set(pos.id, {
             tradeId: pos.id,
             peakProfitPct,
             currentProfitPct,
-            erosionPct: erosionAbsolutePct,
+            erosionPct: Number(pos.erosionPct) || 0,
             erosionRatioPct,
-            erosionCap: erosionCapFraction,
-            status,
+            erosionCap,
+            erosionDollars,
+            erosionCapDollars,
             healthStatus,
-            alertMessage: pos.recommendation,
+            alertMessage: pos.alertMessage || pos.recommendation,
             regime: (pos.regime as string) || 'moderate',
           });
         });
@@ -544,14 +527,26 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             <div className="flex items-center justify-between text-sm">
               <span className="text-slate-500 dark:text-slate-400">Peak P&L</span>
               <span className={`font-semibold ${health.peakProfitPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-slate-600 dark:text-slate-400'}`}>
-                {health.peakProfitPct >= 0 ? '+' : ''}{health.peakProfitPct.toFixed(2)}%
+                {health.peakProfitPct >= 0 ? '+' : ''}{`$${Math.abs((health.peakProfitPct / 100) * trade.entryPrice * trade.quantity).toFixed(2)}`}
+                <span className="ml-1 text-xs opacity-75">
+                  ({health.peakProfitPct >= 0 ? '+' : ''}{health.peakProfitPct.toFixed(2)}%)
+                </span>
               </span>
             </div>
             <div>
               <div className="flex items-center justify-between text-xs mb-1">
-                <span className="text-slate-500 dark:text-slate-400">Erosion</span>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Erosion {health.erosionCapDollars > 0 && (
+                    <span className="opacity-60">(cap ${health.erosionCapDollars.toFixed(2)})</span>
+                  )}
+                </span>
                 <span className="font-semibold text-slate-900 dark:text-white">
-                  {health.peakProfitPct > 0 && health.peakProfitPct <= 0.1 ? 'Flat' : `${health.erosionRatioPct.toFixed(1)}%`}
+                  {health.peakProfitPct > 0 && health.peakProfitPct <= 0.1
+                    ? 'Flat'
+                    : health.erosionDollars > 0
+                      ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
+                      : `${health.erosionRatioPct.toFixed(1)}%`
+                  }
                 </span>
               </div>
               <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
@@ -559,7 +554,9 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
                   className="h-full transition-all"
                   style={{
                     width: `${health.peakProfitPct > 0 && health.peakProfitPct <= 0.1 ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
-                    background: health.erosionRatioPct === 0 ? 'transparent' : 'linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%)',
+                    background: health.erosionRatioPct === 0 ? 'transparent'
+                      : health.erosionRatioPct > 70 ? 'linear-gradient(90deg, #eab308 0%, #ef4444 100%)'
+                      : 'linear-gradient(90deg, #22c55e 0%, #eab308 100%)',
                   }}
                 />
               </div>

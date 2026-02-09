@@ -84,37 +84,58 @@ export async function GET(request: NextRequest) {
       // Get peak profit (if never recorded, current is peak)
       const peakProfitPct = trade.peak_profit_pct ? parseFloat(trade.peak_profit_pct) : currentProfitPct;
 
-      // PEAK-RELATIVE erosion (matches position tracker logic)
-      // erosionRelativePct = how much of the peak profit has been eroded (0-100%)
-      // Example: peak 0.16%, current 0.11% → (0.16-0.11)/0.16 = 31.25% of peak eroded
+      // DOLLAR-BASED erosion (matches actual exit trigger in position-tracker)
+      // The orchestrator exits when: erosionUsed$ > totalCost × erosionCapPct
+      // UI should reflect how close the trade is to ACTUALLY being closed
       const regime = trade.regime || 'moderate';
       const env = getEnvironmentConfig();
-      const peakRelativeThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // 0.30 = 30%
+      const totalCost = entryPrice * quantity;
 
+      // Dollar amounts
+      const peakProfitDollars = (peakProfitPct / 100) * totalCost;
+      const currentProfitDollars = (currentProfitPct / 100) * totalCost;
+      const erosionDollars = peakProfitPct > 0 ? Math.max(0, peakProfitDollars - currentProfitDollars) : 0;
+
+      // Absolute erosion cap (matches position-tracker.ts:509-516)
+      const erosionCapsByRegime: Record<string, number> = {
+        choppy: env.EROSION_CAP_CHOPPY,
+        weak: env.EROSION_CAP_WEAK,
+        moderate: env.EROSION_CAP_MODERATE,
+        strong: env.EROSION_CAP_STRONG,
+      };
+      const erosionCapPct = erosionCapsByRegime[regime.toLowerCase()] || env.EROSION_CAP_MODERATE;
+      const erosionCapDollars = totalCost * erosionCapPct;
+
+      // erosionRatioPct = how close to the ACTUAL exit trigger (100% = will close)
+      const erosionRatioPct = erosionCapDollars > 0 ? (erosionDollars / erosionCapDollars) * 100 : 0;
+
+      // Peak-relative for display context
       const erosionRelativePct = peakProfitPct > 0
         ? ((peakProfitPct - currentProfitPct) / peakProfitPct) * 100
         : 0;
 
-      // erosionRatioPct = how close we are to the threshold (100% = at threshold)
-      // If threshold is 30% and we eroded 31.25%, then (31.25/30)*100 = 104.2% → ALERT
-      const thresholdPct = peakRelativeThreshold * 100; // 30
-      const erosionRatioPct = thresholdPct > 0 ? (erosionRelativePct / thresholdPct) * 100 : 0;
-
       let healthStatus: 'HEALTHY' | 'CAUTION' | 'RISK' | 'ALERT' = 'HEALTHY';
       let alertMessage = '';
+      const ageMinutes = (Date.now() - new Date(trade.entry_time).getTime()) / (1000 * 60);
 
       if (erosionRatioPct > 100) {
         healthStatus = 'ALERT';
-        alertMessage = `Peak eroded ${erosionRelativePct.toFixed(1)}% (threshold: ${thresholdPct.toFixed(0)}%)`;
+        alertMessage = `Erosion $${erosionDollars.toFixed(2)} exceeds cap $${erosionCapDollars.toFixed(2)}`;
       } else if (erosionRatioPct > 70) {
         healthStatus = 'RISK';
-        alertMessage = `Erosion ${erosionRelativePct.toFixed(1)}% of ${thresholdPct.toFixed(0)}% threshold`;
+        alertMessage = `Erosion $${erosionDollars.toFixed(2)} / $${erosionCapDollars.toFixed(2)} cap`;
+      } else if (currentProfitPct < -3) {
+        healthStatus = 'ALERT';
+        alertMessage = `Loss ${currentProfitPct.toFixed(1)}%`;
+      } else if (currentProfitPct < -1) {
+        healthStatus = 'RISK';
       } else if (erosionRatioPct > 30) {
         healthStatus = 'CAUTION';
-        const ageMinutes = (Date.now() - new Date(trade.entry_time).getTime()) / (1000 * 60);
         if (ageMinutes > 240) {
-          alertMessage = `Long hold: ${Math.round(ageMinutes)}min`;
+          alertMessage = `Long hold: ${Math.round(ageMinutes / 60)}h ${Math.round(ageMinutes % 60)}m`;
         }
+      } else if (currentProfitPct < 0) {
+        healthStatus = 'CAUTION';
       }
 
       return {
@@ -126,11 +147,13 @@ export async function GET(request: NextRequest) {
         currentProfitPct: currentProfitPct.toFixed(2),
         erosionPct: erosionRelativePct.toFixed(1),
         erosionRatioPct: erosionRatioPct.toFixed(1),
-        erosionCap: thresholdPct.toFixed(0),
+        erosionCapDollars: erosionCapDollars.toFixed(2),
+        erosionDollars: erosionDollars.toFixed(2),
+        erosionCap: (erosionCapPct * 100).toFixed(0),
         healthStatus,
         alertMessage,
         regime,
-        holdTimeMinutes: Math.round((Date.now() - new Date(trade.entry_time).getTime()) / (1000 * 60)),
+        holdTimeMinutes: Math.round(ageMinutes),
       };
     });
 
