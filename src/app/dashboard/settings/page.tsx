@@ -223,29 +223,47 @@ export default function SettingsPage() {
 
           {/* Exchange Connections */}
           <div className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-2">Exchange Connections</h2>
+            <div className="flex items-start justify-between mb-2">
+              <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Binance Connection</h2>
+              <a
+                href="/help#getting-started"
+                className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap mt-1"
+                title="Step-by-step guide to get your Binance API key"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+                How to get your API key
+              </a>
+            </div>
             <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Connect your exchange API keys to enable your trading bots. API keys are encrypted and required before you can create a trading bot. When creating a bot, you'll choose whether to run it in <strong>Paper Trading (safe)</strong> or <strong>Live Trading (real money)</strong> mode.
+              Connect your Binance API keys to enable live trading. A{' '}
+              <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+                Binance account
+              </a>
+              {' '}is required. API keys are encrypted and stored securely.
             </p>
 
             {/* API Key Management Notice */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500 text-blue-700 dark:text-blue-200 px-4 py-3 rounded mb-6">
               <p className="text-sm font-medium">🔐 Security & Best Practices</p>
               <ul className="text-xs mt-2 space-y-1 ml-4">
-                <li>• Only grant API keys with <strong>trading</strong> and <strong>account read</strong> permissions</li>
-                <li>• Set API key restrictions to your IP address if possible</li>
-                <li>• Never grant <strong>withdrawal</strong> permissions to the API key</li>
-                <li>• Store your API secret securely - we encrypt it on our servers</li>
+                <li>• Only enable <strong>Reading</strong> and <strong>Spot & Margin Trading</strong> permissions</li>
+                <li>• Never enable <strong>Withdrawals</strong> — NexusMeme never needs withdrawal access</li>
+                <li>• Set IP access restrictions if possible for extra security</li>
+                <li>• Your API secret is encrypted on our servers — we cannot read it</li>
               </ul>
+              <p className="text-xs mt-3">
+                <a
+                  href="/help#getting-started"
+                  className="font-medium hover:underline"
+                >
+                  Need help? View our step-by-step Binance API key guide →
+                </a>
+              </p>
             </div>
 
             <div className="space-y-4">
-              <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-900 dark:text-white mb-2">🔗 Kraken</h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">Connect your Kraken trading account</p>
-                <ExchangeKeyForm exchange="kraken" />
-              </div>
-
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <h3 className="font-semibold text-slate-900 dark:text-white mb-2">🔗 Binance</h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">Connect your Binance trading account</p>

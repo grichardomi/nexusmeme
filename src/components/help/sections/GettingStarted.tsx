@@ -16,12 +16,14 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     },
     {
       question: 'How do I get started?',
-      answer: `1. Sign up for a free account - you'll get a 10-day free trial
-2. Verify your email address
-3. Try paper trading (simulated) to test the bot risk-free
-4. Connect your exchange API keys when ready for live trading
-5. Configure your trading pairs and risk parameters
-6. Upgrade to live trading after your trial to trade with real funds`,
+      answer: `1. Create a Binance account at binance.com (if you don't have one)
+2. Sign up for a free NexusMeme account — you'll get a 10-day free trial
+3. Verify your email address
+4. Try paper trading (simulated) to test the bot risk-free
+5. Create your Binance API key (see "How do I get my Binance API key?" below)
+6. Connect your Binance API keys in NexusMeme
+7. Configure your trading pairs and risk parameters
+8. Upgrade to live trading after your trial to trade with real funds`,
     },
     {
       question: 'Do I need to pay upfront?',
@@ -29,18 +31,35 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
         'No! All new users get a 10-day free trial with paper trading (simulated trades, zero risk). No credit card required. After the trial, upgrade to live trading and pay only 15% on your profits.',
     },
     {
-      question: 'Which exchanges are supported?',
-      answer: 'NexusMeme supports major cryptocurrency exchanges. Connect your exchange account to start automated trading.',
+      question: 'Which exchange do I need?',
+      answer: `NexusMeme currently supports Binance as its primary exchange. You'll need a Binance account to start live trading.
+
+You'll need a verified Binance account with spot trading enabled. Sign up at binance.com if you don't have one yet.
+
+More exchanges may be added in the future.`,
     },
     {
-      question: 'What are API keys and how do I get them?',
-      answer: `API keys are credentials that allow NexusMeme to connect to your exchange account. Here's how to get them:
-1. Log in to your exchange account
-2. Go to Settings > API Management
-3. Create new API credentials
-4. Copy the public key and secret key
-5. Paste them in NexusMeme Settings > Connected Exchanges
-Note: Never share your secret key with anyone except NexusMeme.`,
+      question: 'How do I get my Binance API key?',
+      answer: `API keys allow NexusMeme to place trades on your Binance account. Here's how to create them:
+
+1. Log in to your Binance account at binance.com
+2. Hover over your profile icon (top right) and click "API Management"
+3. Click "Create API" and select "System generated"
+4. Enter a label (e.g., "NexusMeme Trading Bot")
+5. Complete security verification (email + authenticator)
+6. On the API key settings page, enable these permissions ONLY:
+   - Enable Reading (required)
+   - Enable Spot & Margin Trading (required)
+   - Do NOT enable Withdrawals (keeps your funds safe)
+7. Under "IP access restrictions", select "Unrestricted" (or add NexusMeme's server IP if provided)
+8. Copy your API Key and Secret Key immediately — the Secret Key is only shown once
+9. In NexusMeme, go to Account > Connected Exchanges
+10. Paste your API Key and Secret Key and click "Connect"
+
+IMPORTANT:
+- Never enable "Enable Withdrawals" — NexusMeme never needs withdrawal access
+- Save your Secret Key somewhere safe — Binance only shows it once
+- You can delete or disable the API key from Binance anytime to revoke access`,
     },
     {
       question: 'Is my account secure?',
@@ -59,7 +78,7 @@ Note: Never share your secret key with anyone except NexusMeme.`,
     {
       question: 'What is the minimum capital required?',
       answer:
-        'During your 10-day trial, you use paper trading (simulated, no real money). After upgrading to live trading, there is no minimum capital requirement - you can trade with any amount you choose. The bot works with your own funds in your exchange account.',
+        'During your 10-day trial, you use paper trading (simulated, no real money). After upgrading to live trading, there is no minimum capital requirement - you can trade with any amount you choose. The bot works with your own funds in your Binance account.',
     },
     {
       question: 'Can I create multiple bots?',

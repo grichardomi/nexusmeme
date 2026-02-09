@@ -426,8 +426,8 @@ class TradeWorkerService {
     // Update BTC momentum (for drop protection)
     riskManager.updateBTCMomentum(pair === 'BTC/USD' ? (indicators.momentum1h || 0) : 0);
 
-    // Run 5-stage risk filter
-    const healthGate = riskManager.checkHealthGate(indicators.adx || 0);
+    // Run 5-stage risk filter (pass adxSlope for transition zone detection)
+    const healthGate = riskManager.checkHealthGate(indicators.adx || 0, indicators.adxSlope, indicators.momentum1h);
     if (!healthGate.pass) {
       logger.debug('TradeWorker: Health gate blocked', {
         botId: bot.id,
@@ -460,7 +460,9 @@ class TradeWorkerService {
 
     // All filters passed - create trade decision
     const adxValue = indicators.adx || 0;
-    const regimeType = adxValue >= 40 ? 'strong' : adxValue >= 25 ? 'moderate' : 'weak';
+    const adxSlope = indicators.adxSlope ?? 0;
+    // Use riskManager.getRegime() for consistent regime classification (includes transitioning)
+    const regimeType = riskManager.getRegime(adxValue, adxSlope) as import('@/types/market').RegimeType;
     const decision: TradeDecision = {
       pair,
       side: 'buy',
@@ -474,7 +476,7 @@ class TradeWorkerService {
       regime: {
         type: regimeType,
         confidence: 75,
-        reason: `ADX ${adxValue.toFixed(1)} indicates ${regimeType} trend`,
+        reason: `ADX ${adxValue.toFixed(1)} (slope ${adxSlope.toFixed(2)}) indicates ${regimeType} trend`,
         timestamp: new Date(),
       },
     };

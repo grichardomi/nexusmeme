@@ -5,7 +5,7 @@ import DynamicPositionSizer from '@/services/trading/dynamic-position-sizer';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
-import { getExchangeTakerFee } from '@/config/environment';
+import { getExchangeTakerFee, getEnvironmentConfig } from '@/config/environment';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
 
 interface BotInstance {
@@ -309,11 +309,14 @@ class ExecutionFanOut {
     // REGIME-BASED POSITION SIZING: Scale positions based on market regime
     // Strong trends = bigger positions (ride the wave)
     // Weak/choppy = smaller positions (reduce risk in uncertain markets)
+    const env = getEnvironmentConfig();
+    const transitionSizeMultiplier = env.ADX_TRANSITION_SIZE_MULTIPLIER; // 0.5 default
     const regimeMultipliers: Record<string, number> = {
-      strong: 1.5,    // 50% larger in strong trends
-      moderate: 1.0,  // Normal sizing
-      weak: 0.75,     // 25% smaller in weak trends
-      choppy: 0.5,    // 50% smaller in choppy markets
+      strong: 1.5,                          // 50% larger in strong trends
+      moderate: 1.0,                        // Normal sizing
+      weak: 0.75,                           // 25% smaller in weak trends
+      transitioning: transitionSizeMultiplier, // From env (default 50% smaller)
+      choppy: 0.5,                          // 50% smaller in choppy markets
     };
     const regimeType = decision.regime?.type || 'moderate';
     const regimeMultiplier = regimeMultipliers[regimeType] ?? 1.0;

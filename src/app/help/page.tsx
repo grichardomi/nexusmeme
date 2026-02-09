@@ -46,7 +46,7 @@ const faqSchema = {
       name: 'What is NexusMeme?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme is an AI-powered trading bot platform that executes automated crypto trades on your behalf. It uses intelligent market regime detection to identify profitable trading opportunities and execute trades with customizable risk management across major exchanges.',
+        text: 'NexusMeme is an AI-powered trading bot platform that executes automated crypto trades on your behalf. It uses intelligent market regime detection to identify profitable trading opportunities and execute trades on Binance with customizable risk management.',
       },
     },
     {
@@ -75,10 +75,10 @@ const faqSchema = {
     },
     {
       '@type': 'Question',
-      name: 'Which exchanges are supported?',
+      name: 'Which exchange does NexusMeme require?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme supports major cryptocurrency exchanges. Connect your exchange account to start automated trading.',
+        text: 'NexusMeme currently supports Binance as its primary exchange. Create a free Binance account at binance.com, then connect it to NexusMeme with an API key. More exchanges may be added in the future.',
       },
     },
     {
@@ -94,7 +94,7 @@ const faqSchema = {
       name: 'How many pairs can I trade?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Your bot trades BTC and ETH — the most liquid, profitable crypto markets. This focused approach ensures tighter spreads, better fills, and more consistent profitability.',
+        text: 'Your bot trades BTC and ETH — the most established crypto markets. This focused approach ensures more consistent results.',
       },
     },
   ],

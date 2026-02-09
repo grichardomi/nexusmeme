@@ -11,15 +11,15 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
   const questions = [
     {
       question: 'How do I create my first trading bot?',
-      answer: `Step-by-step guide to create your first bot:\n\n1. Log in to your NexusMeme account\n2. Go to Dashboard > Create New Bot\n3. Name your bot (e.g., "BTC/ETH Trader")\n4. Select your trading pairs (BTC & ETH — the most liquid, profitable markets)\n5. Set your trading capital\n6. Choose trading mode:\n   - Paper Trading: Test without real money (recommended first)\n   - Live Trading: Real trades with real capital\n7. Configure AI strategy settings\n8. Review settings and click "Create Bot"\n\nYour bot is now ready to start trading!`,
+      answer: `Step-by-step guide to create your first bot:\n\n1. Log in to your NexusMeme account\n2. Go to Dashboard > Create New Bot\n3. Name your bot (e.g., "BTC/ETH Trader")\n4. Select your trading pairs (BTC & ETH)\n5. Set your trading capital\n6. Choose trading mode:\n   - Paper Trading: Test without real money (recommended first)\n   - Live Trading: Real trades with real capital\n7. Configure AI strategy settings\n8. Review settings and click "Create Bot"\n\nYour bot is now ready to start trading!`,
     },
     {
       question: 'How do I add or change trading pairs?',
-      answer: `To add or modify trading pairs on your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Edit Trading Pairs"\n3. Select from BTC and ETH pairs (e.g., BTC/USD, ETH/USD)\n4. Click "Save Changes"\n5. Changes take effect immediately\n\nNexusMeme is focused on BTC & ETH — the most liquid, profitable crypto markets. This disciplined approach ensures tighter spreads and more consistent results.\n\nNote: Paper trading bots can be modified anytime. Live trading bots may have brief interruptions when updating pairs.`,
+      answer: `To add or modify trading pairs on your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Edit Trading Pairs"\n3. Select from BTC and ETH pairs (e.g., BTC/USD, ETH/USD)\n4. Click "Save Changes"\n5. Changes take effect immediately\n\nNexusMeme is focused on BTC & ETH — the most established crypto markets.\n\nNote: Paper trading bots can be modified anytime. Live trading bots may have brief interruptions when updating pairs.`,
     },
     {
-      question: 'How do I connect my exchange account?',
-      answer: `Here's how to connect your exchange account:\n\n1. Log in to your exchange account\n2. Go to Settings > API Management\n3. Create new API credentials with these permissions:\n   - View account balance\n   - Place orders\n   - Cancel orders\n4. Copy the API Key and Secret Key\n5. In NexusMeme, go to Account > Connected Exchanges\n6. Select your exchange\n7. Paste your API Key and Secret Key\n8. Click "Connect Exchange"\n9. You'll see a confirmation when successful\n\nIMPORTANT: Never share your Secret Key with anyone except NexusMeme. You can revoke API access anytime from your exchange.`,
+      question: 'How do I connect my Binance account?',
+      answer: `NexusMeme requires a Binance account. Here's how to connect it:\n\n**Step 1: Create your Binance API key**\n1. Log in to binance.com\n2. Hover over your profile icon (top right) → click "API Management"\n3. Click "Create API" → select "System generated"\n4. Enter a label: "NexusMeme Trading Bot"\n5. Complete security verification (email + authenticator code)\n\n**Step 2: Set API permissions**\n6. Enable "Enable Reading" (required)\n7. Enable "Enable Spot & Margin Trading" (required)\n8. Do NOT enable "Enable Withdrawals" (NexusMeme never needs this)\n9. Set IP access to "Unrestricted" (or add NexusMeme's server IP if provided)\n10. Click "Save" and complete verification again\n\n**Step 3: Connect to NexusMeme**\n11. Copy your API Key and Secret Key (Secret Key is only shown once!)\n12. In NexusMeme, go to Account > Connected Exchanges\n13. Select Binance\n14. Paste your API Key and Secret Key\n15. Click "Connect Exchange"\n16. You'll see a confirmation when successful\n\n**IMPORTANT:**\n- Never enable Withdrawals — keeps your funds safe\n- Save your Secret Key — Binance only shows it once\n- You can revoke access anytime by deleting the API key on Binance`,
     },
     {
       question: 'How do I switch from paper trading to live trading?',
@@ -43,7 +43,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I manage my plan?',
-      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading\n- All exchanges supported\n- Full analytics and trade history\n- 15% on profits only — $0 on losses`,
+      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading on Binance\n- Full analytics and trade history\n- 15% on profits only — $0 on losses`,
     },
     {
       question: 'How do I enable trade alerts?',

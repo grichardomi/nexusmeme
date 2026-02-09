@@ -24,10 +24,13 @@ export function MinimalFooter() {
           >
             Support
           </Link>
-          <Link href="/" className="hover:text-slate-900 dark:hover:text-white transition">
+          <Link
+            href="/legal/privacy"
+            className="hover:text-slate-900 dark:hover:text-white transition"
+          >
             Privacy
           </Link>
-          <Link href="/" className="hover:text-slate-900 dark:hover:text-white transition">
+          <Link href="/legal/terms" className="hover:text-slate-900 dark:hover:text-white transition">
             Terms
           </Link>
         </div>

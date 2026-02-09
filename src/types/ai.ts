@@ -3,7 +3,7 @@
  * Types for AI-powered market analysis, predictions, and signals
  */
 
-export type MarketRegime = 'choppy' | 'weak' | 'moderate' | 'strong';
+export type MarketRegime = 'choppy' | 'transitioning' | 'weak' | 'moderate' | 'strong';
 export type SignalStrength = 'strong' | 'moderate' | 'weak';
 export type TradeSignal = 'buy' | 'sell' | 'hold';
 export type SentimentScore = 'very_positive' | 'positive' | 'neutral' | 'negative' | 'very_negative';
@@ -29,6 +29,7 @@ export interface TechnicalIndicators {
   atr: number; // Average True Range
   obv: number; // On-Balance Volume
   adx: number; // Average Directional Index (0-100)
+  adxSlope?: number; // ADX rate of change per candle (positive = strengthening, negative = weakening)
   // Momentum indicators (for entry/exit decisions)
   momentum1h?: number; // 1-hour momentum as percentage
   momentum4h?: number; // 4-hour momentum as percentage

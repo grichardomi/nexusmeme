@@ -18,7 +18,11 @@ export function Footer() {
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-8 mb-8">
           {/* Brand Section */}
           <div className="col-span-2 sm:col-span-1">
-            <div className="flex items-center gap-2 mb-4">
+            <Link
+              href="/help"
+              className="flex items-center gap-2 mb-4 hover:opacity-90 transition"
+              aria-label="NexusMeme Help Center"
+            >
               <Image
                 src="/logo.png"
                 alt="NexusMeme Logo"
@@ -34,7 +38,7 @@ export function Footer() {
                   Trading Platform
                 </div>
               </div>
-            </div>
+            </Link>
             <p className="text-xs text-slate-600 dark:text-slate-400">
               Scale profitable trading bots to 5000+ users
             </p>
@@ -116,7 +120,7 @@ export function Footer() {
             <ul className="space-y-2 text-xs">
               <li>
                 <Link
-                  href="/"
+                  href="/legal/privacy"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
                   Privacy
@@ -124,7 +128,7 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="/"
+                  href="/legal/terms"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
                   Terms
@@ -132,7 +136,7 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="/"
+                  href="/legal/cookies"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
                   Cookies
@@ -159,15 +163,7 @@ export function Footer() {
               >
                 Discord
               </a>
-              <a
-                href={process.env.NEXT_PUBLIC_GITHUB_REPO || 'https://github.com/nexusmeme/nexusmeme'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-slate-900 dark:hover:text-white transition"
-                aria-label="GitHub"
-              >
-                GitHub
-              </a>
+             
             </div>
           </div>
         </div>

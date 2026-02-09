@@ -20,7 +20,7 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-900 dark:to-slate-950 text-white py-12 px-4 sm:px-6 lg:px-8">
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-900 dark:to-blue-800 text-white py-12 px-4 sm:px-6 lg:px-8 shadow-lg">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-4xl font-bold mb-2">Privacy Policy</h1>
           <p className="text-slate-300">Last Updated: January 2026</p>

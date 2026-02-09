@@ -86,13 +86,13 @@ export function DiscordInvite({
             </div>
             <div className="text-center sm:text-left">
               <h3 className="text-lg sm:text-xl font-bold mb-1">
-                💬 Get instant help from the community
+                Join the NexusMeme community
               </h3>
               <p className="text-sm sm:text-base text-indigo-100">
-                {!isLoading && showOnlineCount && memberCount > 0 ? (
-                  <>Join {memberCount.toLocaleString()} members • 🟢 {onlineCount.toLocaleString()} online</>
+                {!isLoading && showOnlineCount && memberCount >= 10 ? (
+                  <>Join {memberCount.toLocaleString()} {memberCount === 1 ? 'member' : 'members'} • 🟢 {onlineCount.toLocaleString()} online</>
                 ) : (
-                  <>Join our community for real-time support and trading tips</>
+                  <>Get real-time help from the community and team</>
                 )}
               </p>
             </div>
@@ -125,7 +125,7 @@ export function DiscordInvite({
         <div className="flex-1">
           <h3 className="text-xl font-bold mb-2">Join the Community</h3>
           <p className="text-indigo-100 text-sm leading-relaxed">
-            Get instant answers from experienced traders, share strategies, and stay updated with the latest features.
+            Get real-time help, share your results, and stay updated with the latest features.
           </p>
         </div>
       </div>
@@ -135,19 +135,19 @@ export function DiscordInvite({
           <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span>Real-time support from community</span>
+          <span>Real-time help from the community and team</span>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span>Trading strategy discussions</span>
+          <span>Trading chat and market discussion</span>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span>Beta features & early access</span>
+          <span>Feature announcements & early access</span>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -166,9 +166,9 @@ export function DiscordInvite({
         Join Discord Community →
       </a>
 
-      {!isLoading && showOnlineCount && memberCount > 0 && (
+      {!isLoading && showOnlineCount && memberCount >= 10 && (
         <p className="text-xs text-indigo-200 mt-3 text-center">
-          🟢 {onlineCount.toLocaleString()} online • {memberCount.toLocaleString()} members
+          🟢 {onlineCount.toLocaleString()} online • {memberCount.toLocaleString()} {memberCount === 1 ? 'member' : 'members'}
         </p>
       )}
     </div>

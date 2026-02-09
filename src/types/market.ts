@@ -19,7 +19,7 @@ export interface OHLCV {
   volume: number;
 }
 
-export type RegimeType = 'choppy' | 'weak' | 'moderate' | 'strong';
+export type RegimeType = 'choppy' | 'transitioning' | 'weak' | 'moderate' | 'strong';
 
 export interface MarketRegime {
   type: RegimeType;

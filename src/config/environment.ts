@@ -235,18 +235,32 @@ const envSchema = z.object({
   PYRAMID_L1_MIN_ADX: z.string().transform(Number).default('35'), // L1: Moderate trend minimum
   PYRAMID_L2_MIN_ADX: z.string().transform(Number).default('40'), // L2: Strong trend minimum
 
+  /* ADX Slope - Regime Transition Detection (zero API cost, pure math) */
+  /* Detects regime changes ~45min faster than ADX value alone */
+  ADX_SLOPE_RISING_THRESHOLD: z.string().transform(Number).default('2.0'), // +2/candle = trend forming (allow entry in transition zone)
+  ADX_SLOPE_FALLING_THRESHOLD: z.string().transform(Number).default('-2.0'), // -2/candle = trend exhausting (downgrade profit target)
+  ADX_TRANSITION_ZONE_MIN: z.string().transform(Number).default('15'), // ADX floor for transition detection (below = deep chop, no rescue)
+  ADX_TRANSITION_SIZE_MULTIPLIER: z.string().transform(Number).default('0.5'), // 50% position size for transitioning regime entries
+  MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
+
   /* Regime-Based Profit Targets (/nexus port) - ADX-driven dynamic targets */
   PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.015'), // 1.5% - fast exit in choppy markets
+  PROFIT_TARGET_TRANSITIONING: z.string().transform(Number).default('0.025'), // 2.5% - early trend (conservative target)
   PROFIT_TARGET_WEAK: z.string().transform(Number).default('0.025'), // 2.5% - realistic for weak trends
   PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.05'), // 5% - developing trends
   PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.20'), // 20% - MAXIMIZE strong trends!
 
-  /* Early Loss Time-Based Thresholds - Philosophy: More aggressive on young losing trades */
-  EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.008'), // 1-5 min: -0.8% very aggressive (exit fast on momentum shift)
-  EARLY_LOSS_MINUTE_15_30: z.string().transform(Number).default('-0.015'), // 15-30 min: -1.5% (tighter control on mid-term losses)
-  EARLY_LOSS_HOUR_1_3: z.string().transform(Number).default('-0.025'), // 1-3 hours: -2.5% (protect from extended downside)
-  EARLY_LOSS_HOUR_4_PLUS: z.string().transform(Number).default('-0.035'), // 4+ hours: -3.5% (allow breathing room for longer holds)
-  EARLY_LOSS_DAILY: z.string().transform(Number).default('-0.045'), // 1+ days: -4.5% (very patient on daily holds)
+  /* Early Loss Time-Based Thresholds - Philosophy: Exit fast, don't let slow bleeds persist */
+  EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.008'), // 1-5 min: -0.8% (exit fast on momentum shift)
+  EARLY_LOSS_MINUTE_15_30: z.string().transform(Number).default('-0.015'), // 5-30 min: -1.5% (prevents slow bleeds)
+  EARLY_LOSS_HOUR_1_3: z.string().transform(Number).default('-0.025'), // 30min-3h: -2.5% (protect from extended downside)
+  EARLY_LOSS_HOUR_4_PLUS: z.string().transform(Number).default('-0.035'), // 4+ hours: -3.5% (breathing room for longer holds)
+  EARLY_LOSS_DAILY: z.string().transform(Number).default('-0.045'), // 1+ days: -4.5% (patient on daily holds)
+
+  /* Stale Underwater Exit - catches slow bleeds that early loss misses */
+  /* If trade was NEVER profitable and stays negative past this age → exit */
+  STALE_UNDERWATER_MINUTES: z.string().transform(Number).default('30'), // Exit after 30 min underwater with zero peak
+  STALE_UNDERWATER_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (avoids spread noise)
 
   /* Support System */
   SUPPORT_ADMIN_EMAIL: z.string().email().optional().transform(v => v?.trim() || undefined),
@@ -426,9 +440,15 @@ function getDefaultEnvironment(): Environment {
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,
     STALE_FLAT_TRADE_BAND_PCT: 0.5,
+    ADX_SLOPE_RISING_THRESHOLD: 2.0,
+    ADX_SLOPE_FALLING_THRESHOLD: -2.0,
+    ADX_TRANSITION_ZONE_MIN: 15,
+    ADX_TRANSITION_SIZE_MULTIPLIER: 0.5,
+    MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
     PROFIT_TARGET_CHOPPY: 0.015,    // 1.5% - fast exit
+    PROFIT_TARGET_TRANSITIONING: 0.025, // 2.5% - early trend
     PROFIT_TARGET_WEAK: 0.025,      // 2.5% - weak trends
     PROFIT_TARGET_MODERATE: 0.05,   // 5% - developing trends
     PROFIT_TARGET_STRONG: 0.20,     // 20% - MAXIMIZE strong trends!
@@ -437,6 +457,8 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_HOUR_1_3: -0.025,
     EARLY_LOSS_HOUR_4_PLUS: -0.035,
     EARLY_LOSS_DAILY: -0.045,
+    STALE_UNDERWATER_MINUTES: 30,
+    STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
     PERFORMANCE_FEE_RATE: 0.15,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     CP_BTC_TREND_GATE_ENABLED: true,

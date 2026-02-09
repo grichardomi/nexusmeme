@@ -624,13 +624,18 @@ class TradeSignalOrchestrator {
             continue; // Don't call AI - conditions are bad
           }
 
-          console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
+          // Capture transition zone flag from risk filter (for position sizing in fan-out)
+          const isTransitioning = riskFilter.isTransitioning === true;
+
+          console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%${isTransitioning ? ' | 🔄 TRANSITIONING' : ''}`);
           logger.info('Orchestrator: 5-stage risk filter passed', {
             pair,
             adx: indicators.adx?.toFixed(1),
+            adxSlope: indicators.adxSlope?.toFixed(2),
             momentum1h: indicators.momentum1h?.toFixed(3),
             rsi: indicators.rsi?.toFixed(1),
             volumeRatio: indicators.volumeRatio?.toFixed(2),
+            isTransitioning,
           });
 
           // /nexus parity: Momentum is logged but NOT a hard-block
@@ -724,6 +729,10 @@ class TradeSignalOrchestrator {
             // /nexus parity: No BEARISH TREND BLOCKER - AI confidence is the gatekeeper
             // ============================================
 
+            // Override regime to 'transitioning' if risk filter detected transition zone
+            // This ensures fan-out uses the correct 50% size multiplier
+            const effectiveRegime = isTransitioning ? 'transitioning' : (analysis.regime.regime as any);
+
             const decision: TradeDecision = {
               pair,
               side: 'buy',
@@ -731,11 +740,11 @@ class TradeSignalOrchestrator {
               amount: 1, // Base amount - will be adjusted per-bot
               stopLoss: analysis.signal.stopLoss, // Risk management: 2% default
               takeProfit: analysis.signal.takeProfit, // Dynamic profit target based on regime
-              reason: `AI signal (strength: ${analysis.signal.strength}, confidence: ${analysis.signal.confidence}%, regime: ${analysis.regime.regime}) - matching /nexus`,
+              reason: `AI signal (strength: ${analysis.signal.strength}, confidence: ${analysis.signal.confidence}%, regime: ${effectiveRegime}) - matching /nexus`,
               timestamp: new Date(),
               signalConfidence: analysis.signal.confidence, // 0-100: AI's trade confidence for position sizing
               regime: {
-                type: analysis.regime.regime as any,
+                type: effectiveRegime,
                 confidence: analysis.regime.confidence / 100, // Convert 0-100 to 0-1
                 reason: analysis.regime.analysis,
                 timestamp: analysis.regime.timestamp,
@@ -1323,13 +1332,27 @@ class TradeSignalOrchestrator {
             });
           }
 
-          // Determine profit target based on REGIME (ADX-based) - /nexus approach
-          // Choppy: 1.5%, Weak: 2.5%, Moderate: 5%, Strong: 20%
+          // Determine profit target based on REGIME (ADX-based with slope awareness)
+          // Choppy: 1.5%, Transitioning: 2.5%, Weak: 2.5%, Moderate: 5%, Strong: 20%
+          // ADX slope can downgrade strong → moderate when trend is exhausting
           const env = getEnvironmentConfig();
           let profitTarget: number;
+
+          // Fetch current ADX slope for dynamic profit target adjustment
+          let adxSlope = 0;
+          try {
+            const exitIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+            adxSlope = exitIndicators?.adxSlope ?? 0;
+          } catch {
+            // Safe fallback: slope=0 means no adjustment (uses static regime targets)
+          }
+          const slopeFallingThreshold = env.ADX_SLOPE_FALLING_THRESHOLD;
           switch (regime.toLowerCase()) {
             case 'choppy':
               profitTarget = env.PROFIT_TARGET_CHOPPY;  // 1.5% - fast exit
+              break;
+            case 'transitioning':
+              profitTarget = env.PROFIT_TARGET_TRANSITIONING; // 2.5% - early trend
               break;
             case 'weak':
               profitTarget = env.PROFIT_TARGET_WEAK;    // 2.5% - weak trends
@@ -1338,7 +1361,13 @@ class TradeSignalOrchestrator {
               profitTarget = env.PROFIT_TARGET_MODERATE; // 5% - developing trends
               break;
             case 'strong':
-              profitTarget = env.PROFIT_TARGET_STRONG;   // 20% - MAXIMIZE strong trends!
+              // ADX slope downgrade: if trend exhausting, use moderate target
+              if (adxSlope <= slopeFallingThreshold) {
+                profitTarget = env.PROFIT_TARGET_MODERATE;
+                console.log(`📉 [ORCHESTRATOR] Profit target downgraded: strong → moderate (slope ${adxSlope.toFixed(2)} <= ${slopeFallingThreshold})`);
+              } else {
+                profitTarget = env.PROFIT_TARGET_STRONG;   // 20% - MAXIMIZE strong trends!
+              }
               break;
             default:
               profitTarget = env.PROFIT_TARGET_MODERATE; // Default to 5%
@@ -1457,6 +1486,30 @@ class TradeSignalOrchestrator {
                   exitReason,
                 });
               }
+            }
+          }
+
+          // CHECK 2.5: STALE UNDERWATER — never profitable, old enough, still negative → give up
+          // Catches slow bleeds that don't hit early loss depth thresholds
+          if (!shouldClose && grossProfitPct < 0) {
+            const staleMinutes = env.STALE_UNDERWATER_MINUTES; // 30 min default
+            const staleMinLoss = env.STALE_UNDERWATER_MIN_LOSS_PCT * 100; // -0.3% default (in percent)
+            const peakData = positionTracker.getPeakProfit(trade.id);
+            const peakPct = peakData?.peakPct || 0;
+
+            if (peakPct <= 0 && tradeAgeMinutes >= staleMinutes && grossProfitPct < staleMinLoss) {
+              shouldClose = true;
+              exitReason = 'stale_underwater';
+              logger.info('🏊 STALE UNDERWATER - never profitable, giving up', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                grossProfitPct: grossProfitPct.toFixed(2) + '%',
+                netProfitPct: currentProfitPct.toFixed(2) + '%',
+                peakPct: peakPct.toFixed(2) + '%',
+                ageMinutes: tradeAgeMinutes.toFixed(1),
+                staleThresholdMinutes: staleMinutes,
+                minLossThreshold: staleMinLoss.toFixed(2) + '%',
+              });
             }
           }
 

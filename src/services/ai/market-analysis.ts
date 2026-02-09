@@ -9,6 +9,7 @@ import {
   MarketRegimeAnalysis,
   MarketRegime,
 } from '@/types/ai';
+import { getEnvironmentConfig } from '@/config/environment';
 
 /**
  * Calculate technical indicators from OHLC data
@@ -53,6 +54,8 @@ export function calculateTechnicalIndicators(
     ? calculateEMA(closes, 200)
     : calculateEMA(closes, Math.min(closes.length, 50)); // Fallback to shorter period
 
+  const adxResult = calculateADX(candles);
+
   return {
     rsi: calculateRSI(closes),
     macd: calculateMACD(closes),
@@ -60,7 +63,8 @@ export function calculateTechnicalIndicators(
     movingAverages: calculateMovingAverages(closes),
     atr: calculateATR(candles),
     obv: calculateOBV(closes, volumes),
-    adx: calculateADX(candles),
+    adx: adxResult.value,
+    adxSlope: adxResult.slope,
     momentum1h,
     momentum4h,
     volumeRatio,
@@ -225,11 +229,19 @@ function calculateOBV(closes: number[], volumes: number[]): number {
  * CRITICAL: Must match Nexus's calculation exactly for regime parity
  * Uses proper True Range + DI smoothing (not simplified version)
  */
-function calculateADX(candles: OHLCCandle[], period = 14): number {
+/**
+ * ADX calculation result with slope for regime transition detection
+ */
+interface ADXResult {
+  value: number;  // Current ADX value (0-100)
+  slope: number;  // Rate of change per candle (positive = strengthening trend)
+}
+
+function calculateADX(candles: OHLCCandle[], period = 14): ADXResult {
   // Need at least period * 2 candles for proper ADX calculation
   if (candles.length < period * 2) {
     console.warn(`⚠️ [ADX FALLBACK] Insufficient candles: ${candles.length} < ${period * 2} required - returning ADX=15`);
-    return 15; // Return LOW value to block entries when insufficient data
+    return { value: 15, slope: 0 };
   }
 
   const trueRanges: number[] = [];
@@ -294,22 +306,38 @@ function calculateADX(candles: OHLCCandle[], period = 14): number {
 
   if (dxValues.length === 0) {
     console.warn(`⚠️ [ADX FALLBACK] No DX values calculated from ${trueRanges.length} true ranges - returning ADX=15`);
-    return 15; // Return LOW value to block entries
+    return { value: 15, slope: 0 };
   }
 
   // ADX is the smoothed average of DX values (use last 'period' values)
   // Apply Wilder's smoothing to DX to get ADX
+  // Track recent ADX values for slope calculation
+  const adxHistory: number[] = [];
   let adx = dxValues.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  adxHistory.push(adx);
+
   for (let i = period; i < dxValues.length; i++) {
     adx = ((adx * (period - 1)) + dxValues[i]) / period;
+    adxHistory.push(adx);
   }
 
   // Validate result - return LOW value if NaN or invalid (to block entries)
   if (!isFinite(adx)) {
-    return 15; // Low ADX blocks entries via Health Gate
+    return { value: 15, slope: 0 };
   }
 
-  return Math.min(100, Math.max(0, adx));
+  // Calculate slope: rate of change over last 3 ADX snapshots
+  // slope = (ADX now - ADX 3 candles ago) / 3
+  const slopeWindow = 3;
+  let slope = 0;
+  if (adxHistory.length >= slopeWindow + 1) {
+    const current = adxHistory[adxHistory.length - 1];
+    const previous = adxHistory[adxHistory.length - 1 - slopeWindow];
+    slope = (current - previous) / slopeWindow;
+  }
+
+  const clampedAdx = Math.min(100, Math.max(0, adx));
+  return { value: clampedAdx, slope };
 }
 
 /**
@@ -326,12 +354,26 @@ export function detectMarketRegime(
   // CRITICAL: Use ADX-based regime classification (matching Nexus)
   // Handle NaN case - default to moderate if ADX is invalid
   const adx = isFinite(indicators.adx) ? indicators.adx : 25;
+  const adxSlope = indicators.adxSlope ?? 0;
 
-  // DEBUG: Log ADX value being used for regime detection
-  console.log(`\n🔍 [REGIME DEBUG] ADX value for regime: ${adx} (raw indicators.adx: ${indicators.adx})`);
+  // DEBUG: Log ADX value and slope being used for regime detection
+  console.log(`\n🔍 [REGIME DEBUG] ADX value for regime: ${adx} (raw indicators.adx: ${indicators.adx}) | slope: ${adxSlope.toFixed(2)}/candle`);
+
+  // Use env vars for all thresholds (no hard-coded values)
+  const env = getEnvironmentConfig();
+  const transitionZoneMin = env.ADX_TRANSITION_ZONE_MIN;         // 15
+  const minAdxForEntry = env.RISK_MIN_ADX_FOR_ENTRY;             // 20
+  const slopeRisingThreshold = env.ADX_SLOPE_RISING_THRESHOLD;   // +2.0/candle
 
   let regime: MarketRegime;
-  if (adx < 20) {
+  if (adx < transitionZoneMin) {
+    // Deep chop — slope can't save this, always block
+    regime = 'choppy';
+  } else if (adx < minAdxForEntry && adxSlope >= slopeRisingThreshold) {
+    // TRANSITION ZONE: ADX in transition range but rising fast
+    // Trend is forming — allow entry at reduced size instead of blocking
+    regime = 'transitioning';
+  } else if (adx < minAdxForEntry) {
     regime = 'choppy';
   } else if (adx < 30) {
     regime = 'weak';
@@ -341,7 +383,7 @@ export function detectMarketRegime(
     regime = 'strong';
   }
 
-  console.log(`🔍 [REGIME DEBUG] Regime determined: ${regime} (ADX: ${adx})`);
+  console.log(`🔍 [REGIME DEBUG] Regime determined: ${regime} (ADX: ${adx}, slope: ${adxSlope.toFixed(2)})`);
 
 
   // /nexus PARITY: Simple momentum-first approach
@@ -380,9 +422,12 @@ export function detectMarketRegime(
 
   const alignment4h = bothMomentumPositive ? '4h also positive ✓' : '4h negative';
 
+  const regimeLabel = regime === 'strong' ? 'Strong' : regime === 'moderate' ? 'Moderate' : regime === 'weak' ? 'Weak' : regime === 'transitioning' ? 'Transitioning' : 'Choppy';
+  const slopeLabel = adxSlope >= 2.0 ? '↑ rising fast' : adxSlope >= 0.5 ? '↑ rising' : adxSlope <= -2.0 ? '↓ falling fast' : adxSlope <= -0.5 ? '↓ falling' : '→ flat';
+
   const analysis = `
-Market is in ${regime} regime (ADX-based, matching /nexus).
-ADX: ${isFinite(indicators.adx) ? indicators.adx.toFixed(2) : 'N/A'} (${regime === 'strong' ? 'Strong' : regime === 'moderate' ? 'Moderate' : regime === 'weak' ? 'Weak' : 'Choppy'} trend)
+Market is in ${regime} regime (ADX-based with slope awareness).
+ADX: ${isFinite(indicators.adx) ? indicators.adx.toFixed(2) : 'N/A'} (${regimeLabel} trend) | Slope: ${adxSlope.toFixed(2)}/candle (${slopeLabel})
 Momentum: 1h=${momentum1h.toFixed(3)}% | 4h=${momentum4h.toFixed(3)}% | ${alignment4h}
 Trend Direction: ${isBullish ? 'BULLISH' : 'BEARISH'} (1h momentum ${momentum1h > 0 ? 'positive' : 'negative'})
 RSI: ${indicators.rsi.toFixed(2)} | ATR: ${volatilityPercent.toFixed(2)}%

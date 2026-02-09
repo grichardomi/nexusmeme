@@ -56,7 +56,7 @@ const feeSchema = {
       name: 'Can I trade multiple pairs?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes. Your bot trades BTC and ETH — the most liquid, profitable crypto markets. Fees are calculated on the combined profits across all pairs.',
+        text: 'Yes. Your bot trades BTC and ETH — the most established crypto markets. Fees are calculated on the combined profits across all pairs.',
       },
     },
   ],
@@ -148,7 +148,7 @@ export default function PerformanceFeesPage() {
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-6">
                 <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">BTC & ETH Trading</h3>
                 <p className="text-slate-700 dark:text-slate-300">
-                  Your bot trades BTC and ETH — the most liquid, profitable crypto markets. Fees are calculated on <strong>total profits across all pairs</strong> in a single monthly invoice.
+                  Your bot trades BTC and ETH — the most established crypto markets. Fees are calculated on <strong>total profits across all pairs</strong> in a single monthly invoice.
                 </p>
               </div>
 

@@ -624,6 +624,11 @@ class PositionTracker {
         minPeakDecimal = env.PROFIT_LOCK_CHOPPY_MIN_PEAK || 0.003;
         lockPct = env.PROFIT_LOCK_CHOPPY_LOCK_PCT || 0.60;
         break;
+      case 'transitioning':
+        // Early trend — same as weak (protect gains conservatively)
+        minPeakDecimal = env.PROFIT_LOCK_WEAK_MIN_PEAK || 0.004;
+        lockPct = env.PROFIT_LOCK_WEAK_LOCK_PCT || 0.50;
+        break;
       case 'weak':
         minPeakDecimal = env.PROFIT_LOCK_WEAK_MIN_PEAK || 0.004;
         lockPct = env.PROFIT_LOCK_WEAK_LOCK_PCT || 0.50;

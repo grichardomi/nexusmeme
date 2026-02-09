@@ -130,6 +130,12 @@ class RegimeGatekeeper {
         logRegimeDecision('weak', true, `Weak trend regime for ${pair} - allowing execution with strict gates`);
         return true;
 
+      case 'transitioning':
+        // Transitioning (ADX 15-20 but rising fast): Early trend forming
+        // Allow with reduced position size (enforced in fan-out via regime multiplier)
+        logRegimeDecision('transitioning', true, `Transition zone for ${pair} - allowing at reduced size (ADX rising)`);
+        return true;
+
       case 'choppy':
         // Choppy regime (ADX < 20): Most restrictive
         // Allow only if momentum is VERY strong (e.g., volume breakout, oversold reversals)

@@ -12,7 +12,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
   const questions = [
     {
       question: 'How does the performance fee model work?',
-      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ 15% fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Focused on BTC & ETH — highest liquidity\n\nExample:\n- Your bot makes $1,000 profit → You pay $150 (15% fee)\n- Your bot loses $500 → You pay $0 (no fee)\n- Your bot breaks even → You pay $0 (no fee)\n\nNo hidden charges, completely transparent billing. We only earn when you earn.`,
+      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ 15% fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Focused on BTC & ETH\n\nExample:\n- Your bot makes $1,000 profit → You pay $150 (15% fee)\n- Your bot loses $500 → You pay $0 (no fee)\n- Your bot breaks even → You pay $0 (no fee)\n\nNo hidden charges, completely transparent billing. We only earn when you earn.`,
     },
     {
       question: 'Do I need to pay upfront?',
@@ -88,7 +88,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
         <ol className="space-y-3 text-slate-700 dark:text-slate-300">
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 1:</span>
-            <span>Create your trading bot and connect your exchange account</span>
+            <span>Create your trading bot and connect your Binance account</span>
           </li>
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 2:</span>

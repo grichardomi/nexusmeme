@@ -100,11 +100,11 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
     { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
   ];
 
-  // Support is available to all users for private/account-specific issues
-  const supportItem = { href: '/dashboard/support', label: 'Support', icon: '🎫' };
+  // Community & Support - Discord-first, tickets secondary
+  const supportItem = { href: '/dashboard/support', label: 'Community', icon: '💬' };
   const settingsItem = { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' };
 
-  // Include Support for all authenticated users
+  // Include Community for all authenticated users
   const navItems = [
     ...baseNavItems,
     supportItem,

@@ -22,6 +22,7 @@ export default function SupportPage() {
   const [fetchedTicketIds, setFetchedTicketIds] = useState<Set<string>>(new Set());
   const [canAccessSupport, setCanAccessSupport] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [showTicketSection, setShowTicketSection] = useState(false);
 
   // Memoize fetch function to prevent infinite re-renders
   const fetchTicketsData = useCallback(async (offset: number, limit: number) => {
@@ -63,6 +64,13 @@ export default function SupportPage() {
       load();
     }
   }, [status, canAccessSupport, load]);
+
+  // Auto-expand ticket section if user has existing tickets
+  useEffect(() => {
+    if (tickets.length > 0) {
+      setShowTicketSection(true);
+    }
+  }, [tickets.length]);
 
   // Refetch unread counts when page comes back to focus (user returns from detail page)
   useEffect(() => {
@@ -197,63 +205,172 @@ export default function SupportPage() {
   // All users now have access to support for private/account-specific issues
 
   return (
-    <DashboardLayout title="Support">
+    <DashboardLayout title="Community">
       <div className="space-y-4 md:space-y-6 max-w-full overflow-x-hidden">
-        {/* Discord Community Support - First Option */}
+        {/* Page Header */}
+        <div>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
+            Community & Support
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
+            Get help from the community or reach our team
+          </p>
+        </div>
+
+        {/* Discord Community - Primary Hero */}
         <DiscordInvite variant="banner" />
 
-        {/* When to Use Guide */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-blue-900 dark:text-blue-100 mb-2 flex items-center gap-2">
-                <span>💬</span> Use Discord for:
-              </h3>
-              <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                <li>• General questions & quick answers</li>
-                <li>• Trading strategy discussions</li>
-                <li>• Bot setup help</li>
-                <li>• Community tips & tricks</li>
-              </ul>
+        {/* Why Discord Section */}
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 sm:p-6">
+          <h3 className="text-base font-bold text-slate-900 dark:text-white mb-3">
+            Most questions get answered faster on Discord
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">&#10003;</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">Real-time answers from community & team</span>
             </div>
-            <div className="w-px bg-blue-200 dark:bg-blue-700 hidden sm:block" />
-            <div className="flex-1">
-              <h3 className="text-sm font-bold text-indigo-900 dark:text-indigo-100 mb-2 flex items-center gap-2">
-                <span>🎫</span> Use Support Tickets for:
-              </h3>
-              <ul className="text-xs text-indigo-700 dark:text-indigo-300 space-y-1">
-                <li>• Account or billing issues</li>
-                <li>• Security concerns</li>
-                <li>• Bug reports needing investigation</li>
-                <li>• Private/sensitive matters</li>
-              </ul>
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">&#10003;</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">Trading chat and market discussion</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">&#10003;</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">Bot setup & configuration help</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-green-500 mt-0.5">&#10003;</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">Feature announcements & beta access</span>
             </div>
           </div>
         </div>
 
-        {/* Header - Mobile First: Stack on mobile, row on desktop */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
-              Support Tickets
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Available to all users • Response within 24-48 hours
+        {/* Ticket Section - Collapsed by default */}
+        {!showTicketSection ? (
+          <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 sm:p-5 text-center">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+              Need to share private account details, report a security issue, or have a billing question?
             </p>
+            <button
+              onClick={() => setShowTicketSection(true)}
+              className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded hover:bg-slate-50 dark:hover:bg-slate-700 transition touch-manipulation"
+            >
+              Open a private support ticket instead
+            </button>
           </div>
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition text-sm sm:text-base touch-manipulation"
-          >
-            Create Ticket
-          </button>
-        </div>
+        ) : (
+          <>
+            {/* Ticket Header */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                  Your Tickets
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
+                  For private or account-specific issues &bull; 24-48h response
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 underline underline-offset-2 transition touch-manipulation"
+              >
+                Create new ticket
+              </button>
+            </div>
+            {/* Error Alert */}
+            {error && tickets.length === 0 && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+                {error}
+              </div>
+            )}
 
-        {/* Error Alert */}
-        {error && tickets.length === 0 && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-200 px-4 py-3 rounded">
-            {error}
-          </div>
+            {/* Tickets List */}
+            <div className="space-y-3 md:space-y-4 max-w-full">
+              {tickets.length === 0 && !isLoading ? (
+                <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 sm:p-8 text-center">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                    No tickets yet. Click &quot;Create Ticket&quot; above if you have a private issue.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {tickets.map(ticket => (
+                    <Link
+                      key={ticket.id}
+                      href={`/dashboard/support/${ticket.id}`}
+                      className="block bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 sm:p-5 md:p-6 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition active:scale-[0.99] touch-manipulation overflow-hidden"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-3 md:mb-4 min-w-0">
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <div className="flex items-start gap-2 sm:gap-3 mb-2">
+                            <span className="text-base sm:text-lg flex-shrink-0">{getStatusIcon(ticket.status)}</span>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white break-words line-clamp-2">
+                                {ticket.subject}
+                              </h3>
+                              {(unreadCounts[ticket.id] || 0) > 0 && (
+                                <span className="inline-block mt-1 px-2 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-semibold">
+                                  {unreadCounts[ticket.id]} new
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 truncate">
+                            Created {new Date(ticket.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+
+                        <span
+                          className={`inline-block px-2.5 sm:px-3 py-1 rounded text-xs font-medium self-start flex-shrink-0 ${getPriorityColor(
+                            ticket.priority
+                          )}`}
+                        >
+                          {ticket.priority.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 sm:gap-4 flex-wrap min-w-0">
+                        <span className="text-xs text-slate-500 dark:text-slate-500 capitalize truncate">
+                          {ticket.category.replace('_', ' ')}
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-500 capitalize truncate">
+                          {ticket.status.replace('_', ' ')}
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+
+                  {hasMore && (
+                    <div className="flex justify-center pt-3 md:pt-4">
+                      <button
+                        onClick={() => loadMore()}
+                        disabled={isLoading}
+                        className={`w-full sm:w-auto px-6 py-2.5 rounded font-medium text-sm sm:text-base transition touch-manipulation ${
+                          isLoading
+                            ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-[0.98]'
+                        }`}
+                      >
+                        {isLoading ? 'Loading...' : 'Load More'}
+                      </button>
+                    </div>
+                  )}
+
+                  {isLoading && tickets.length > 0 && (
+                    <div className="flex justify-center py-4">
+                      <div className="text-slate-600 dark:text-slate-400 text-sm">Loading more tickets...</div>
+                    </div>
+                  )}
+
+                  {error && hasMore && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
+                      {error}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </>
         )}
 
         {/* Create Ticket Modal */}
@@ -266,101 +383,6 @@ export default function SupportPage() {
             }}
           />
         )}
-
-        {/* Tickets List - Mobile First */}
-        <div className="space-y-3 md:space-y-4 max-w-full">
-          {tickets.length === 0 && !isLoading ? (
-            <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 sm:p-8 md:p-12 text-center">
-              <p className="text-sm sm:text-base text-slate-600 dark:text-slate-400 mb-3 md:mb-4">
-                No support tickets yet
-              </p>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-500">
-                💡 For quick answers, try <strong>Discord</strong> first (see banner above).<br />
-                For private or account-specific issues, click "Create Ticket" above.
-              </p>
-            </div>
-          ) : (
-            <>
-              {tickets.map(ticket => (
-                <Link
-                  key={ticket.id}
-                  href={`/dashboard/support/${ticket.id}`}
-                  className="block bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 sm:p-5 md:p-6 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-md transition active:scale-[0.99] touch-manipulation overflow-hidden"
-                >
-                  {/* Mobile First: Stack on mobile, row on tablet+ */}
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-3 md:mb-4 min-w-0">
-                    <div className="flex-1 min-w-0 overflow-hidden">
-                      <div className="flex items-start gap-2 sm:gap-3 mb-2">
-                        <span className="text-base sm:text-lg flex-shrink-0">{getStatusIcon(ticket.status)}</span>
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white break-words line-clamp-2">
-                            {ticket.subject}
-                          </h3>
-                          {(unreadCounts[ticket.id] || 0) > 0 && (
-                            <span className="inline-block mt-1 px-2 py-0.5 sm:py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs font-semibold">
-                              {unreadCounts[ticket.id]} new
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 truncate">
-                        Created {new Date(ticket.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-
-                    <span
-                      className={`inline-block px-2.5 sm:px-3 py-1 rounded text-xs font-medium self-start flex-shrink-0 ${getPriorityColor(
-                        ticket.priority
-                      )}`}
-                    >
-                      {ticket.priority.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3 sm:gap-4 flex-wrap min-w-0">
-                    <span className="text-xs text-slate-500 dark:text-slate-500 capitalize truncate">
-                      {ticket.category.replace('_', ' ')}
-                    </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-500 capitalize truncate">
-                      {ticket.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-
-              {/* Load More Button - Mobile First */}
-              {hasMore && (
-                <div className="flex justify-center pt-3 md:pt-4">
-                  <button
-                    onClick={() => loadMore()}
-                    disabled={isLoading}
-                    className={`w-full sm:w-auto px-6 py-2.5 rounded font-medium text-sm sm:text-base transition touch-manipulation ${
-                      isLoading
-                        ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
-                        : 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-slate-600 active:scale-[0.98]'
-                    }`}
-                  >
-                    {isLoading ? 'Loading...' : 'Load More'}
-                  </button>
-                </div>
-              )}
-
-              {/* Loading indicator at bottom */}
-              {isLoading && tickets.length > 0 && (
-                <div className="flex justify-center py-4">
-                  <div className="text-slate-600 dark:text-slate-400 text-sm">Loading more tickets...</div>
-                </div>
-              )}
-
-              {/* Error on load more */}
-              {error && hasMore && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
-                  {error}
-                </div>
-              )}
-            </>
-          )}
-        </div>
       </div>
     </DashboardLayout>
   );
@@ -391,6 +413,7 @@ const VALIDATION_RULES = {
 };
 
 function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
+  const [step, setStep] = useState<'discord-prompt' | 'form'>('discord-prompt');
   const [formData, setFormData] = useState({
     subject: '',
     message: '',
@@ -400,6 +423,7 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [touched, setTouched] = useState({ subject: false, message: false });
+  const discordInvite = process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv';
 
   /**
    * Validate individual field
@@ -535,7 +559,7 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 sm:p-5 md:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4 md:mb-5">
           <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-            Create Support Ticket
+            {step === 'discord-prompt' ? 'Need Help?' : 'Create Support Ticket'}
           </h2>
           <button
             onClick={onClose}
@@ -546,6 +570,45 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
           </button>
         </div>
 
+        {/* Step 1: Discord-first prompt */}
+        {step === 'discord-prompt' && (
+          <div className="space-y-5">
+            <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-lg p-5 text-white">
+              <h3 className="text-lg font-bold mb-2">Try Discord first — get answers in minutes</h3>
+              <p className="text-sm text-indigo-100 mb-4">
+                Our community and team are active on Discord. Most questions about trading and bot setup get answered much faster there.
+              </p>
+              <a
+                href={discordInvite}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-white text-indigo-600 rounded-lg font-bold hover:bg-indigo-50 transition text-sm shadow-lg touch-manipulation"
+              >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z"/>
+                </svg>
+                Open Discord
+              </a>
+            </div>
+
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                Only use tickets for private matters that can&apos;t be discussed publicly (account issues, billing, security concerns).
+              </p>
+              <button
+                type="button"
+                onClick={() => setStep('form')}
+                className="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 underline underline-offset-2 transition touch-manipulation"
+              >
+                I need to submit a private ticket instead
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Actual ticket form */}
+        {step === 'form' && (
+        <>
         {error && (
           <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
             {error}
@@ -657,6 +720,8 @@ function CreateTicketForm({ onClose, onSuccess }: CreateTicketFormProps) {
             </button>
           </div>
         </form>
+        </>
+        )}
       </div>
     </div>
   );

@@ -216,6 +216,14 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
 
   const info = exchangeNames[exchange];
 
+  if (!info) {
+    return (
+      <div className="text-red-700 dark:text-red-300 text-sm" role="alert">
+        Unsupported exchange configuration: {exchange}
+      </div>
+    );
+  }
+
   if (isFetching) {
     return (
       <div className="text-slate-600 dark:text-slate-400 text-sm">
@@ -366,22 +374,30 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
           </div>
 
           <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded">
-            <p className="font-semibold mb-1">When creating your API key, ensure:</p>
-            <ul className="list-disc list-inside space-y-1 ml-1">
-              <li>✓ Permissions: <strong>Trading</strong> and <strong>Account Read</strong></li>
-              <li>✓ <strong>NO withdrawal</strong> permissions</li>
-              <li>✓ IP whitelist your address if available</li>
-            </ul>
-            <p className="mt-2">
+            <p className="font-semibold mb-1">Quick setup — create your Binance API key:</p>
+            <ol className="list-decimal list-inside space-y-1 ml-1">
+              <li>Log in to <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">binance.com</a></li>
+              <li>Go to Profile → API Management → Create API</li>
+              <li>Enable <strong>Reading</strong> + <strong>Spot & Margin Trading</strong></li>
+              <li>Do NOT enable Withdrawals</li>
+              <li>Copy API Key and Secret Key, paste above</li>
+            </ol>
+            <div className="mt-2 flex gap-3">
+              <a
+                href="/help#getting-started"
+                className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+              >
+                Full step-by-step guide →
+              </a>
               <a
                 href={info.docUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-600 dark:text-blue-400 hover:underline"
               >
-                View {info.name} API key guide →
+                Binance docs →
               </a>
-            </p>
+            </div>
           </div>
 
           <div className="flex gap-3">
