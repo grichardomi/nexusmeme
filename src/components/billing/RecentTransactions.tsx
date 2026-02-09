@@ -12,6 +12,7 @@ interface Transaction {
   status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived';
   paid_at?: string;
   created_at?: string;
+  exit_time?: string;
   billed_at?: string;
   stripe_invoice_id?: string;
 }
@@ -240,12 +241,12 @@ export function RecentTransactions() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Date</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Closed</p>
                     <p className="text-sm text-slate-700 dark:text-slate-300">
-                      {tx.paid_at
-                        ? new Date(tx.paid_at).toLocaleDateString()
+                      {tx.exit_time
+                        ? new Date(tx.exit_time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : tx.created_at
-                        ? new Date(tx.created_at).toLocaleDateString()
+                        ? new Date(tx.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : '—'}
                     </p>
                   </div>
@@ -275,7 +276,7 @@ export function RecentTransactions() {
                     Status
                   </th>
                   <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
-                    Date
+                    Closed
                   </th>
                 </tr>
               </thead>
@@ -304,10 +305,10 @@ export function RecentTransactions() {
                       </span>
                     </td>
                     <td className="py-4 px-4 text-sm text-slate-600 dark:text-slate-400">
-                      {tx.paid_at
-                        ? new Date(tx.paid_at).toLocaleDateString()
+                      {tx.exit_time
+                        ? new Date(tx.exit_time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : tx.created_at
-                        ? new Date(tx.created_at).toLocaleDateString()
+                        ? new Date(tx.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                         : '—'}
                     </td>
                   </tr>

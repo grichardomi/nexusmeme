@@ -160,8 +160,11 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
          pf.status,
          pf.coinbase_charge_id,
          pf.paid_at,
-         pf.pair
+         pf.pair,
+         pf.created_at,
+         t.exit_time
        FROM performance_fees pf
+       LEFT JOIN trades t ON t.id = pf.trade_id
        WHERE pf.user_id = $1
        ORDER BY pf.created_at DESC
        LIMIT $2`,
