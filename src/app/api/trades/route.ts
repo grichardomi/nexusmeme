@@ -16,7 +16,8 @@ async function handleTradesCSVExport(userId: string, statusFilter: string = 'all
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
     // Build WHERE clause for status filter
-    let statusWhere = '';
+    // Always exclude archived trades from exports
+    let statusWhere = `AND t.status != 'archived'`;
     if (statusFilter === 'open') {
       statusWhere = `AND t.status = 'open'`;
     } else if (statusFilter === 'closed') {
@@ -194,7 +195,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Build WHERE clause for status filter
-    let statusWhere = '';
+    // Always exclude archived trades (soft-deleted) unless explicitly requested
+    let statusWhere = `AND t.status != 'archived'`;
     if (statusFilter === 'open') {
       statusWhere = `AND t.status = 'open'`;
     } else if (statusFilter === 'closed') {
@@ -203,6 +205,8 @@ export async function GET(request: NextRequest) {
       statusWhere = `AND t.status = 'closed' AND t.profit_loss > 0`;
     } else if (statusFilter === 'losses') {
       statusWhere = `AND t.status = 'closed' AND t.profit_loss < 0`;
+    } else if (statusFilter === 'archived') {
+      statusWhere = `AND t.status = 'archived'`;
     }
 
     // Fetch trades with single JOIN query (optimized - no N+1 pattern)

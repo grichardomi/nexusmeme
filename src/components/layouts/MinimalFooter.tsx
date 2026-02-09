@@ -11,7 +11,7 @@ export function MinimalFooter() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-4 md:px-8 py-3 text-xs text-slate-600 dark:text-slate-400">
+    <footer className="hidden md:block bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-4 md:px-8 py-3 text-xs text-slate-600 dark:text-slate-400">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
         {/* Copyright */}
         <p>© {currentYear} NexusMeme Trading Platform. All rights reserved.</p>

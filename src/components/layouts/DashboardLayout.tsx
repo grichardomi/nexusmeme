@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
+import { usePathname, useRouter } from 'next/navigation';
 import { MinimalFooter } from './MinimalFooter';
 import { BackButton } from '@/components/navigation/BackButton';
-import { BetaBadge } from '@/components/common/BetaBadge';
+import { BottomNav } from '@/components/navigation/BottomNav';
+import { BottomSheet } from '@/components/navigation/BottomSheet';
+import { useSwipe } from '@/hooks/useSwipe';
 
 /**
  * Dashboard Layout
@@ -27,11 +30,34 @@ interface Subscription {
   tradingMode?: 'paper' | 'live';
 }
 
+const SWIPE_ROUTES = ['/dashboard', '/dashboard/bots', '/dashboard/trading', '/dashboard/portfolio'];
+
 export function DashboardLayout({ children, title }: DashboardLayoutProps) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { data: session } = useSession();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [subscription, setSubscription] = useState<(Subscription & { daysRemaining?: number | null }) | null>(null);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
+
+  const handleSwipeLeft = useCallback(() => {
+    const idx = SWIPE_ROUTES.indexOf(pathname);
+    if (idx >= 0 && idx < SWIPE_ROUTES.length - 1) {
+      router.push(SWIPE_ROUTES[idx + 1]);
+    }
+  }, [pathname, router]);
+
+  const handleSwipeRight = useCallback(() => {
+    const idx = SWIPE_ROUTES.indexOf(pathname);
+    if (idx > 0) {
+      router.push(SWIPE_ROUTES[idx - 1]);
+    }
+  }, [pathname, router]);
+
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: handleSwipeLeft,
+    onSwipeRight: handleSwipeRight,
+  });
 
   useEffect(() => {
     async function fetchSubscription() {
@@ -113,39 +139,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
   return (
     <div className="flex h-screen flex-col md:flex-row bg-slate-50 dark:bg-slate-900">
-      {/* Mobile Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div
-        className={`fixed md:static inset-y-0 left-0 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-transform duration-300 flex flex-col z-40 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-          }`}
-      >
-        {/* Logo - Mobile Only */}
-        <div className="md:hidden p-4 border-b border-slate-200 dark:border-slate-700">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 text-slate-900 dark:text-white font-bold text-xl hover:opacity-80 transition"
-          >
-            <Image
-              src="/logo.png"
-              alt="NexusMeme Logo"
-              width={24}
-              height={24}
-              className="w-6 h-6"
-            />
-            <span>NexusMeme</span>
-          </Link>
-          <div className="mt-2">
-            <BetaBadge size="sm" />
-          </div>
-        </div>
-
+      {/* Sidebar - Desktop only */}
+      <div className="hidden md:flex fixed md:static inset-y-0 left-0 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex-col z-40">
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2">
           {navItems.map(item => (
@@ -155,7 +150,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               className="flex items-center gap-3 px-4 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition"
             >
               <span className="text-xl">{item.icon}</span>
-              <span className={`${sidebarOpen ? 'inline' : 'hidden'} md:inline text-sm`}>{item.label}</span>
+              <span className="text-sm">{item.label}</span>
             </Link>
           ))}
         </nav>
@@ -163,7 +158,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         {/* User Section */}
         <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
           {session?.user && (
-            <div className={`${sidebarOpen ? 'block' : 'hidden'} md:block px-4 py-2 text-sm text-slate-600 dark:text-slate-400`}>
+            <div className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400">
               <p className="font-medium text-slate-900 dark:text-white truncate">{session.user.name}</p>
               <p className="truncate text-xs">{session.user.email}</p>
             </div>
@@ -173,10 +168,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             className="w-full flex items-center gap-2 px-4 py-2 rounded text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition text-sm"
           >
             <span>🚪</span>
-            <span className={`${sidebarOpen ? 'inline' : 'hidden'} md:inline`}>Sign Out</span>
+            <span>Sign Out</span>
           </button>
         </div>
-
       </div>
 
       {/* Main Content */}
@@ -184,16 +178,18 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         {/* Header */}
         <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-3 md:py-4">
           <div className="flex items-center justify-between gap-2 sm:gap-4">
-            {/* Left: Back Button, Menu & Title */}
+            {/* Left: Logo (mobile), Back Button & Title */}
             <div className="flex items-center gap-1 sm:gap-2 flex-1 min-w-0">
+              <Link href="/dashboard" className="md:hidden flex-shrink-0">
+                <Image
+                  src="/logo.png"
+                  alt="NexusMeme"
+                  width={28}
+                  height={28}
+                  className="w-7 h-7"
+                />
+              </Link>
               <BackButton className="mr-0 sm:mr-1" />
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="md:hidden p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition flex-shrink-0"
-                aria-label="Toggle sidebar"
-              >
-                ☰
-              </button>
               <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-slate-900 dark:text-white truncate">{title}</h1>
             </div>
 
@@ -299,13 +295,33 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-8 bg-slate-50 dark:bg-slate-900">
+        <main
+          className="flex-1 overflow-auto p-4 md:p-8 pb-20 md:pb-8 bg-slate-50 dark:bg-slate-900"
+          {...swipeHandlers}
+        >
           {children}
         </main>
 
-        {/* Minimal Footer */}
-        <MinimalFooter />
+        {/* Minimal Footer - Desktop only */}
+        <div className="hidden md:block">
+          <MinimalFooter />
+        </div>
       </div>
+
+      {/* Bottom Nav - Mobile only */}
+      <BottomNav
+        pathname={pathname}
+        onMorePress={() => setMoreSheetOpen(true)}
+      />
+
+      {/* Bottom Sheet - More menu */}
+      <BottomSheet
+        isOpen={moreSheetOpen}
+        onClose={() => setMoreSheetOpen(false)}
+        userName={session?.user?.name}
+        userEmail={session?.user?.email}
+        onSignOut={handleSignOut}
+      />
     </div>
   );
 }

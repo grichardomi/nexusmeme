@@ -40,7 +40,7 @@ interface OpenClosedTradesProps {
   botId: string;
 }
 
-type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses';
+type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses' | 'archived';
 
 interface CurrentPrices {
   [pair: string]: number;
@@ -57,6 +57,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
   const [isClosedPositionsCollapsed, setIsClosedPositionsCollapsed] = useState(true);
   const [isOpenPositionsCollapsed, setIsOpenPositionsCollapsed] = useState(false);
   const [isDeletingClosedTrades, setIsDeletingClosedTrades] = useState(false);
+  const [isArchivedCollapsed, setIsArchivedCollapsed] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -68,6 +69,9 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
   // Modal states
   const [notification, setNotification] = useState<{ type: NotificationType; message: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ closedCount: number } | null>(null);
+  const [closeConfirm, setCloseConfirm] = useState<Trade | null>(null);
+  const [deleteTradeConfirm, setDeleteTradeConfirm] = useState<Trade | null>(null);
+  const [isDeletingTrade, setIsDeletingTrade] = useState<string | null>(null);
 
   const isAdmin = session?.user && (session.user as any).role === 'admin';
 
@@ -277,6 +281,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
 
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
+  const archivedTrades = trades.filter(t => t.status === 'archived');
 
   // CSV Export Handler
   const handleCSVExport = useCallback(() => {
@@ -335,6 +340,44 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       setNotification({ type: 'error', message: `Error closing trade: ${errorMsg}` });
     } finally {
       setClosingTrade(null);
+    }
+  }
+
+  async function handleConfirmClose() {
+    if (!closeConfirm) return;
+    const trade = closeConfirm;
+    setCloseConfirm(null);
+    await handleManualClose(trade);
+  }
+
+  async function handleDeleteSingleTrade() {
+    if (!deleteTradeConfirm) return;
+    const trade = deleteTradeConfirm;
+    setDeleteTradeConfirm(null);
+    setIsDeletingTrade(trade.id);
+
+    try {
+      const response = await fetch('/api/admin/trades/delete-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId, tradeId: trade.id }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const errorMsg = data.error || data.message || 'Failed to delete trade';
+        setNotification({ type: 'error', message: errorMsg });
+        return;
+      }
+
+      await fetchTrades(0, false);
+      setNotification({ type: 'success', message: `Trade deleted successfully` });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      setNotification({ type: 'error', message: errorMsg });
+    } finally {
+      setIsDeletingTrade(null);
     }
   }
 
@@ -538,11 +581,21 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         {/* Actions */}
         {isOpen && (
           <button
-            onClick={() => handleManualClose(trade)}
+            onClick={() => setCloseConfirm(trade)}
             disabled={closingTrade === trade.id}
             className="w-full px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-slate-400 text-white rounded font-medium transition"
           >
             {closingTrade === trade.id ? 'Closing...' : 'Close Position'}
+          </button>
+        )}
+        {/* Archive button for closed trades (admin only) */}
+        {!isOpen && isAdmin && (
+          <button
+            onClick={() => setDeleteTradeConfirm(trade)}
+            disabled={isDeletingTrade === trade.id}
+            className="w-full px-3 py-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-amber-100 dark:hover:bg-amber-900/30 disabled:bg-slate-400 text-slate-600 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded text-sm font-medium transition"
+          >
+            {isDeletingTrade === trade.id ? 'Archiving...' : 'Archive Trade'}
           </button>
         )}
       </div>
@@ -563,13 +616,13 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         {/* Status Filters */}
         <div className="overflow-x-auto">
           <div className="flex gap-2 pb-2">
-            {(['all', 'open', 'closed', 'profitable', 'losses'] as StatusFilter[]).map((filter) => (
+            {(['all', 'open', 'closed', 'profitable', 'losses', ...(isAdmin ? ['archived'] : [])] as StatusFilter[]).map((filter) => (
               <button
                 key={filter}
                 onClick={() => setStatusFilter(filter)}
                 className={`px-3 py-1.5 rounded text-sm font-medium whitespace-nowrap transition ${
                   statusFilter === filter
-                    ? 'bg-blue-600 text-white'
+                    ? filter === 'archived' ? 'bg-amber-600 text-white' : 'bg-blue-600 text-white'
                     : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
                 }`}
               >
@@ -578,6 +631,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
                 {filter === 'closed' && '✓ Closed'}
                 {filter === 'profitable' && '📈 Profitable'}
                 {filter === 'losses' && '📉 Losses'}
+                {filter === 'archived' && '📦 Archived'}
               </button>
             ))}
           </div>
@@ -647,7 +701,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
               disabled={isDeletingClosedTrades}
               className="ml-3 px-3 py-1 bg-red-500 hover:bg-red-600 disabled:bg-slate-400 text-white rounded text-sm font-medium transition"
             >
-              {isDeletingClosedTrades ? 'Deleting...' : 'Delete All'}
+              {isDeletingClosedTrades ? 'Archiving...' : 'Archive All'}
             </button>
           )}
         </div>
@@ -686,6 +740,57 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         )}
       </div>
 
+      {/* Archived Trades (admin only, visible when archived filter is active) */}
+      {isAdmin && statusFilter === 'archived' && (
+        <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-700 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setIsArchivedCollapsed(!isArchivedCollapsed)}
+            className="w-full flex items-center justify-between p-4 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 bg-amber-400 rounded-full"></div>
+              <h3 className="text-lg font-semibold text-amber-900 dark:text-amber-200">
+                Archived Trades ({archivedTrades.length})
+              </h3>
+            </div>
+            <svg className={`w-5 h-5 text-amber-500 transition-transform ${isArchivedCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {!isArchivedCollapsed && (
+            <div className="p-3 sm:p-4 border-t border-amber-200 dark:border-amber-700">
+              {archivedTrades.length === 0 ? (
+                <p className="text-center py-8 text-slate-500 dark:text-slate-400">No archived trades</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+                    {archivedTrades.map(trade => (
+                      <TradeCard key={trade.id} trade={trade} isOpen={false} />
+                    ))}
+                  </div>
+                  {hasMore && (
+                    <div className="flex justify-center mt-4 sm:mt-6" ref={scrollRef}>
+                      <button
+                        onClick={handleLoadMore}
+                        disabled={isLoadingMore}
+                        className={`w-full sm:w-auto px-6 py-3 sm:py-2 rounded-lg font-medium transition text-sm ${
+                          isLoadingMore
+                            ? 'bg-slate-300 dark:bg-slate-600 text-slate-500 cursor-not-allowed'
+                            : 'bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/50 active:bg-amber-300'
+                        }`}
+                      >
+                        {isLoadingMore ? 'Loading...' : 'Load More'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Notification Modal */}
       <NotificationModal
         isOpen={notification !== null}
@@ -695,18 +800,48 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         onClose={() => setNotification(null)}
       />
 
-      {/* Confirmation Modal for Delete All */}
+      {/* Confirmation Modal for Close Position */}
+      {closeConfirm && (
+        <ConfirmationModal
+          isOpen={closeConfirm !== null}
+          title="Close Position"
+          message={`Close your ${closeConfirm.pair} position at ~$${(currentPrices[closeConfirm.pair] || 0).toFixed(2)}? This will place a market sell order on the exchange.`}
+          confirmText="Close Position"
+          cancelText="Cancel"
+          isDangerous={true}
+          isLoading={closingTrade === closeConfirm.id}
+          onConfirm={handleConfirmClose}
+          onCancel={() => setCloseConfirm(null)}
+        />
+      )}
+
+      {/* Confirmation Modal for Archive All */}
       {confirmDialog && (
         <ConfirmationModal
           isOpen={confirmDialog !== null}
-          title="Delete All Closed Trades"
-          message={`Delete all ${confirmDialog.closedCount} closed trades? This action cannot be undone.`}
-          confirmText="Delete All"
+          title="Archive All Closed Trades"
+          message={`Archive ${confirmDialog.closedCount} closed trades? They will be hidden from the dashboard but preserved for reporting and tax records.`}
+          confirmText="Archive All"
           cancelText="Cancel"
-          isDangerous={true}
+          isDangerous={false}
           isLoading={isDeletingClosedTrades}
           onConfirm={handleConfirmDeleteAllClosedTrades}
           onCancel={() => setConfirmDialog(null)}
+        />
+      )}
+
+      {/* Confirmation Modal for Archive Single Trade */}
+      {deleteTradeConfirm && (
+        <ConfirmationModal
+          isOpen={deleteTradeConfirm !== null}
+          title="Archive Trade"
+          message={`Archive this ${deleteTradeConfirm.pair} trade? It will be hidden from the dashboard but preserved for reporting.`}
+          confirmText="Archive"
+          cancelText="Cancel"
+          isDangerous={false}
+          isLoading={isDeletingTrade === deleteTradeConfirm.id}
+          onConfirm={handleDeleteSingleTrade}
+          onCancel={() => setDeleteTradeConfirm(null)}
         />
       )}
     </div>

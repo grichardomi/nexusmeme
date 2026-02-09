@@ -6,7 +6,9 @@ import { logger } from '@/lib/logger';
 
 /**
  * POST /api/admin/trades/delete-closed
- * Delete all closed trades for a bot (admin only)
+ * Archive all closed trades for a bot (admin only)
+ * Soft-delete: sets status='archived' instead of deleting rows.
+ * Data preserved for performance fees, tax reporting, and audit trail.
  *
  * Request body:
  * {
@@ -17,20 +19,18 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
-    // Check authentication
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check admin role
     const userRole = (session.user as any)?.role;
     if (userRole !== 'admin') {
-      logger.warn('Non-admin user attempted to delete closed trades', {
+      logger.warn('Non-admin user attempted to archive closed trades', {
         userId: session.user.id,
         userRole,
       });
       return NextResponse.json(
-        { error: 'Only admins can delete trades' },
+        { error: 'Only admins can archive trades' },
         { status: 403 }
       );
     }
@@ -45,12 +45,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    logger.info('Admin deleting closed trades', {
+    logger.info('Admin archiving closed trades', {
       adminId: session.user.id,
       botId,
     });
 
-    // Get count of closed trades before deletion
     const countBefore = await query(
       `SELECT COUNT(*) as count FROM trades
        WHERE bot_instance_id = $1 AND status = 'closed'`,
@@ -62,40 +61,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         deletedCount: 0,
-        message: 'No closed trades to delete',
+        message: 'No closed trades to archive',
       });
     }
 
-    // Delete all closed trades for this bot
+    // Soft-delete: archive instead of delete
     const result = await query(
-      `DELETE FROM trades
+      `UPDATE trades SET status = 'archived'
        WHERE bot_instance_id = $1 AND status = 'closed'
        RETURNING id`,
       [botId]
     );
 
-    const deletedCount = result.length;
+    const archivedCount = result.length;
 
-    logger.info('Closed trades deleted', {
+    logger.info('Closed trades archived', {
       adminId: session.user.id,
       botId,
-      deletedCount,
+      archivedCount,
       targetCount: closedCount,
     });
 
     return NextResponse.json({
       success: true,
-      deletedCount,
-      message: `Successfully deleted ${deletedCount} closed trades`,
+      deletedCount: archivedCount,
+      message: `Successfully archived ${archivedCount} closed trades`,
     });
   } catch (error) {
     logger.error(
-      'Error deleting closed trades',
+      'Error archiving closed trades',
       error instanceof Error ? error : null
     );
 
     return NextResponse.json(
-      { error: 'Failed to delete closed trades' },
+      { error: 'Failed to archive closed trades' },
       { status: 500 }
     );
   }

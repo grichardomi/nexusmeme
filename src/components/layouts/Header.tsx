@@ -25,12 +25,16 @@ export function Header() {
     setMounted(true);
   }, []);
 
+  // Dashboard and admin pages have their own headers - don't render global header
+  if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
+    return null;
+  }
+
   // Show back button on detail/sub pages (not on main landing pages)
   const showBackButton = pathname !== '/' &&
                          pathname !== '/pricing' &&
                          pathname !== '/auth/signin' &&
-                         pathname !== '/auth/signup' &&
-                         !pathname.startsWith('/dashboard'); // Dashboard has its own back button in DashboardLayout
+                         pathname !== '/auth/signup';
 
   return (
     <header className="sticky top-0 z-50 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
