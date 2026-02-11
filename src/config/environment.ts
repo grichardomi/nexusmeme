@@ -250,12 +250,12 @@ const envSchema = z.object({
   PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.05'), // 5% - developing trends
   PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.20'), // 20% - MAXIMIZE strong trends!
 
-  /* Early Loss Time-Based Thresholds - Philosophy: Exit fast, don't let slow bleeds persist */
-  EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.008'), // 1-5 min: -0.8% (exit fast on momentum shift)
-  EARLY_LOSS_MINUTE_15_30: z.string().transform(Number).default('-0.015'), // 5-30 min: -1.5% (prevents slow bleeds)
-  EARLY_LOSS_HOUR_1_3: z.string().transform(Number).default('-0.025'), // 30min-3h: -2.5% (protect from extended downside)
-  EARLY_LOSS_HOUR_4_PLUS: z.string().transform(Number).default('-0.035'), // 4+ hours: -3.5% (breathing room for longer holds)
-  EARLY_LOSS_DAILY: z.string().transform(Number).default('-0.045'), // 1+ days: -4.5% (patient on daily holds)
+  /* Early Loss Time-Based Thresholds - Philosophy: TIGHTEN with age (older losers = cut faster) */
+  EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.01'), // 0-5 min: -1.0% (entry noise buffer)
+  EARLY_LOSS_MINUTE_15_30: z.string().transform(Number).default('-0.008'), // 5-30 min: -0.8% (should be recovering)
+  EARLY_LOSS_HOUR_1_3: z.string().transform(Number).default('-0.006'), // 30min-3h: -0.6% (bad entry confirmed)
+  EARLY_LOSS_HOUR_4_PLUS: z.string().transform(Number).default('-0.004'), // 4+ hours: -0.4% (no edge, cut it)
+  EARLY_LOSS_DAILY: z.string().transform(Number).default('-0.003'), // 1+ days: -0.3% (should never sit this long)
 
   /* Stale Underwater Exit - catches slow bleeds that early loss misses */
   /* If trade was NEVER profitable and stays negative past this age → exit */
@@ -452,11 +452,11 @@ function getDefaultEnvironment(): Environment {
     PROFIT_TARGET_WEAK: 0.025,      // 2.5% - weak trends
     PROFIT_TARGET_MODERATE: 0.05,   // 5% - developing trends
     PROFIT_TARGET_STRONG: 0.20,     // 20% - MAXIMIZE strong trends!
-    EARLY_LOSS_MINUTE_1_5: -0.008,
-    EARLY_LOSS_MINUTE_15_30: -0.015,
-    EARLY_LOSS_HOUR_1_3: -0.025,
-    EARLY_LOSS_HOUR_4_PLUS: -0.035,
-    EARLY_LOSS_DAILY: -0.045,
+    EARLY_LOSS_MINUTE_1_5: -0.01,
+    EARLY_LOSS_MINUTE_15_30: -0.008,
+    EARLY_LOSS_HOUR_1_3: -0.006,
+    EARLY_LOSS_HOUR_4_PLUS: -0.004,
+    EARLY_LOSS_DAILY: -0.003,
     STALE_UNDERWATER_MINUTES: 30,
     STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
     PERFORMANCE_FEE_RATE: 0.15,

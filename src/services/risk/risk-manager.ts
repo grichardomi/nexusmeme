@@ -181,14 +181,22 @@ class RiskManager {
 
     // MOMENTUM OVERRIDE: ADX is low but price is clearly moving (strong 1h momentum)
     // ADX is a lagging indicator — when price breaks out, ADX takes several candles to catch up.
-    // Allow entry at reduced size when momentum proves the move is real.
-    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry && mom1h >= momentumOverrideMin) {
-      console.log(`\n🚀 MOMENTUM OVERRIDE: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + momentum1h=${mom1h.toFixed(2)}% >= ${momentumOverrideMin}% → ALLOW at reduced size`);
-      logger.info('RiskManager: Momentum override - strong 1h momentum overrides low ADX', {
+    // CRITICAL: Require BOTH slope + momentum to prevent false breakouts
+    // - Slope confirms trend is FORMING (not just price spike)
+    // - Momentum confirms price is MOVING directionally
+    // - Together = strong signal that ADX will catch up
+    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry &&
+        slope >= slopeRisingThreshold &&
+        mom1h >= momentumOverrideMin) {
+      console.log(`\n🚀 MOMENTUM OVERRIDE: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + slope=${slope.toFixed(2)} >= ${slopeRisingThreshold} + momentum1h=${mom1h.toFixed(2)}% >= ${momentumOverrideMin}% → ALLOW at reduced size`);
+      logger.info('RiskManager: Momentum override - slope + momentum confirm trend forming', {
         adx,
+        adxSlope: slope,
+        slopeThreshold: slopeRisingThreshold,
         momentum1h: mom1h,
         momentumOverrideThreshold: momentumOverrideMin,
         transitionZoneMin,
+        note: 'BOTH slope + momentum required to prevent false breakouts',
       });
       return {
         pass: true,
@@ -197,6 +205,18 @@ class RiskManager {
         adxSlope: slope,
         isTransitioning: true,
       };
+    }
+
+    // Log when momentum override is blocked due to missing slope confirmation
+    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry && mom1h >= momentumOverrideMin && slope < slopeRisingThreshold) {
+      console.log(`\n⚠️ MOMENTUM BLOCKED: Strong momentum (${mom1h.toFixed(2)}%) but slope too weak (${slope.toFixed(2)} < ${slopeRisingThreshold}) - prevents false breakouts`);
+      logger.info('RiskManager: Momentum override blocked - slope confirmation missing', {
+        adx,
+        adxSlope: slope,
+        slopeThreshold: slopeRisingThreshold,
+        momentum1h: mom1h,
+        reason: 'Prevents false breakouts - momentum alone insufficient without rising ADX slope',
+      });
     }
 
     // /nexus parity: BLOCK entries in choppy markets (ADX < threshold)

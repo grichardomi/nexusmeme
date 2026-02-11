@@ -930,8 +930,8 @@ class TradeSignalOrchestrator {
 
   /**
    * Calculate early loss threshold based on trade age
-   * Implements philosophy: More aggressive exits on young losing trades
-   * Philosophy: EARLY_LOSS_MINUTE_1_5 -> MINUTE_15_30 -> HOUR_1_3 -> HOUR_4_PLUS -> DAILY
+   * Philosophy: Thresholds TIGHTEN with age (older losers = worse entries, cut faster)
+   * 0-5min: -1.0% (entry noise), 5-30min: -0.8%, 30min-3h: -0.6%, 4h+: -0.4%, 1d+: -0.3%
    */
   private getEarlyLossThreshold(tradeAgeMinutes: number): number {
     const env = getEnvironmentConfig();
