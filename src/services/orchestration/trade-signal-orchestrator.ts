@@ -44,6 +44,7 @@ class TradeSignalOrchestrator {
   private ohlcCache = new Map<string, { data: any[], timestamp: number }>();
   private readonly OHLC_CACHE_TTL_MS = 120000; // 120 seconds TTL (15m candles are stable, reduces Kraken API calls)
 
+
   /**
    * Helper: Parse entry_time correctly (handle string or Date object from database)
    * CRITICAL: PostgreSQL returns 'timestamp without time zone' as strings without timezone info.
@@ -592,11 +593,32 @@ class TradeSignalOrchestrator {
             continue; // Skip this pair
           }
 
-          // REMOVED: Intrabar confirm gate - NOT in /nexus, blocks valid entries
-          // /nexus uses ADX + momentum + volume for entry gating, not intrabar candle direction
-          // The 5-stage risk filter below handles all entry quality checks
+          // INTRABAR MOMENTUM CHECK (CHOPPY ONLY): Don't enter when price is falling in choppy markets
+          // In trending markets (ADX >= 20), small red candles are normal pullbacks — don't block
+          // In choppy markets (ADX < 20), candle direction matters — avoid entering on red candles
+          const adx = indicators.adx ?? 0;
+          if (adx < 20) {
+            const minIntrabar = env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.05;
+            if (intrabarMomentum < minIntrabar) {
+              console.log(`\n🔴 INTRABAR BLOCKED (choppy): ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (ADX ${adx.toFixed(1)} < 20)`);
+              logger.info('Orchestrator: entry blocked - intrabar momentum in choppy market', {
+                pair,
+                intrabarMomentum: intrabarMomentum.toFixed(3),
+                minIntrabar,
+                adx: adx.toFixed(1),
+              });
+              rejectedSignals.push({
+                pair,
+                reason: 'intrabar_negative',
+                details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (choppy ADX ${adx.toFixed(1)})`,
+                stage: 'Pre-Filter',
+              });
+              continue;
+            }
+          }
+          // ADX >= 20: skip intrabar check — trend context makes small red candles irrelevant
 
-          // Run 5-stage risk filter (matching /nexus behavior)
+          // Run 5-stage risk filter
           const ticker = { bid, ask, spread: spreadPct }; // Use real bid/ask data
 
           const riskFilter = await riskManager.runFullRiskFilter(
@@ -929,23 +951,48 @@ class TradeSignalOrchestrator {
   }
 
   /**
-   * Calculate early loss threshold based on trade age
-   * Philosophy: Thresholds TIGHTEN with age (older losers = worse entries, cut faster)
-   * 0-5min: -1.0% (entry noise), 5-30min: -0.8%, 30min-3h: -0.6%, 4h+: -0.4%, 1d+: -0.3%
+   * Calculate early loss threshold based on trade age AND market regime
+   * Philosophy: REGIME-AWARE thresholds - tight in chop, loose in trends
+   *
+   * CHOPPY (ADX < 25): Tight thresholds - cut losers fast
+   *   0-5min: -1.0%, 5-30min: -0.8%, 30min-3h: -0.6%, 4h+: -0.4%, 1d+: -0.3%
+   *
+   * TRENDING (ADX >= 25): Loose thresholds - allow pullbacks
+   *   0-5min: -1.5%, 5-30min: -2.5%, 30min-3h: -3.5%, 4h+: -4.5%, 1d+: -5.5%
    */
-  private getEarlyLossThreshold(tradeAgeMinutes: number): number {
+  private getEarlyLossThreshold(tradeAgeMinutes: number, regime: string = 'moderate'): number {
     const env = getEnvironmentConfig();
+
+    // Determine if regime is trending or choppy
+    // Trending = moderate/strong (ADX >= 25), Choppy = choppy/weak/transitioning (ADX < 25)
+    const isTrending = regime === 'moderate' || regime === 'strong';
+
+    // Select thresholds based on regime
+    const thresholds = isTrending ? {
+      minute_1_5: env.EARLY_LOSS_TRENDING_MINUTE_1_5,
+      minute_15_30: env.EARLY_LOSS_TRENDING_MINUTE_15_30,
+      hour_1_3: env.EARLY_LOSS_TRENDING_HOUR_1_3,
+      hour_4_plus: env.EARLY_LOSS_TRENDING_HOUR_4_PLUS,
+      daily: env.EARLY_LOSS_TRENDING_DAILY,
+    } : {
+      minute_1_5: env.EARLY_LOSS_CHOPPY_MINUTE_1_5,
+      minute_15_30: env.EARLY_LOSS_CHOPPY_MINUTE_15_30,
+      hour_1_3: env.EARLY_LOSS_CHOPPY_HOUR_1_3,
+      hour_4_plus: env.EARLY_LOSS_CHOPPY_HOUR_4_PLUS,
+      daily: env.EARLY_LOSS_CHOPPY_DAILY,
+    };
+
     // Returns threshold as decimal (e.g., -0.015 for -1.5%)
     if (tradeAgeMinutes <= 5) {
-      return env.EARLY_LOSS_MINUTE_1_5; // -1.5% by default
+      return thresholds.minute_1_5;
     } else if (tradeAgeMinutes <= 30) {
-      return env.EARLY_LOSS_MINUTE_15_30; // -2.5% by default
+      return thresholds.minute_15_30;
     } else if (tradeAgeMinutes <= 180) { // 3 hours
-      return env.EARLY_LOSS_HOUR_1_3; // -3.5% by default
+      return thresholds.hour_1_3;
     } else if (tradeAgeMinutes <= 1440) { // 24 hours
-      return env.EARLY_LOSS_HOUR_4_PLUS; // -4.5% by default
+      return thresholds.hour_4_plus;
     } else {
-      return env.EARLY_LOSS_DAILY; // -5.5% by default (1+ day)
+      return thresholds.daily; // 1+ day
     }
   }
 
@@ -1466,18 +1513,21 @@ class TradeSignalOrchestrator {
                 ageMinutes: tradeAgeMinutes.toFixed(1),
               });
             }
-            // B & C) EARLY LOSS — time-scaled thresholds (no blanket 15min gate)
-            // Thresholds scale with age: -1.5% (0-5min), -2.5% (5-30min), -3.5% (30min-3h), etc.
-            // The thresholds themselves provide the patience — tighter early, looser later.
+            // B & C) EARLY LOSS — time-scaled AND REGIME-AWARE thresholds
+            // Choppy (ADX < 25): Tight thresholds - cut losers fast
+            // Trending (ADX >= 25): Loose thresholds - allow pullbacks
             else {
-              const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes) * 100;
+              const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes, regime) * 100;
 
               if (grossProfitPct < earlyLossThreshold) {
                 shouldClose = true;
                 exitReason = peakPct > 0 ? 'underwater_small_peak_timeout' : 'underwater_never_profited';
-                logger.info('🔴 EARLY LOSS - age-scaled threshold hit', {
+                const isTrending = regime === 'moderate' || regime === 'strong';
+                logger.info(`🔴 EARLY LOSS - ${isTrending ? 'TRENDING' : 'CHOPPY'} regime threshold hit`, {
                   tradeId: trade.id,
                   pair: trade.pair,
+                  regime,
+                  thresholdType: isTrending ? 'loose (trending)' : 'tight (choppy)',
                   grossProfitPct: grossProfitPct.toFixed(2) + '%',
                   netProfitPct: currentProfitPct.toFixed(2) + '%',
                   threshold: earlyLossThreshold.toFixed(2) + '%',

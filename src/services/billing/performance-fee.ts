@@ -100,7 +100,7 @@ export async function getPendingFees(userId: string): Promise<PerformanceFeeReco
   try {
     const result = await query(
       `SELECT * FROM performance_fees
-       WHERE user_id = $1 AND status = 'pending_billing'
+       WHERE user_id = $1::uuid AND status = 'pending_billing'
        ORDER BY created_at DESC`,
       [userId]
     );
@@ -127,7 +127,7 @@ export async function getUserFeeSummary(userId: string) {
          SUM(CASE WHEN status = 'billed' THEN fee_amount ELSE 0 END)::DECIMAL as billed_fees,
          COUNT(*)::INT as profitable_trades
        FROM performance_fees
-       WHERE user_id = $1`,
+       WHERE user_id = $1::uuid`,
       [userId]
     );
 
@@ -164,8 +164,8 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
          pf.created_at,
          t.exit_time
        FROM performance_fees pf
-       LEFT JOIN trades t ON t.id = pf.trade_id
-       WHERE pf.user_id = $1
+       LEFT JOIN trades t ON t.id::text = pf.trade_id
+       WHERE pf.user_id = $1::uuid
        ORDER BY pf.created_at DESC
        LIMIT $2`,
       [userId, limit]

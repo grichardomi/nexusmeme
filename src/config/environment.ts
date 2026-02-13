@@ -152,7 +152,7 @@ const envSchema = z.object({
 
   /* Minimum peak profit before collapse protection kicks in (AGGRESSIVE) */
   /* Philosophy: Protect ALL peaks (0.1%+), close early on pullback */
-  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.001'), // 0.1% - protect tiny peaks
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - protect only meaningful peaks
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - small-profit dead zone (prevents micro-peak false exits)
@@ -162,21 +162,21 @@ const envSchema = z.object({
   UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
   /* Peak-Relative Erosion (/nexus parity - 30% of peak eroded = exit) */
-  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.30'), // 30% - exit if 30% of peak eroded (/nexus parity)
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.50'), // 50% - allow deeper pullbacks before locking profit
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
 
   /* Regime-based Erosion Caps (VERY AGGRESSIVE - lock profits quickly) */
   /* Lower = keep more profit, close faster on pullback */
-  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.02'), // 2% - exit fast in chop
-  EROSION_CAP_WEAK: z.string().transform(Number).default('0.02'), // 2% - exit fast in weak trends
-  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.03'), // 3% - balanced for moderate
-  EROSION_CAP_STRONG: z.string().transform(Number).default('0.05'), // 5% - let strong trends breathe
+  EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.05'), // 5% - exit fast in chop (keeps 95% of peak)
+  EROSION_CAP_WEAK: z.string().transform(Number).default('0.05'), // 5% - exit fast in weak trends
+  EROSION_CAP_MODERATE: z.string().transform(Number).default('0.08'), // 8% - balanced for moderate
+  EROSION_CAP_STRONG: z.string().transform(Number).default('0.15'), // 15% - let strong trends breathe
   EROSION_CAP_EXECUTION_BUFFER: z.string().transform(Number).default('0.80'), // Exit at 80% of cap (leaves 20% buffer for fees + execution lag)
   EROSION_CAP_DEGRADED_MODE_MULTIPLIER: z.string().transform(Number).default('3.0'), // 3x more conservative in degraded mode (prevents false exits)
   EROSION_CAP_DEGRADED_MODE_MIN: z.string().transform(Number).default('0.50'), // 50% minimum erosion cap in degraded mode
   EROSION_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.02'), // Require at least +0.02% P&L to exit via erosion cap (stay green)
-  EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.001'), // 0.1% - allow tiny exits
-  EROSION_MIN_PROFIT_FLOOR_USD: z.string().transform(Number).default('0.50'), // $0.50 floor
+  EROSION_MIN_PROFIT_TO_CLOSE: z.string().transform(Number).default('0.004'), // 0.4% - covers round-trip fees
+  EROSION_MIN_PROFIT_FLOOR_USD: z.string().transform(Number).default('2.00'), // $2 floor to avoid fee churn
   EROSION_MIN_HOLD_SECONDS: z.string().transform(Number).default('60'), // 60 seconds - minimum hold before erosion cap can fire (prevents instant exits)
 
   /* Fee Estimation - CRITICAL: Account for BOTH entry and exit fees */
@@ -250,12 +250,29 @@ const envSchema = z.object({
   PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.05'), // 5% - developing trends
   PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.20'), // 20% - MAXIMIZE strong trends!
 
-  /* Early Loss Time-Based Thresholds - Philosophy: TIGHTEN with age (older losers = cut faster) */
-  EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.01'), // 0-5 min: -1.0% (entry noise buffer)
-  EARLY_LOSS_MINUTE_15_30: z.string().transform(Number).default('-0.008'), // 5-30 min: -0.8% (should be recovering)
-  EARLY_LOSS_HOUR_1_3: z.string().transform(Number).default('-0.006'), // 30min-3h: -0.6% (bad entry confirmed)
-  EARLY_LOSS_HOUR_4_PLUS: z.string().transform(Number).default('-0.004'), // 4+ hours: -0.4% (no edge, cut it)
-  EARLY_LOSS_DAILY: z.string().transform(Number).default('-0.003'), // 1+ days: -0.3% (should never sit this long)
+  /* Early Loss Time-Based Thresholds - REGIME-AWARE */
+  /* Philosophy: Adapt to market conditions - tight in chop, loose in trends */
+
+  /* CHOPPY REGIME (ADX < 25) - Tight thresholds for quick exits */
+  EARLY_LOSS_CHOPPY_MINUTE_1_5: z.string().transform(Number).default('-0.01'),      // -1.0%
+  EARLY_LOSS_CHOPPY_MINUTE_15_30: z.string().transform(Number).default('-0.008'),   // -0.8%
+  EARLY_LOSS_CHOPPY_HOUR_1_3: z.string().transform(Number).default('-0.006'),       // -0.6%
+  EARLY_LOSS_CHOPPY_HOUR_4_PLUS: z.string().transform(Number).default('-0.004'),    // -0.4%
+  EARLY_LOSS_CHOPPY_DAILY: z.string().transform(Number).default('-0.003'),          // -0.3%
+
+  /* TRENDING REGIME (ADX >= 25) - Loose thresholds to allow pullbacks */
+  EARLY_LOSS_TRENDING_MINUTE_1_5: z.string().transform(Number).default('-0.015'),   // -1.5%
+  EARLY_LOSS_TRENDING_MINUTE_15_30: z.string().transform(Number).default('-0.025'), // -2.5%
+  EARLY_LOSS_TRENDING_HOUR_1_3: z.string().transform(Number).default('-0.035'),     // -3.5%
+  EARLY_LOSS_TRENDING_HOUR_4_PLUS: z.string().transform(Number).default('-0.045'),  // -4.5%
+  EARLY_LOSS_TRENDING_DAILY: z.string().transform(Number).default('-0.055'),        // -5.5%
+
+  /* Legacy fallback thresholds (use choppy values for safety) */
+  EARLY_LOSS_MINUTE_1_5: z.string().transform(Number).default('-0.01'),
+  EARLY_LOSS_MINUTE_15_30: z.string().transform(Number).default('-0.008'),
+  EARLY_LOSS_HOUR_1_3: z.string().transform(Number).default('-0.006'),
+  EARLY_LOSS_HOUR_4_PLUS: z.string().transform(Number).default('-0.004'),
+  EARLY_LOSS_DAILY: z.string().transform(Number).default('-0.003'),
 
   /* Stale Underwater Exit - catches slow bleeds that early loss misses */
   /* If trade was NEVER profitable and stays negative past this age → exit */
@@ -398,22 +415,22 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
-    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.001, // 0.1% - protect tiny peaks (AGGRESSIVE)
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005, // 0.5% - protect meaningful peaks
     EROSION_MIN_PEAK_PCT: 0.005, // 0.5% - small-profit dead zone (prevents micro-peak false exits)
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
-    EROSION_PEAK_RELATIVE_THRESHOLD: 0.30, // 30% - exit if 30% eroded (/nexus parity)
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.50, // 50% - allow deeper pullbacks before locking profit
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
-    EROSION_CAP_CHOPPY: 0.02, // 2% - exit fast in chop (keep 98% of peak)
-    EROSION_CAP_WEAK: 0.02, // 2% - exit fast in weak trends
-    EROSION_CAP_MODERATE: 0.03, // 3% - balanced for moderate trends
-    EROSION_CAP_STRONG: 0.05, // 5% - let strong trends breathe
+    EROSION_CAP_CHOPPY: 0.05, // 5% - exit fast in chop (keep 95% of peak)
+    EROSION_CAP_WEAK: 0.05, // 5% - exit fast in weak trends
+    EROSION_CAP_MODERATE: 0.08, // 8% - balanced for moderate trends
+    EROSION_CAP_STRONG: 0.15, // 15% - let strong trends breathe
     EROSION_CAP_EXECUTION_BUFFER: 0.80, // Exit at 80% of cap (20% safety buffer)
     EROSION_CAP_DEGRADED_MODE_MULTIPLIER: 3.0, // 3x more conservative
     EROSION_CAP_DEGRADED_MODE_MIN: 0.50, // 50% minimum
     EROSION_MIN_EXIT_PROFIT_PCT: 0.02,
-    EROSION_MIN_PROFIT_TO_CLOSE: 0.001, // 0.1% - allow tiny exits
-    EROSION_MIN_PROFIT_FLOOR_USD: 0.50, // $0.50 floor
+    EROSION_MIN_PROFIT_TO_CLOSE: 0.004, // 0.4% - covers round-trip fees
+    EROSION_MIN_PROFIT_FLOOR_USD: 2.00, // $2 floor
     EROSION_MIN_HOLD_SECONDS: 60, // 60 seconds minimum hold before erosion cap
     ESTIMATED_ENTRY_FEE_PCT: 0.003, // 0.3% entry fee (total 0.6% round-trip)
     ESTIMATED_EXIT_FEE_PCT: 0.003, // 0.3% exit fee
@@ -452,6 +469,16 @@ function getDefaultEnvironment(): Environment {
     PROFIT_TARGET_WEAK: 0.025,      // 2.5% - weak trends
     PROFIT_TARGET_MODERATE: 0.05,   // 5% - developing trends
     PROFIT_TARGET_STRONG: 0.20,     // 20% - MAXIMIZE strong trends!
+    EARLY_LOSS_CHOPPY_MINUTE_1_5: -0.01,
+    EARLY_LOSS_CHOPPY_MINUTE_15_30: -0.008,
+    EARLY_LOSS_CHOPPY_HOUR_1_3: -0.006,
+    EARLY_LOSS_CHOPPY_HOUR_4_PLUS: -0.004,
+    EARLY_LOSS_CHOPPY_DAILY: -0.003,
+    EARLY_LOSS_TRENDING_MINUTE_1_5: -0.015,
+    EARLY_LOSS_TRENDING_MINUTE_15_30: -0.025,
+    EARLY_LOSS_TRENDING_HOUR_1_3: -0.035,
+    EARLY_LOSS_TRENDING_HOUR_4_PLUS: -0.045,
+    EARLY_LOSS_TRENDING_DAILY: -0.055,
     EARLY_LOSS_MINUTE_1_5: -0.01,
     EARLY_LOSS_MINUTE_15_30: -0.008,
     EARLY_LOSS_HOUR_1_3: -0.006,

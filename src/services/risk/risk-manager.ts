@@ -160,62 +160,52 @@ class RiskManager {
       };
     }
 
-    // TRANSITION ZONE: ADX 15-20 but slope rising fast → trend is forming
-    // Allow entry at reduced position size instead of hard block
-    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry && slope >= slopeRisingThreshold) {
-      console.log(`\n🔄 TRANSITION ZONE: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + slope=${slope.toFixed(2)} >= ${slopeRisingThreshold} → ALLOW at reduced size`);
-      logger.info('RiskManager: Transition zone detected - allowing entry at reduced size', {
-        adx,
-        adxSlope: slope,
-        slopeThreshold: slopeRisingThreshold,
-        transitionZoneMin,
-      });
-      return {
-        pass: true,
-        stage: 'Health Gate',
-        adx,
-        adxSlope: slope,
-        isTransitioning: true,
-      };
-    }
+    // TRANSITION ZONE with MOMENTUM OVERRIDE (merged — BOTH required)
+    // ADX 12-20 entries ONLY allowed when:
+    //   1. Slope >= threshold (trend is FORMING, not just noise)
+    //   2. Momentum >= threshold (price is MOVING directionally)
+    // Without both, entries in low-ADX go immediately underwater.
+    // ADX is lagging — slope + momentum together confirm ADX will catch up.
+    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry) {
+      const hasSlope = slope >= slopeRisingThreshold;
+      const hasMomentum = mom1h >= momentumOverrideMin;
 
-    // MOMENTUM OVERRIDE: ADX is low but price is clearly moving (strong 1h momentum)
-    // ADX is a lagging indicator — when price breaks out, ADX takes several candles to catch up.
-    // CRITICAL: Require BOTH slope + momentum to prevent false breakouts
-    // - Slope confirms trend is FORMING (not just price spike)
-    // - Momentum confirms price is MOVING directionally
-    // - Together = strong signal that ADX will catch up
-    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry &&
-        slope >= slopeRisingThreshold &&
-        mom1h >= momentumOverrideMin) {
-      console.log(`\n🚀 MOMENTUM OVERRIDE: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + slope=${slope.toFixed(2)} >= ${slopeRisingThreshold} + momentum1h=${mom1h.toFixed(2)}% >= ${momentumOverrideMin}% → ALLOW at reduced size`);
-      logger.info('RiskManager: Momentum override - slope + momentum confirm trend forming', {
+      if (hasSlope && hasMomentum) {
+        console.log(`\n🚀 TRANSITION + MOMENTUM: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + slope=${slope.toFixed(2)} >= ${slopeRisingThreshold} + mom1h=${mom1h.toFixed(2)}% >= ${momentumOverrideMin}% → ALLOW at reduced size`);
+        logger.info('RiskManager: Transition zone - slope + momentum confirm trend forming', {
+          adx,
+          adxSlope: slope,
+          slopeThreshold: slopeRisingThreshold,
+          momentum1h: mom1h,
+          momentumOverrideThreshold: momentumOverrideMin,
+          transitionZoneMin,
+          note: 'BOTH slope + momentum required to prevent false breakouts',
+        });
+        return {
+          pass: true,
+          stage: 'Health Gate',
+          adx,
+          adxSlope: slope,
+          isTransitioning: true,
+        };
+      }
+
+      // Log why transition zone was blocked
+      if (!hasSlope && !hasMomentum) {
+        console.log(`\n⚠️ TRANSITION BLOCKED: ADX=${adx.toFixed(1)} in zone, but slope ${slope.toFixed(2)} < ${slopeRisingThreshold} AND momentum ${mom1h.toFixed(2)}% < ${momentumOverrideMin}%`);
+      } else if (!hasSlope) {
+        console.log(`\n⚠️ TRANSITION BLOCKED: momentum OK (${mom1h.toFixed(2)}%) but slope too weak (${slope.toFixed(2)} < ${slopeRisingThreshold}) - prevents false breakouts`);
+      } else {
+        console.log(`\n⚠️ TRANSITION BLOCKED: slope OK (${slope.toFixed(2)}) but momentum too weak (${mom1h.toFixed(2)}% < ${momentumOverrideMin}%) - prevents chop entries`);
+      }
+      logger.info('RiskManager: Transition zone blocked - missing slope or momentum confirmation', {
         adx,
         adxSlope: slope,
         slopeThreshold: slopeRisingThreshold,
         momentum1h: mom1h,
-        momentumOverrideThreshold: momentumOverrideMin,
-        transitionZoneMin,
-        note: 'BOTH slope + momentum required to prevent false breakouts',
-      });
-      return {
-        pass: true,
-        stage: 'Health Gate',
-        adx,
-        adxSlope: slope,
-        isTransitioning: true,
-      };
-    }
-
-    // Log when momentum override is blocked due to missing slope confirmation
-    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry && mom1h >= momentumOverrideMin && slope < slopeRisingThreshold) {
-      console.log(`\n⚠️ MOMENTUM BLOCKED: Strong momentum (${mom1h.toFixed(2)}%) but slope too weak (${slope.toFixed(2)} < ${slopeRisingThreshold}) - prevents false breakouts`);
-      logger.info('RiskManager: Momentum override blocked - slope confirmation missing', {
-        adx,
-        adxSlope: slope,
-        slopeThreshold: slopeRisingThreshold,
-        momentum1h: mom1h,
-        reason: 'Prevents false breakouts - momentum alone insufficient without rising ADX slope',
+        momentumThreshold: momentumOverrideMin,
+        hasSlope,
+        hasMomentum,
       });
     }
 
@@ -426,7 +416,7 @@ class RiskManager {
       };
     }
 
-    // Require minimum momentum - 3 entry paths (matches /nexus exactly)
+    // Require minimum momentum - 4 entry paths (adaptive to market conditions)
     // Path 1: Strong 1h momentum exceeds configured threshold
     const has1hMomentum = momentum1h > this.config.minMomentum1h;
     // Path 2: Both timeframes show meaningful momentum (> minMomentum threshold)
@@ -434,37 +424,59 @@ class RiskManager {
       momentum1h > this.config.minMomentum1h &&
       momentum4h > this.config.minMomentum4h;
     // Path 3: Volume breakout (vol > 1.3x) with ANY positive 1h momentum
-    // /nexus uses momentum1h > 0 here — NOT the main threshold
     const hasVolumeBreakout =
       volumeRatio > this.config.volumeBreakoutRatio &&
       momentum1h > 0;
 
-    // /nexus EXACT entry gate: 3 paths ONLY
+    // Path 4: TRENDING PULLBACK — Strong 4h trend with shallow 1h dip (adaptive entry)
+    // When ADX >= 20 (trending market), allow entry if:
+    //   - 4h momentum is positive (> 0.3% — lower threshold since ADX confirms trend)
+    //   - 1h dip is shallow (> -0.3% — just noise, not reversal)
+    // This catches "creeping higher" scenarios where 1h has micro-dips within a clear uptrend
+    // Note: adx and isTrending already declared above (line 312, 319)
+    const trendingPullback4hMin = 0.003; // 0.3% (lower than main threshold since ADX confirms)
+    const has4hTrend = momentum4h > trendingPullback4hMin;
+    const shallowDipThreshold = -0.003; // -0.3% default
+    const isShallowDip = momentum1h > shallowDipThreshold;
+    const hasTrendingPullback = isTrending && has4hTrend && isShallowDip;
+
+    // Entry gate: 4 paths
     // 1. Strong 1h momentum (> 0.5%)
     // 2. Both timeframes positive (1h > 0.5% AND 4h > 0.5%)
     // 3. Volume breakout (vol > 1.3x AND 1h > 0%)
-    // NO other overrides - no intrabar, no creeping uptrend, no bullish sentiment, no strong trend override
-    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout;
+    // 4. Trending pullback (ADX >= 20, 4h > 0.5%, 1h > -0.3%)
+    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout || hasTrendingPullback;
 
     if (!passesEntryGate) {
-      logger.info('RiskManager: Entry blocked - weak momentum (/nexus 3-path gate)', {
+      logger.info('RiskManager: Entry blocked - weak momentum (4-path gate)', {
         pair,
         momentum1h: momentum1h.toFixed(2),
         momentum4h: momentum4h.toFixed(2),
         volumeRatio: volumeRatio.toFixed(2),
+        adx: adx.toFixed(1),
         has1hMomentum,
         hasBothPositive,
         hasVolumeBreakout,
+        hasTrendingPullback,
       });
       return {
         pass: false,
-        reason: `Weak momentum (1h=${momentum1h.toFixed(2)}%, 4h=${momentum4h.toFixed(2)}%, vol=${volumeRatio.toFixed(2)}x)`,
+        reason: `Weak momentum (1h=${momentum1h.toFixed(2)}%, 4h=${momentum4h.toFixed(2)}%, vol=${volumeRatio.toFixed(2)}x, ADX=${adx.toFixed(0)})`,
         stage: 'Entry Quality',
       };
     }
 
     // Log which path allowed entry
-    if (hasVolumeBreakout && !has1hMomentum && !hasBothPositive) {
+    if (hasTrendingPullback && !has1hMomentum && !hasBothPositive && !hasVolumeBreakout) {
+      logger.info('RiskManager: Trending pullback entry (adaptive)', {
+        pair,
+        momentum1h: momentum1h.toFixed(2),
+        momentum4h: momentum4h.toFixed(2),
+        adx: adx.toFixed(1),
+        note: 'Entering shallow dip within clear 4h uptrend',
+      });
+      console.log(`\n📈 TRENDING PULLBACK: ${pair} - 4h trend ${momentum4h.toFixed(2)}%, 1h dip ${momentum1h.toFixed(2)}% (shallow), ADX ${adx.toFixed(0)}`);
+    } else if (hasVolumeBreakout && !has1hMomentum && !hasBothPositive) {
       logger.info('RiskManager: Volume breakout entry', {
         pair,
         momentum1h: momentum1h.toFixed(2),
