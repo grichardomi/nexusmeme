@@ -288,12 +288,15 @@ export async function generateTradeSignalAI(
   const minMomentum4h = getEnv('RISK_MIN_MOMENTUM_4H') ?? 0.15;
   const volumeBreakoutRatio = getEnv('RISK_VOLUME_BREAKOUT_RATIO') ?? 1.3;
 
-  // 3-path gate (matches risk-manager.ts)
+  // 4-path gate (matches risk-manager.ts + strong trend consolidation)
   const hasStrongMomentum = momentum1h >= minMomentum1h;
   const hasBothPositive = momentum1h >= minMomentum1h && momentum4h >= minMomentum4h;
   const hasVolumeBreakout = volumeRatio >= volumeBreakoutRatio && momentum1h > 0;
+  // Path 4: Strong trend consolidation — 4h momentum strong, 1h pausing (not falling), ADX strong
+  const hasStrongTrendConsolidation = adx >= 35 && momentum4h >= 2.0 && momentum1h > -0.5;
 
-  const signal: TradeSignal = ((hasStrongMomentum || hasBothPositive || hasVolumeBreakout) && rsi <= 85) ? 'buy' : 'hold';
+  const rsiThreshold = adx >= 35 ? (getEnv('RISK_RSI_OVERBOUGHT_TRENDING') ?? 92) : 85;
+  const signal: TradeSignal = ((hasStrongMomentum || hasBothPositive || hasVolumeBreakout || hasStrongTrendConsolidation) && rsi <= rsiThreshold) ? 'buy' : 'hold';
 
   // Confidence score: base 50, apply boosters and penalties, clamp 0-100
   let confidence = 50;
@@ -340,10 +343,18 @@ export async function generateTradeSignalAI(
     factors.push(`4h momentum aligned +${momentum4h.toFixed(2)}%`);
   }
 
+  // Strong 4h trend boost (path 4: consolidation at highs)
+  if (momentum4h >= 2.0 && adx >= 35) {
+    confidence += 15;
+    factors.push(`strong 4h trend consolidation +${momentum4h.toFixed(2)}% (+15)`);
+  }
+
   // Penalties
   if (rsi > 80) {
-    confidence -= 10;
-    factors.push(`RSI ${rsi.toFixed(0)} overbought (-10)`);
+    // In strong trends (ADX≥35), high RSI is normal — reduce penalty
+    const rsiPenalty = adx >= 35 ? 3 : 10;
+    confidence -= rsiPenalty;
+    factors.push(`RSI ${rsi.toFixed(0)} overbought (-${rsiPenalty})`);
   }
 
   if (momentum4h < -2.0) {

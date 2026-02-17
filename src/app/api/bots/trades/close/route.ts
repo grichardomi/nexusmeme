@@ -143,15 +143,15 @@ export async function POST(req: NextRequest) {
       [userId, exchange]
     );
 
-    if (!keysResult || keysResult.length === 0) {
-      logger.warn('No API keys found for exchange', { userId, exchange });
+    if (!isPaperTrading && (!keysResult || keysResult.length === 0)) {
+      logger.warn('No API keys found for live trading exchange', { userId, exchange });
       return NextResponse.json(
         { error: 'No API keys configured for this exchange' },
         { status: 400 }
       );
     }
 
-    const keys = keysResult[0];
+    const keys = keysResult?.[0];
     let actualExitPrice = data.exitPrice;
     let actualProfitLoss = data.profitLoss;
     let actualProfitLossPercent = data.profitLossPercent;
@@ -171,18 +171,24 @@ export async function POST(req: NextRequest) {
         const decryptedSecretKey = decrypt(keys.encrypted_secret_key);
 
         const adapter = getExchangeAdapter(exchange);
-        await adapter.connect({
+        // Use connectNoValidate to avoid unnecessary getBalances() API call
+        // Keys are already trusted (fetched from DB) — no need to validate on every close
+        adapter.connectNoValidate({
           publicKey: decryptedPublicKey,
           secretKey: decryptedSecretKey,
         });
 
         // Compute minimum net-positive exit price and place IOC
+        // Hoist entryInfo to outer scope to reuse for P&L calculation (avoids second DB read that
+        // can read a race-corrupted fee value if a concurrent close already updated the column).
         let minExitPrice = data.exitPrice;
+        let cachedEntryInfo: { price: any; fee: any; amount: any } | null = null;
         try {
           const entryInfo = (await query(
             `SELECT price, fee, amount FROM trades WHERE id = $1`,
             [data.tradeId]
           ))[0];
+          cachedEntryInfo = entryInfo || null;
           const entryPrice = entryInfo?.price ? parseFloat(String(entryInfo.price)) : null;
           const entryFeeQuote = entryInfo?.fee ? parseFloat(String(entryInfo.fee)) : 0;
           const qty = entryInfo?.amount ? parseFloat(String(entryInfo.amount)) : quantity;
@@ -272,15 +278,14 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Recalculate P&L using actual execution price
-        const tradeInfo = (await query(
-          `SELECT price, fee FROM trades WHERE id = $1`,
-          [data.tradeId]
-        ))[0];
-
-        if (tradeInfo?.price) {
-          const entryPrice = parseFloat(String(tradeInfo.price));
-          const entryFee = parseFloat(String(tradeInfo.fee)) || 0;
+        // Recalculate P&L using actual execution price.
+        // Use cachedEntryInfo (read before any DB update) instead of re-reading from DB.
+        // Re-reading fee from the DB here would cause fee compounding in race conditions:
+        // a concurrent close attempt could have already overwritten fee=totalFees, which
+        // would then be used as entryFee here → each iteration adds another exitFee.
+        if (cachedEntryInfo?.price) {
+          const entryPrice = parseFloat(String(cachedEntryInfo.price));
+          const entryFee = parseFloat(String(cachedEntryInfo.fee)) || 0;
 
           // Calculate gross P&L before fees
           const grossProfitLoss = (actualExitPrice - entryPrice) * quantity;
@@ -385,7 +390,9 @@ export async function POST(req: NextRequest) {
 
     let updateResult;
     try {
-      // Try updating with exit_reason and exit_price if columns exist
+      // Try updating with exit_reason and exit_price if columns exist.
+      // AND status = 'open' prevents double-close race conditions: if a concurrent close
+      // already changed status to 'closed', this UPDATE returns 0 rows and we return idempotent success.
       updateResult = await query(
         `UPDATE trades
          SET exit_time = $1,
@@ -395,7 +402,7 @@ export async function POST(req: NextRequest) {
              exit_reason = $5,
              fee = $6,
              status = 'closed'
-         WHERE id = $7 AND bot_instance_id = $8
+         WHERE id = $7 AND bot_instance_id = $8 AND status = 'open'
          RETURNING id`,
         [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, totalFees || null, data.tradeId, data.botInstanceId]
       );
@@ -411,7 +418,7 @@ export async function POST(req: NextRequest) {
                profit_loss_percent = $4,
                exit_reason = $5,
                status = 'closed'
-           WHERE id = $6 AND bot_instance_id = $7
+           WHERE id = $6 AND bot_instance_id = $7 AND status = 'open'
            RETURNING id`,
           [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, data.tradeId, data.botInstanceId]
         );
@@ -423,7 +430,7 @@ export async function POST(req: NextRequest) {
                profit_loss = $2,
                profit_loss_percent = $3,
                status = 'closed'
-           WHERE id = $4 AND bot_instance_id = $5
+           WHERE id = $4 AND bot_instance_id = $5 AND status = 'open'
            RETURNING id`,
           [data.exitTime, actualProfitLoss, actualProfitLossPercent, data.tradeId, data.botInstanceId]
         );
@@ -433,6 +440,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (!updateResult || updateResult.length === 0) {
+      // 0 rows updated: either trade was already closed by a concurrent request, or it doesn't exist.
+      // Check which case it is for correct response.
+      const existingTrade = await query(
+        `SELECT id, status FROM trades WHERE id = $1 AND bot_instance_id = $2`,
+        [data.tradeId, data.botInstanceId]
+      );
+      if (existingTrade?.[0]?.status === 'closed') {
+        logger.info('Trade already closed by concurrent request — returning idempotent success', {
+          tradeId: data.tradeId,
+          botInstanceId: data.botInstanceId,
+        });
+        return NextResponse.json(
+          { success: true, message: 'Trade already closed', tradeId: data.tradeId },
+          { status: 200 }
+        );
+      }
       logger.warn('Trade not found for close', {
         tradeId: data.tradeId,
         botInstanceId: data.botInstanceId,

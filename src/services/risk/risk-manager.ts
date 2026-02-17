@@ -401,19 +401,31 @@ class RiskManager {
       console.log(`\n⚠️ REVERSAL MODE: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%) - entry allowed`);
     }
 
-    // Avoid extreme overbought (RSI > 85) - matches /nexus exactly
-    // FLAT block, no exceptions. /nexus uses RSI > 85 regardless of ADX/regime
-    if (indicators.rsi > this.config.rsiExtremeOverbought) {
-      logger.info('RiskManager: Entry blocked - extreme overbought', {
-        pair,
-        rsi: indicators.rsi.toFixed(2),
-        threshold: this.config.rsiExtremeOverbought,
-      });
-      return {
-        pass: false,
-        reason: `Extreme overbought (RSI=${indicators.rsi.toFixed(2)} > ${this.config.rsiExtremeOverbought})`,
-        stage: 'Entry Quality',
-      };
+    // REGIME-AWARE RSI overbought block
+    // Choppy/weak (ADX < 35): RSI 85 = genuine overbought, block entry
+    // Strong trend (ADX >= 35): RSI stays elevated legitimately — use higher threshold (92)
+    // Rationale: In a genuine bull run (ADX 35+), RSI 87-90 is momentum, not reversal signal
+    {
+      const env = getEnvironmentConfig();
+      const adxForRsi = indicators.adx ?? 0;
+      const rsiThreshold = adxForRsi >= 35
+        ? env.RISK_RSI_OVERBOUGHT_TRENDING  // 92 — trending market, RSI stays high
+        : this.config.rsiExtremeOverbought; // 85 — choppy/weak, block at normal threshold
+
+      if (indicators.rsi > rsiThreshold) {
+        logger.info('RiskManager: Entry blocked - extreme overbought', {
+          pair,
+          rsi: indicators.rsi.toFixed(2),
+          threshold: rsiThreshold,
+          adx: adxForRsi.toFixed(1),
+          thresholdType: adxForRsi >= 35 ? 'trending (92)' : 'choppy (85)',
+        });
+        return {
+          pass: false,
+          reason: `Extreme overbought (RSI=${indicators.rsi.toFixed(2)} > ${rsiThreshold})`,
+          stage: 'Entry Quality',
+        };
+      }
     }
 
     // Require minimum momentum - 4 entry paths (adaptive to market conditions)
@@ -423,20 +435,20 @@ class RiskManager {
     const hasBothPositive =
       momentum1h > this.config.minMomentum1h &&
       momentum4h > this.config.minMomentum4h;
-    // Path 3: Volume breakout (vol > 1.3x) with ANY positive 1h momentum
+    // Path 3: Volume breakout (vol > 1.3x) with positive or near-zero 1h momentum
+    // In strong trends (ADX>=35), allow slight negative 1h — high volume = accumulation signal
+    const isStrongTrend = adx >= 35;
+    const volBreakoutMom1hMin = isStrongTrend ? -0.5 : 0;
     const hasVolumeBreakout =
       volumeRatio > this.config.volumeBreakoutRatio &&
-      momentum1h > 0;
+      momentum1h > volBreakoutMom1hMin;
 
     // Path 4: TRENDING PULLBACK — Strong 4h trend with shallow 1h dip (adaptive entry)
-    // When ADX >= 20 (trending market), allow entry if:
-    //   - 4h momentum is positive (> 0.3% — lower threshold since ADX confirms trend)
-    //   - 1h dip is shallow (> -0.3% — just noise, not reversal)
-    // This catches "creeping higher" scenarios where 1h has micro-dips within a clear uptrend
+    // In strong trends (ADX>=35), allow deeper 1h dips — a -0.5% dip in a strong trend is noise
     // Note: adx and isTrending already declared above (line 312, 319)
-    const trendingPullback4hMin = 0.003; // 0.3% (lower than main threshold since ADX confirms)
+    const trendingPullback4hMin = 0.3; // 0.3% in percentage units
     const has4hTrend = momentum4h > trendingPullback4hMin;
-    const shallowDipThreshold = -0.003; // -0.3% default
+    const shallowDipThreshold = isStrongTrend ? -0.5 : -0.3; // -0.5% for strong trend, -0.3% otherwise
     const isShallowDip = momentum1h > shallowDipThreshold;
     const hasTrendingPullback = isTrending && has4hTrend && isShallowDip;
 

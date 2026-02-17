@@ -50,6 +50,12 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     logger.info('Connected to Binance');
   }
 
+  /** Set credentials without calling the exchange API — use for order placement when already trusted */
+  connectNoValidate(keys: ApiKeys): void {
+    this.keys = keys;
+    this.isConnected = true;
+  }
+
   async validateConnection(): Promise<boolean> {
     try {
       this.validateKeys();

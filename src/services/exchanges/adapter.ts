@@ -13,6 +13,11 @@ export interface ExchangeAdapter {
   connect(keys: ApiKeys): Promise<void>;
 
   /**
+   * Set credentials without calling the exchange API (for order placement when keys are already trusted)
+   */
+  connectNoValidate(keys: ApiKeys): void;
+
+  /**
    * Validate connection is still active
    */
   validateConnection(): Promise<boolean>;
@@ -92,6 +97,12 @@ export abstract class BaseExchangeAdapter implements ExchangeAdapter {
 
   abstract connect(keys: ApiKeys): Promise<void>;
   abstract validateConnection(): Promise<boolean>;
+
+  /** Default: set credentials without API call (can be overridden) */
+  connectNoValidate(keys: ApiKeys): void {
+    this.keys = keys;
+    this.isConnected = true;
+  }
   abstract placeOrder(order: { pair: string; side: 'buy' | 'sell'; amount: number; price: number; timeInForce?: string; postOnly?: boolean }): Promise<OrderResult>;
   abstract cancelOrder(orderId: string, pair: string): Promise<void>;
   abstract getOrder(orderId: string, pair: string): Promise<Order | null>;

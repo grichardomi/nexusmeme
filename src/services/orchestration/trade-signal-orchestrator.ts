@@ -1254,6 +1254,31 @@ class TradeSignalOrchestrator {
         tradeCount: openTrades.length,
       });
 
+      // BTC DUMP DETECTION — fetch BTC indicators once per cycle for dump exit check
+      // If BTC is panic-selling (high volume + negative momentum), exit all underwater trades immediately
+      const env = getEnvironmentConfig();
+      let isBtcDumping = false;
+      let btcDumpMom1h = 0;
+      let btcDumpVolumeRatio = 0;
+      try {
+        const btcIndicators = await this.fetchAndCalculateIndicators('BTC/USD', '15m', 100);
+        btcDumpMom1h = btcIndicators.momentum1h || 0;
+        btcDumpVolumeRatio = btcIndicators.volumeRatio || 1;
+        isBtcDumping = btcDumpMom1h < env.BTC_DUMP_MOM1H_THRESHOLD && btcDumpVolumeRatio > env.BTC_DUMP_VOLUME_MIN;
+        if (isBtcDumping) {
+          logger.warn('🚨 BTC DUMP DETECTED - will exit underwater trades immediately', {
+            btcMom1h: btcDumpMom1h.toFixed(2) + '%',
+            btcVolumeRatio: btcDumpVolumeRatio.toFixed(2) + 'x',
+            mom1hThreshold: env.BTC_DUMP_MOM1H_THRESHOLD + '%',
+            volumeThreshold: env.BTC_DUMP_VOLUME_MIN + 'x',
+          });
+        }
+      } catch (btcErr) {
+        logger.debug('Could not fetch BTC indicators for dump check - skipping', {
+          error: btcErr instanceof Error ? btcErr.message : String(btcErr),
+        });
+      }
+
       let exitCount = 0;
       for (const trade of openTrades) {
         try {
@@ -1447,12 +1472,32 @@ class TradeSignalOrchestrator {
           }
 
           // ============================================
-          // SIMPLIFIED EXIT LOGIC - 3 Core Checks Only
+          // SIMPLIFIED EXIT LOGIC - 4 Core Checks
           // ============================================
           // Philosophy: Agile trading - get in green, get out fast
-          // 1. EROSION CAP - Had profit? Protect it.
-          // 2. EARLY LOSS - Never profitable? Cut losses.
-          // 3. EMERGENCY STOP - Safety net.
+          // 0b. BTC DUMP EXIT - Market panic? Exit underwater now.
+          // 1.  EROSION CAP - Had profit? Protect it.
+          // 2.  EARLY LOSS - Never profitable? Cut losses.
+          // 3.  EMERGENCY STOP - Safety net.
+
+          // CHECK 0b: BTC DUMP EXIT — exit underwater trades during BTC panic selling
+          // When BTC dumps (high volume + negative momentum), all crypto follows immediately.
+          // Waiting for normal depth thresholds means riding down the entire dump.
+          if (!shouldClose && isBtcDumping && grossProfitPct < 0) {
+            const minAgeMinutes = env.BTC_DUMP_MIN_TRADE_AGE_MINUTES;
+            if (tradeAgeMinutes >= minAgeMinutes) {
+              shouldClose = true;
+              exitReason = 'btc_dump_exit';
+              logger.warn('🔴 BTC DUMP EXIT - exiting underwater trade during BTC panic sell', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                grossProfitPct: grossProfitPct.toFixed(2) + '%',
+                tradeAgeMinutes: tradeAgeMinutes.toFixed(1),
+                btcMom1h: btcDumpMom1h.toFixed(2) + '%',
+                btcVolumeRatio: btcDumpVolumeRatio.toFixed(2) + 'x',
+              });
+            }
+          }
 
           // CHECK 1: EROSION CAP (was profitable → protect it)
           // If trade ever had NET profit and erosion exceeds cap → EXIT
@@ -1547,7 +1592,9 @@ class TradeSignalOrchestrator {
             const peakData = positionTracker.getPeakProfit(trade.id);
             const peakPct = peakData?.peakPct || 0;
 
-            if (peakPct <= 0 && tradeAgeMinutes >= staleMinutes && grossProfitPct < staleMinLoss) {
+            // Use profitCollapseMinPeakPct (0.5%) as "meaningfully profitable" threshold
+            // Trades that peaked < 0.5% never confirmed the entry thesis — treat as stale
+            if (peakPct < profitCollapseMinPeakPct && tradeAgeMinutes >= staleMinutes && grossProfitPct < staleMinLoss) {
               shouldClose = true;
               exitReason = 'stale_underwater';
               logger.info('🏊 STALE UNDERWATER - never profitable, giving up', {
@@ -1743,44 +1790,44 @@ class TradeSignalOrchestrator {
             continue;
           }
 
-          // CHECK L1: Add at 4.5% profit (requires 85% AI confidence minimum + ADX > 25)
+          // CHECK L1: Add at 4.5% profit (requires ADX > PYRAMID_L1_MIN_ADX)
+          // Confidence inferred from ADX: ADX >= 35 = strong trend = high confidence
+          // (Using stale bot-config confidence caused perpetual rejection — ADX IS the confidence signal)
           if (!hasL1 && currentProfitPct >= 4.5) {
-            // Parse bot config for AI confidence (for pyramid gating)
-            const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
-            const aiConfidence = botConfig?.aiConfidence || 70; // Default to config value
+            // Check ADX for trend strength first — ADX IS the confidence gate
+            let adx = 0;
+            try {
+              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+              adx = indicators.adx || 0;
+            } catch (indicatorError) {
+              logger.warn('Failed to fetch ADX for pyramid check', {
+                pair: trade.pair,
+                error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
+              });
+              adx = 0;
+            }
 
-            // Check pyramid confidence threshold (from /nexus)
-            const l1ConfidenceCheck = riskManager.canAddPyramidLevel(1, aiConfidence);
+            const minAdxL1 = env.PYRAMID_L1_MIN_ADX;
+            // Infer AI confidence from ADX: ADX >= 35 → 87%, ADX >= 40 → 92%
+            // A trade up 4.5% in a strong trend IS high-confidence by definition
+            const inferredConfidence = adx >= 40 ? 92 : adx >= 35 ? 87 : 70;
+            const l1ConfidenceCheck = riskManager.canAddPyramidLevel(1, inferredConfidence);
             if (!l1ConfidenceCheck.pass) {
               logger.debug('L1 pyramid rejected - insufficient confidence', {
                 pair: trade.pair,
                 reason: l1ConfidenceCheck.reason,
+                adx: adx.toFixed(2),
+                inferredConfidence,
                 currentProfitPct: currentProfitPct.toFixed(2),
               });
-              // Don't add L1 if confidence too low
             } else {
-              // Also check ADX for trend strength (philosophy requirement)
-              let adx = 0;
-              try {
-                const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
-                adx = indicators.adx || 0;
-              } catch (indicatorError) {
-                logger.warn('Failed to fetch ADX for pyramid check', {
-                  pair: trade.pair,
-                  error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
-                });
-                // If we can't get ADX, skip pyramid to be safe
-                adx = 0;
-              }
-
-              const minAdxL1 = env.PYRAMID_L1_MIN_ADX;
               if (adx < minAdxL1) {
                 logger.debug('L1 pyramid rejected - insufficient trend strength', {
                   pair: trade.pair,
                   adx: adx.toFixed(2),
                   minRequired: minAdxL1,
                   currentProfitPct: currentProfitPct.toFixed(2),
-                  note: 'Need moderate trend (ADX 35+) for safe pyramiding',
+                  note: 'Need strong trend (ADX 35+) for safe pyramiding',
                 });
               } else {
                 const l1Quantity = parseFloat(String(trade.quantity)) * 0.35; // 35% add (from /nexus)
@@ -1790,8 +1837,8 @@ class TradeSignalOrchestrator {
                   quantity: l1Quantity,
                   entryTime: new Date().toISOString(),
                   triggerProfitPct: 0.045,
-                  status: 'pending_execution', // Mark as waiting for order
-                  aiConfidence,
+                  status: 'pending_execution',
+                  aiConfidence: inferredConfidence,
                 };
 
                 // Add L1 to pyramid_levels
@@ -1837,46 +1884,37 @@ class TradeSignalOrchestrator {
             }
           }
 
-          // CHECK L2: Add at 8% profit (only if L1 exists, requires 90% AI confidence minimum + ADX > 25)
+          // CHECK L2: Add at 8% profit (only if L1 exists, requires ADX > PYRAMID_L2_MIN_ADX)
+          // Confidence inferred from ADX (same fix as L1 — stale bot-config caused perpetual rejection)
           if (!hasL2 && hasL1 && currentProfitPct >= 8) {
-            // Parse bot config for AI confidence (for pyramid gating)
-            const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
-            const aiConfidence = botConfig?.aiConfidence || 70; // Default to config value
-
-            // Check pyramid confidence threshold (from /nexus)
-            const l2ConfidenceCheck = riskManager.canAddPyramidLevel(2, aiConfidence);
-            if (!l2ConfidenceCheck.pass) {
-              logger.debug('L2 pyramid rejected - insufficient confidence', {
+            let adxL2 = 0;
+            try {
+              const indicatorsL2 = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+              adxL2 = indicatorsL2.adx || 0;
+            } catch (indicatorError) {
+              logger.warn('Failed to fetch ADX for L2 pyramid check', {
                 pair: trade.pair,
-                reason: l2ConfidenceCheck.reason,
+                error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
+              });
+              adxL2 = 0;
+            }
+
+            const minAdxL2 = env.PYRAMID_L2_MIN_ADX;
+            // ADX >= 40 → 92% confidence (above L2 minimum of 90%)
+            const inferredConfidenceL2 = adxL2 >= 40 ? 92 : 70;
+            const l2ConfidenceCheck = riskManager.canAddPyramidLevel(2, inferredConfidenceL2);
+
+            if (!l2ConfidenceCheck.pass || adxL2 < minAdxL2) {
+              logger.debug('L2 pyramid rejected', {
+                pair: trade.pair,
+                adx: adxL2.toFixed(2),
+                minAdxRequired: minAdxL2,
+                inferredConfidence: inferredConfidenceL2,
+                reason: !l2ConfidenceCheck.pass ? l2ConfidenceCheck.reason : `ADX ${adxL2.toFixed(1)} < ${minAdxL2}`,
                 currentProfitPct: currentProfitPct.toFixed(2),
               });
-              // Don't add L2 if confidence too low
             } else {
-              // Also check ADX for trend strength (philosophy requirement)
-              let adx = 0;
-              try {
-                const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
-                adx = indicators.adx || 0;
-              } catch (indicatorError) {
-                logger.warn('Failed to fetch ADX for pyramid check', {
-                  pair: trade.pair,
-                  error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
-                });
-                // If we can't get ADX, skip pyramid to be safe
-                adx = 0;
-              }
-
-              const minAdxL2 = env.PYRAMID_L2_MIN_ADX;
-              if (adx < minAdxL2) {
-                logger.debug('L2 pyramid rejected - insufficient trend strength', {
-                  pair: trade.pair,
-                  adx: adx.toFixed(2),
-                  minRequired: minAdxL2,
-                  currentProfitPct: currentProfitPct.toFixed(2),
-                  note: 'Need strong trend (ADX 40+) for L2 pyramiding',
-                });
-              } else {
+              {
                 const l2Quantity = parseFloat(String(trade.quantity)) * 0.50; // 50% add (from /nexus)
                 const l2Entry = {
                   level: 2,
@@ -1884,8 +1922,8 @@ class TradeSignalOrchestrator {
                   quantity: l2Quantity,
                   entryTime: new Date().toISOString(),
                   triggerProfitPct: 0.08,
-                  status: 'pending_execution', // Mark as waiting for order
-                  aiConfidence,
+                  status: 'pending_execution',
+                  aiConfidence: inferredConfidenceL2,
                 };
 
                 // Add L2 to pyramid_levels

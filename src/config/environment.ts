@@ -132,6 +132,7 @@ const envSchema = z.object({
   RISK_SPREAD_MAX_PERCENT: z.string().transform(Number).default('0.005'),
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
   RISK_RSI_EXTREME_OVERBOUGHT: z.string().transform(Number).default('85'),
+  RISK_RSI_OVERBOUGHT_TRENDING: z.string().transform(Number).default('92'), // ADX >= 35: RSI stays elevated in trends
   RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // 1% minimum (percent form)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
@@ -279,6 +280,11 @@ const envSchema = z.object({
   STALE_UNDERWATER_MINUTES: z.string().transform(Number).default('30'), // Exit after 30 min underwater with zero peak
   STALE_UNDERWATER_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (avoids spread noise)
 
+  /* BTC Dump Exit - exit underwater trades immediately when BTC is panic-selling */
+  BTC_DUMP_MOM1H_THRESHOLD: z.string().transform(Number).default('-0.5'),   // BTC 1h momentum below this = dump (-0.5%)
+  BTC_DUMP_VOLUME_MIN: z.string().transform(Number).default('2.5'),          // BTC volume ratio above this = panic (2.5x avg)
+  BTC_DUMP_MIN_TRADE_AGE_MINUTES: z.string().transform(Number).default('2'), // Ignore trades younger than this (entry noise)
+
   /* Support System */
   SUPPORT_ADMIN_EMAIL: z.string().email().optional().transform(v => v?.trim() || undefined),
   INTERNAL_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
@@ -404,6 +410,7 @@ function getDefaultEnvironment(): Environment {
     RISK_SPREAD_MAX_PERCENT: 0.005,
     RISK_PRICE_TOP_THRESHOLD: 0.995,
     RISK_RSI_EXTREME_OVERBOUGHT: 85,
+    RISK_RSI_OVERBOUGHT_TRENDING: 92,
     RISK_MIN_MOMENTUM_1H: 1.0, // 1% minimum (percent form)
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
@@ -486,6 +493,9 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_DAILY: -0.003,
     STALE_UNDERWATER_MINUTES: 30,
     STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
+    BTC_DUMP_MOM1H_THRESHOLD: -0.5,
+    BTC_DUMP_VOLUME_MIN: 2.5,
+    BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
     PERFORMANCE_FEE_RATE: 0.15,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     CP_BTC_TREND_GATE_ENABLED: true,

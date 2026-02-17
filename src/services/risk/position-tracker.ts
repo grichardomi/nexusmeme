@@ -474,6 +474,21 @@ class PositionTracker {
       return result;
     }
 
+    // MINIMUM PEAK GUARD: Don't protect micro-peaks — they're noise, not real profit
+    // EROSION_MIN_PEAK_PCT (default 0.5%) must be reached before erosion cap activates
+    // Without this, a 0.15% peak fires on any 0.07% oscillation — blocks profit targets
+    const env = getEnvironmentConfig();
+    const minPeakPct = env.EROSION_MIN_PEAK_PCT * 100; // convert decimal → percentage (0.005 → 0.5%)
+    if (existing.peakPct < minPeakPct) {
+      logger.debug('⏭️ EROSION CAP SKIP - peak below minimum threshold (noise)', {
+        tradeId,
+        pair,
+        peakPct: existing.peakPct.toFixed(3) + '%',
+        minPeakPct: minPeakPct.toFixed(3) + '%',
+      });
+      return result;
+    }
+
     // Calculate current profit in dollars
     let currentProfitDollars = existing.currentProfit;
     if (currentPrice && existing.entryPrice && existing.quantity) {
@@ -504,7 +519,6 @@ class PositionTracker {
     const erosionPct = erosionUsed / existing.peakProfit;
 
     // Erosion cap: totalCost × cap percentage (from environment config)
-    const env = getEnvironmentConfig();
     const totalCost = existing.entryPrice * existing.quantity;
     const erosionCapsByRegime: Record<string, number> = {
       choppy: env.EROSION_CAP_CHOPPY,     // 2% default
