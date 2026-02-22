@@ -16,8 +16,10 @@ import { getEnvironmentConfig } from '@/config/environment';
  */
 export class BinanceAdapter extends BaseExchangeAdapter {
   private baseUrl = `${getEnvironmentConfig().BINANCE_API_BASE_URL}/api`;
-  // Circuit breaker: open after 5 failures, close after 3 successes, reset after 60s
-  private circuitBreaker = new CircuitBreaker(5, 3, 60000);
+  // Circuit breaker: only trips on real Binance API failures (5xx, network down).
+  // Thresholds: open after 10 consecutive real failures, close after 3 successes, reset after 30s.
+  // Rate limit queue timeouts are NOT counted as failures (filtered in isBinanceFailure).
+  private circuitBreaker = new CircuitBreaker(10, 3, 30000);
   // Rate limiter is distributed (Redis-backed) - shared across all instances
   // Accessed via binanceRateLimiter singleton
 
@@ -869,10 +871,12 @@ export class BinanceAdapter extends BaseExchangeAdapter {
    * Uses distributed rate limiter to coordinate across all instances
    */
   private async publicRequest(path: string): Promise<any> {
-    try {
-      // Use distributed rate limiter (shared across web/worker instances)
-      await binanceRateLimiter.acquire(1);
+    // Acquire rate limit token BEFORE entering circuit breaker.
+    // Rate limit timeouts are self-inflicted queue pressure — not Binance failures.
+    // Counting them as failures would cause the circuit breaker to trip incorrectly.
+    await binanceRateLimiter.acquire(1);
 
+    try {
       const response = await fetch(`${this.baseUrl}${path}`);
       if (!response.ok) {
         throw new Error(`Binance API error: ${response.statusText}`);
@@ -900,13 +904,13 @@ export class BinanceAdapter extends BaseExchangeAdapter {
   ): Promise<any> {
     this.validateKeys();
 
+    // Acquire rate limit token BEFORE entering circuit breaker — same reason as publicRequest.
+    await binanceRateLimiter.acquire(1);
+
     try {
       if (!this.keys) {
         throw new Error('API keys not configured');
       }
-
-      // Use distributed rate limiter (shared across web/worker instances)
-      await binanceRateLimiter.acquire(1);
 
       // 1. Add timestamp
       params.timestamp = Date.now();

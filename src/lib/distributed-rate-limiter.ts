@@ -27,7 +27,9 @@ export class DistributedRateLimiter {
    * Blocks if insufficient tokens available
    */
   async acquire(tokensNeeded: number = 1): Promise<void> {
-    const maxWaitMs = 60000; // Max 60 second wait
+    // 10s max wait. Long enough to absorb short bursts, short enough to
+    // fail fast and shed load before the queue piles up across all bots.
+    const maxWaitMs = 10000;
     const startTime = Date.now();
 
     while (true) {

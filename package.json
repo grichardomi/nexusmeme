@@ -23,7 +23,8 @@
     "event-system": "tsx src/scripts/event-trading-system.ts",
     "event:price": "tsx src/scripts/event-trading-system.ts price-stream",
     "event:worker": "tsx src/scripts/event-trading-system.ts worker",
-    "event:all": "tsx src/scripts/event-trading-system.ts all"
+    "event:all": "tsx src/scripts/event-trading-system.ts all",
+    "worker": "tsx src/worker.ts"
   },
   "dependencies": {
     "@upstash/redis": "^1.36.1",
