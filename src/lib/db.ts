@@ -12,27 +12,31 @@ let pool: Pool | null = null;
 export function getPool(): Pool {
   if (!pool) {
     const isProduction = process.env.NODE_ENV === 'production';
-    // Production (Railway): use internal URL for better performance
-    // Development (localhost): use public URL since internal network isn't accessible
-    const databaseUrl = isProduction ? getEnv('DATABASE_URL') : getEnv('DATABASE_PUBLIC_URL');
+    // Production: prefer pooler URL (Railway's built-in PgBouncer) for scalability.
+    // Falls back to DATABASE_URL if pooler not configured.
+    // Development: use public URL since Railway internal network isn't accessible locally.
+    const databaseUrl = isProduction
+      ? (process.env.DATABASE_POOLER_URL || getEnv('DATABASE_URL'))
+      : getEnv('DATABASE_PUBLIC_URL');
+
+    const usingPooler = isProduction && !!process.env.DATABASE_POOLER_URL;
 
     pool = new Pool({
       connectionString: databaseUrl,
-      // Connection pool sizing - keep small to avoid Railway connection limit
-      max: isProduction ? 15 : 8, // Railway dev tier ~20-30 max connections total
-      min: 2, // Keep minimum connections warm
+      // With Railway pooler (PgBouncer): app pool can be large — pooler multiplexes to ~20 real connections.
+      // Without pooler: keep small to stay within Railway's direct Postgres connection limit.
+      max: isProduction ? (usingPooler ? 100 : 15) : 8,
+      min: 2,
 
-      // Timeout settings - Railway proxy needs more time
-      connectionTimeoutMillis: 10000, // 10s to establish connection (was 5s)
-      idleTimeoutMillis: 60000, // 60s idle before closing (was 30s)
+      connectionTimeoutMillis: 10000,
+      idleTimeoutMillis: usingPooler ? 30000 : 60000,
 
-      // Statement timeout - prevent queries hanging forever
-      statement_timeout: 30000, // 30s max query time
-      query_timeout: 30000, // 30s max query time (alias)
+      statement_timeout: 30000,
+      query_timeout: 30000,
 
-      // Keepalive settings - prevent Railway proxy from dropping idle connections
-      keepAlive: true,
-      keepAliveInitialDelayMillis: 10000, // Start keepalive after 10s idle
+      // Keepalive not needed when pooler manages connections
+      keepAlive: !usingPooler,
+      keepAliveInitialDelayMillis: 10000,
     });
 
     // Log pool errors but don't crash

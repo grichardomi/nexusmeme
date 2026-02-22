@@ -19,6 +19,7 @@ import { GoLiveWizard } from '@/components/billing/GoLiveWizard';
 
 interface UserPlan {
   plan: 'free' | 'live_trial' | 'performance_fees';
+  subscriptionStatus: string;
   tradingMode: 'paper' | 'live';
   botsPerUser: number;
   tradingPairsPerBot: number;
@@ -44,6 +45,7 @@ export default function BillingPage() {
         const planUsage = data.planUsage;
         setUserPlan({
           plan: (planUsage?.plan || 'live_trial') as 'live_trial' | 'performance_fees',
+          subscriptionStatus: data.subscription?.status || 'trialing',
           tradingMode: planUsage?.limits?.tradingMode || 'live',
           botsPerUser: planUsage?.limits?.botsPerUser || 1,
           tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 2,
@@ -72,7 +74,12 @@ export default function BillingPage() {
     );
   }
 
+  const isTrialExpired = userPlan?.subscriptionStatus === 'payment_required' || userPlan?.subscriptionStatus === 'expired';
+
   const getPlanColor = () => {
+    if (isTrialExpired) {
+      return { bg: 'bg-red-50 dark:bg-red-900/20', border: 'border-red-200 dark:border-red-800', text: 'text-red-700 dark:text-red-300', badge: 'bg-red-100 dark:bg-red-800 text-red-700 dark:text-red-300' };
+    }
     switch (userPlan?.plan) {
       case 'live_trial':
         return { bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-300', badge: 'bg-blue-100 dark:bg-blue-800 text-blue-700 dark:text-blue-300' };
@@ -84,6 +91,9 @@ export default function BillingPage() {
   };
 
   const getPlanName = () => {
+    if (isTrialExpired) {
+      return 'Trial Expired';
+    }
     // Show different name based on trading mode during trial
     if (userPlan?.tradingMode === 'paper') {
       return '10-Day Free Trial (Paper Trading)';
@@ -100,6 +110,9 @@ export default function BillingPage() {
   };
 
   const getPlanDescription = () => {
+    if (isTrialExpired) {
+      return 'Your free trial has ended. Upgrade to live trading to continue using your bots with real money.';
+    }
     // Paper trading is the free trial period
     if (userPlan?.tradingMode === 'paper') {
       return 'Free trial - practice with paper trading (simulated trades, zero risk). Upgrade to live trading to trade with real money.';
@@ -130,7 +143,7 @@ export default function BillingPage() {
               <div className="flex items-center gap-2 mb-2">
                 <h2 className={`text-lg sm:text-xl font-bold ${colors.text}`}>{getPlanName()}</h2>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${colors.badge}`}>
-                  Active
+                  {isTrialExpired ? 'Expired' : 'Active'}
                 </span>
               </div>
               <p className={`text-sm ${colors.text}`}>{getPlanDescription()}</p>

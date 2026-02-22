@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 
 /**
  * GET /api/admin/users
- * Get list of all users with pagination
+ * Get list of all users with pagination and subscription info
  */
 export async function GET(request: NextRequest) {
   try {
@@ -16,7 +16,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin
     if ((session.user as any).role !== 'admin') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -28,25 +27,35 @@ export async function GET(request: NextRequest) {
 
     const offset = (page - 1) * pageSize;
 
-    // Build query with optional search
     let sql = `
-      SELECT id, email, name, role, created_at, email_verified_at
-      FROM users
+      SELECT
+        u.id, u.email, u.name, u.role, u.created_at, u.email_verified_at,
+        s.id as subscription_id,
+        s.status as subscription_status,
+        s.plan_tier,
+        s.trial_ends_at
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT id, status, plan_tier, trial_ends_at
+        FROM subscriptions
+        WHERE user_id = u.id AND status != 'cancelled'
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) s ON true
       WHERE 1=1
     `;
     const params: any[] = [];
 
     if (search) {
-      sql += ` AND (email ILIKE $${params.length + 1} OR name ILIKE $${params.length + 1})`;
+      sql += ` AND (u.email ILIKE $${params.length + 1} OR u.name ILIKE $${params.length + 1})`;
       params.push(`%${search}%`);
     }
 
-    sql += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    sql += ` ORDER BY u.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(pageSize, offset);
 
     const users = await query<any>(sql, params);
 
-    // Get total count
     let countSql = 'SELECT COUNT(*) as count FROM users WHERE 1=1';
     const countParams: any[] = [];
 
@@ -66,6 +75,14 @@ export async function GET(request: NextRequest) {
         role: u.role,
         createdAt: new Date(u.created_at),
         emailVerified: u.email_verified_at ? true : false,
+        subscription: u.subscription_id
+          ? {
+              id: u.subscription_id,
+              status: u.subscription_status,
+              planTier: u.plan_tier,
+              trialEndsAt: u.trial_ends_at ? new Date(u.trial_ends_at) : null,
+            }
+          : null,
       })),
       total,
       page,
@@ -73,6 +90,101 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     logger.error('Failed to fetch admin users', error instanceof Error ? error : null);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH /api/admin/users
+ * Extend a user's free trial expiration
+ * Body: { userId: string, action: 'extend_trial', days: number }
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if ((session.user as any).role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { userId, action, days } = body;
+
+    if (!userId || !action) {
+      return NextResponse.json({ error: 'userId and action are required' }, { status: 400 });
+    }
+
+    if (action === 'extend_trial') {
+      const daysNum = parseInt(String(days), 10);
+      if (!daysNum || daysNum < 1 || daysNum > 90) {
+        return NextResponse.json({ error: 'days must be between 1 and 90' }, { status: 400 });
+      }
+
+      // Find the user's live_trial subscription
+      const subs = await query<any>(
+        `SELECT id, status, trial_ends_at FROM subscriptions
+         WHERE user_id = $1 AND plan_tier = 'live_trial' AND status != 'cancelled'
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId],
+      );
+
+      if (subs.length === 0) {
+        return NextResponse.json({ error: 'No trial subscription found for this user' }, { status: 404 });
+      }
+
+      const sub = subs[0];
+
+      // Extend from current expiry (or now if already expired)
+      const baseDate = sub.trial_ends_at && new Date(sub.trial_ends_at) > new Date()
+        ? new Date(sub.trial_ends_at)
+        : new Date();
+
+      const newTrialEnd = new Date(baseDate);
+      newTrialEnd.setDate(newTrialEnd.getDate() + daysNum);
+
+      await query(
+        `UPDATE subscriptions
+         SET trial_ends_at = $1,
+             status = 'trialing',
+             updated_at = NOW()
+         WHERE id = $2`,
+        [newTrialEnd, sub.id],
+      );
+
+      // Resume paused/stopped bots — trial is active again, user should not need to restart manually
+      const resumedBots = await query<any>(
+        `UPDATE bot_instances
+         SET status = 'running',
+             updated_at = NOW()
+         WHERE user_id = $1 AND status IN ('paused', 'stopped')
+         RETURNING id`,
+        [userId],
+      );
+
+      logger.info('Admin extended trial', {
+        adminId: session.user.id,
+        targetUserId: userId,
+        subscriptionId: sub.id,
+        daysAdded: daysNum,
+        newTrialEnd,
+        resumedBots: resumedBots.length,
+      });
+
+      return NextResponse.json({
+        success: true,
+        newTrialEnd,
+        daysAdded: daysNum,
+        resumedBots: resumedBots.length,
+      });
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  } catch (error) {
+    logger.error('Failed to update user', error instanceof Error ? error : null);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
