@@ -1994,6 +1994,18 @@ class TradeSignalOrchestrator {
    */
   private async getActiveBots(): Promise<BotInstance[]> {
     try {
+      // Shard support: each worker handles a partition of users based on user_id hash.
+      // WORKER_SHARD_INDEX (0-based) and WORKER_SHARD_TOTAL control the partition.
+      // When not set (or WORKER_SHARD_TOTAL=1), all bots are processed by this worker.
+      // To add a shard: create a new Railway worker service with these env vars:
+      //   WORKER_SHARD_INDEX=1, WORKER_SHARD_TOTAL=2  (worker B of 2)
+      // No code deployment needed — just env vars + new service.
+      const shardTotal = parseInt(process.env.WORKER_SHARD_TOTAL || '1', 10);
+      const shardIndex = parseInt(process.env.WORKER_SHARD_INDEX || '0', 10);
+      const shardFilter = shardTotal > 1
+        ? `AND ('x' || substr(md5(bi.user_id::text), 1, 8))::bit(32)::int % ${shardTotal} = ${shardIndex}`
+        : '';
+
       // Get running bots, but ONLY for users with valid subscription
       // This prevents trading for users with payment_required, cancelled, or past_due status
       const allBots = await query<any>(
@@ -2002,6 +2014,7 @@ class TradeSignalOrchestrator {
          INNER JOIN subscriptions s ON s.user_id = bi.user_id
          WHERE bi.status = 'running'
            AND s.status IN ('active', 'trialing')
+           ${shardFilter}
          ORDER BY bi.created_at DESC`
       );
 
