@@ -87,7 +87,10 @@ export async function GET(request: NextRequest) {
       // DOLLAR-BASED erosion (matches actual exit trigger in position-tracker)
       // The orchestrator exits when: erosionUsed$ > totalCost × erosionCapPct
       // UI should reflect how close the trade is to ACTUALLY being closed
-      const regime = trade.regime || 'moderate';
+      // Normalize regime: b.config may store pyramid cap values (e.g. "0.006") not a regime name
+      const VALID_REGIMES = new Set(['choppy', 'weak', 'moderate', 'strong']);
+      const rawRegime = (trade.regime || '').toLowerCase();
+      const regime = VALID_REGIMES.has(rawRegime) ? rawRegime : 'moderate';
       const env = getEnvironmentConfig();
       const totalCost = entryPrice * quantity;
 

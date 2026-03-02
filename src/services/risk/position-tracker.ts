@@ -570,8 +570,15 @@ class PositionTracker {
     // A small fee-driven net loss is far better than going underwater.
     const peakRelativeThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // default: 0.50 (50%)
 
+    // Guard: don't fire peak-relative erosion until trade has confirmed a meaningful peak.
+    // Without this, a 0.5% micro-peak with any pullback (0.25%) fires the exit —
+    // preventing the trade from ever reaching the 2%/5%/12% profit targets.
+    // EROSION_PEAK_MIN_PCT default 1.0%: erosion cap won't fire until peak >= 1% of position cost.
+    const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
+    const erosionPeakMinPct = env.EROSION_PEAK_MIN_PCT; // default 1.0%
+
     // Immediate exit when peak-relative erosion reaches threshold (no time gate)
-    if (erosionPct >= peakRelativeThreshold) {
+    if (peakPctOfCost >= erosionPeakMinPct && erosionPct >= peakRelativeThreshold) {
       logger.info('⏱️ PEAK-RELATIVE EROSION - locking profit (immediate exit)', {
         tradeId,
         pair,
@@ -1043,6 +1050,7 @@ class PositionTracker {
     underwaterThresholdPct: number = -0.015, // Passed from orchestrator's getEarlyLossThreshold
     minTimeMinutes: number = 15 // /nexus: underwaterExitMinTimeMinutes = 15
   ): UnderwaterCheckResult {
+    const env = getEnvironmentConfig();
     const existing = this.peakProfits.get(tradeId);
 
     // Default result (no exit)
@@ -1071,8 +1079,8 @@ class PositionTracker {
     // SCENARIO A: PROFITABLE COLLAPSE (/nexus lines 456-488)
     // ============================================================
     // Trade peaked at ≥ 0.5% profit, now negative → EXIT IMMEDIATELY
-    // /nexus: profitCollapseMinPeakPct = 0.005 (0.5%) — must match orchestrator:1447
-    const profitCollapseMinPeakPct = 0.50; // 0.5% in percent form (matches /nexus 0.005 * 100)
+    // Reads from env so both orchestrator and position-tracker stay in sync
+    const profitCollapseMinPeakPct = env.PROFIT_COLLAPSE_MIN_PEAK_PCT * 100; // e.g. 0.005 → 0.5%
 
     if (peakProfitPct >= profitCollapseMinPeakPct && currentProfitPct < 0) {
       logger.info('🚨 PROFITABLE COLLAPSE - had ≥1% profit, now underwater → EXIT IMMEDIATELY', {

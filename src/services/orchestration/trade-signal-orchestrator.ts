@@ -1539,7 +1539,7 @@ class TradeSignalOrchestrator {
           // A) PROFITABLE COLLAPSE: peaked ≥0.5% GROSS, now negative → IMMEDIATE
           // B) SMALL PEAK TIMEOUT: peaked > 0 but < 0.5%, GROSS loss > age-scaled threshold
           // C) NEVER PROFITED: never went positive, GROSS loss > age-scaled threshold
-          const profitCollapseMinPeakPct = 0.50; // /nexus: 0.005 decimal = 0.5%
+          const profitCollapseMinPeakPct = env.PROFIT_COLLAPSE_MIN_PEAK_PCT * 100; // e.g. 0.005 → 0.5%
 
           if (!shouldClose && grossProfitPct < 0) {
             const peakData = positionTracker.getPeakProfit(trade.id);

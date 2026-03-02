@@ -154,6 +154,7 @@ const envSchema = z.object({
   /* Minimum peak profit before collapse protection kicks in (AGGRESSIVE) */
   /* Philosophy: Protect ALL peaks (0.1%+), close early on pullback */
   PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - protect only meaningful peaks
+  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('5.0'), // 5.0% - peak-relative erosion cap won't fire until trade peaks >= 5% (above weak/moderate profit targets)
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - small-profit dead zone (prevents micro-peak false exits)
@@ -163,7 +164,7 @@ const envSchema = z.object({
   UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
   /* Peak-Relative Erosion (/nexus parity - 30% of peak eroded = exit) */
-  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.50'), // 50% - allow deeper pullbacks before locking profit
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.60'), // 60% - only exits on real collapses, not normal trend pullbacks
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
 
   /* Regime-based Erosion Caps (VERY AGGRESSIVE - lock profits quickly) */
@@ -423,10 +424,11 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005, // 0.5% - protect meaningful peaks
+    EROSION_PEAK_MIN_PCT: 5.0, // 5.0% - don't fire peak-relative erosion until peak >= 5% (above weak/moderate profit targets)
     EROSION_MIN_PEAK_PCT: 0.005, // 0.5% - small-profit dead zone (prevents micro-peak false exits)
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
-    EROSION_PEAK_RELATIVE_THRESHOLD: 0.50, // 50% - allow deeper pullbacks before locking profit
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.60, // 60% - only exits on real collapses, not normal trend pullbacks
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_CAP_CHOPPY: 0.05, // 5% - exit fast in chop (keep 95% of peak)
     EROSION_CAP_WEAK: 0.05, // 5% - exit fast in weak trends
