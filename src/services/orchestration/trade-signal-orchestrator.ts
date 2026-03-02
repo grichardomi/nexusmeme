@@ -2008,12 +2008,14 @@ class TradeSignalOrchestrator {
 
       // Get running bots, but ONLY for users with valid subscription
       // This prevents trading for users with payment_required, cancelled, or past_due status
+      // Also exclude bots where trial has expired (plan_tier=live_trial AND trial_ends_at <= NOW())
       const allBots = await query<any>(
         `SELECT bi.id, bi.user_id, bi.enabled_pairs, bi.status, bi.exchange, bi.config
          FROM bot_instances bi
          INNER JOIN subscriptions s ON s.user_id = bi.user_id
          WHERE bi.status = 'running'
            AND s.status IN ('active', 'trialing')
+           AND NOT (s.plan_tier = 'live_trial' AND s.trial_ends_at <= NOW())
            ${shardFilter}
          ORDER BY bi.created_at DESC`
       );
@@ -2031,6 +2033,33 @@ class TradeSignalOrchestrator {
 
         return hasEnabledPairs;
       });
+
+      // Auto-pause bots for expired trials (real-time safety net for background job misses)
+      const expiredTrialBots = await query<any>(
+        `SELECT bi.id, bi.user_id, u.email, u.name
+         FROM bot_instances bi
+         INNER JOIN subscriptions s ON s.user_id = bi.user_id
+         JOIN users u ON u.id = bi.user_id
+         WHERE bi.status = 'running'
+           AND s.plan_tier = 'live_trial'
+           AND s.trial_ends_at <= NOW()
+         LIMIT 10`
+      );
+
+      if (expiredTrialBots.length > 0) {
+        for (const bot of expiredTrialBots) {
+          await query(
+            `UPDATE bot_instances SET status = 'paused', updated_at = NOW()
+             WHERE id = $1 AND status = 'running'`,
+            [bot.id]
+          );
+          logger.info('Orchestrator: Auto-paused bot — trial expired', {
+            botId: bot.id,
+            userId: bot.user_id,
+            email: bot.email,
+          });
+        }
+      }
 
       // Also check for running bots that were skipped due to subscription issues
       const skippedBots = await query<any>(

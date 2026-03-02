@@ -245,7 +245,7 @@ export default function AdminUsersPage() {
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-3 text-sm">
-                      {user.subscription?.planTier === 'live_trial' && (
+                      {user.subscription && (
                         <button
                           onClick={() =>
                             setExtendModal({
@@ -256,7 +256,7 @@ export default function AdminUsersPage() {
                           }
                           className="px-3 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800 transition"
                         >
-                          Extend Trial
+                          {user.subscription.planTier === 'live_trial' ? 'Extend Trial' : 'Grant Trial'}
                         </button>
                       )}
                     </td>

@@ -41,8 +41,13 @@ async function getExpiringTrials(daysUntilExpiry: number) {
          s.plan_tier = 'live_trial'
          AND s.trial_ends_at IS NOT NULL
          AND s.trial_ends_at <= NOW() + INTERVAL '${daysUntilExpiry} days'
-         AND (s.trial_notification_sent_at IS NULL
-              OR s.trial_notification_sent_at < NOW() - INTERVAL '24 hours')
+         AND (
+           -- Already expired: always retry regardless of notification cooldown
+           -- (cooldown only applies to pre-expiry warning emails, not the transition itself)
+           s.trial_ends_at <= NOW()
+           OR s.trial_notification_sent_at IS NULL
+           OR s.trial_notification_sent_at < NOW() - INTERVAL '24 hours'
+         )
        ORDER BY s.trial_ends_at ASC`,
     );
     return result.rows;

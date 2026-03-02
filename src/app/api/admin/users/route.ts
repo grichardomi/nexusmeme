@@ -124,21 +124,21 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: 'days must be between 1 and 90' }, { status: 400 });
       }
 
-      // Find the user's live_trial subscription
+      // Find the user's subscription (any plan — handles both live_trial and transitioned performance_fees)
       const subs = await query<any>(
-        `SELECT id, status, trial_ends_at FROM subscriptions
-         WHERE user_id = $1 AND plan_tier = 'live_trial' AND status != 'cancelled'
+        `SELECT id, status, plan_tier, trial_ends_at FROM subscriptions
+         WHERE user_id = $1 AND status != 'cancelled'
          ORDER BY created_at DESC LIMIT 1`,
         [userId],
       );
 
       if (subs.length === 0) {
-        return NextResponse.json({ error: 'No trial subscription found for this user' }, { status: 404 });
+        return NextResponse.json({ error: 'No subscription found for this user' }, { status: 404 });
       }
 
       const sub = subs[0];
 
-      // Extend from current expiry (or now if already expired)
+      // Extend from current expiry (or now if already expired/null)
       const baseDate = sub.trial_ends_at && new Date(sub.trial_ends_at) > new Date()
         ? new Date(sub.trial_ends_at)
         : new Date();
@@ -146,9 +146,11 @@ export async function PATCH(request: NextRequest) {
       const newTrialEnd = new Date(baseDate);
       newTrialEnd.setDate(newTrialEnd.getDate() + daysNum);
 
+      // Restore plan_tier to live_trial if it was transitioned away (e.g. performance_fees after expiry)
       await query(
         `UPDATE subscriptions
          SET trial_ends_at = $1,
+             plan_tier = 'live_trial',
              status = 'trialing',
              updated_at = NOW()
          WHERE id = $2`,
