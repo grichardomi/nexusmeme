@@ -129,12 +129,17 @@ class PositionTracker {
   }
 
   /**
-   * LATENCY OPTIMIZATION: Queue peak update for batching
-   * Instead of individual UPDATE queries, collect updates in memory
-   * and flush at end of cycle (reduces DB round-trips)
+   * Queue peak update for batching AND immediately persist to DB (fire-and-forget).
+   * Immediate write prevents peak data loss on process restart.
+   * Batch flush at end of cycle is kept as a safety net for any missed writes.
    */
   private queuePeakUpdate(tradeId: string, peakProfitPct: number): void {
     this.pendingUpdates.set(tradeId, peakProfitPct);
+    // Fire-and-forget immediate DB write — survives restart, no await to preserve latency
+    query(
+      `UPDATE trades SET peak_profit_percent = $1, peak_profit_recorded_at = NOW() WHERE id = $2::uuid`,
+      [peakProfitPct, tradeId]
+    ).catch(() => {}); // Batch flush will retry if this fails
   }
 
   /**

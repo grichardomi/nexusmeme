@@ -151,20 +151,20 @@ const envSchema = z.object({
   /* Minimum time before underwater exits can trigger (parity with /nexus) */
   UNDERWATER_EXIT_MIN_TIME_MINUTES: z.string().transform(Number).default('15'), // 15 minutes - don't exit too early
 
-  /* Minimum peak profit before collapse protection kicks in (AGGRESSIVE) */
-  /* Philosophy: Protect ALL peaks (0.1%+), close early on pullback */
-  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - protect only meaningful peaks
-  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('5.0'), // 5.0% - peak-relative erosion cap won't fire until trade peaks >= 5% (above weak/moderate profit targets)
+  /* Minimum peak profit before collapse protection kicks in */
+  /* Philosophy: Only protect peaks above fee round-trip + buffer; below this let time-gated early loss handle it */
+  PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - above 0.2% fee round-trip + buffer
+  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('1.0'), // 2.0% - arms after weak profit target; catches moderate/strong reversals before they cross 0%
 
   /* Minimum peak profit before erosion cap kicks in */
-  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.005'), // 0.5% - small-profit dead zone (prevents micro-peak false exits)
+  EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - meaningful peak, not noise
   EROSION_MIN_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
 
   /* Underwater exit - minimum meaningful peak in dollars (/nexus port) */
   UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
   /* Peak-Relative Erosion (/nexus parity - 30% of peak eroded = exit) */
-  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.60'), // 60% - only exits on real collapses, not normal trend pullbacks
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.35'), // 35% - standard trailing protection; exits at 65% of peak
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
 
   /* Regime-based Erosion Caps (VERY AGGRESSIVE - lock profits quickly) */
@@ -423,12 +423,12 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
-    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.005, // 0.5% - protect meaningful peaks
-    EROSION_PEAK_MIN_PCT: 5.0, // 5.0% - don't fire peak-relative erosion until peak >= 5% (above weak/moderate profit targets)
-    EROSION_MIN_PEAK_PCT: 0.005, // 0.5% - small-profit dead zone (prevents micro-peak false exits)
+    PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.008, // 0.8% - above fee round-trip + buffer
+    EROSION_PEAK_MIN_PCT: 1.0, // 1.0% - arms after fee round-trip + buffer; protects any meaningful gain
+    EROSION_MIN_PEAK_PCT: 0.008, // 0.8% - meaningful peak, not noise
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
-    EROSION_PEAK_RELATIVE_THRESHOLD: 0.60, // 60% - only exits on real collapses, not normal trend pullbacks
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.35, // 35% - standard trailing protection; exits at 65% of peak
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_CAP_CHOPPY: 0.05, // 5% - exit fast in chop (keep 95% of peak)
     EROSION_CAP_WEAK: 0.05, // 5% - exit fast in weak trends
