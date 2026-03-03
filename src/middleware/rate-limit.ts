@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { incrementCounter } from '@/lib/redis';
+import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 /**
  * Rate Limiting Middleware
- * Protects API from abuse using fixed window counter in Upstash Redis
+ * Protects API from abuse using fixed window counter in PostgreSQL
  *
- * Migration from PostgreSQL to Redis:
- * - PostgreSQL: 3-4 queries per request (DELETE + INSERT + COUNT)
- * - Redis: 1 operation (INCR) with automatic TTL-based cleanup
- * - Performance: ~10x faster, ~100x less database pressure
+ * Uses api_rate_limits table with upsert for atomic increments.
+ * Expired windows are cleaned up lazily on each request.
  */
 
 export interface RateLimitConfig {
@@ -25,6 +23,23 @@ const DEFAULT_CONFIG: RateLimitConfig = {
   windowMs: 60 * 1000, // 1 minute
   keyPrefix: 'rl',
 };
+
+/**
+ * Ensure the api_rate_limits table exists (idempotent).
+ */
+let tableEnsured = false;
+async function ensureTable() {
+  if (tableEnsured) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS api_rate_limits (
+      key TEXT NOT NULL,
+      window_start BIGINT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (key, window_start)
+    )
+  `);
+  tableEnsured = true;
+}
 
 /**
  * Create rate limit middleware
@@ -75,33 +90,20 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
       return response;
     } catch (error) {
       logger.error('Rate limit check failed', error instanceof Error ? error : null);
-      // Fail closed in production - reject if we can't verify rate limit
-      if (process.env.NODE_ENV === 'production') {
-        return NextResponse.json(
-          { error: 'Service temporarily unavailable' },
-          { status: 503 }
-        );
-      }
-      // In development, allow for easier testing
+      // Fail open — don't block auth on DB error (brute-force risk is low vs availability)
       return NextResponse.next();
     }
   };
 }
 
 /**
- * Check if request is within rate limit
- * Uses fixed window counter algorithm in Redis
+ * Check if request is within rate limit using PostgreSQL fixed-window counter.
  *
  * Algorithm:
- * 1. Increment counter in Redis (atomic)
- * 2. Set TTL on first increment (TTL = window duration)
- * 3. Compare count against limit
- *
- * Benefits over PostgreSQL:
- * - Single Redis operation vs 3-4 database queries
- * - Automatic TTL cleanup (no manual DELETE needed)
- * - ~10x faster (Redis vs network roundtrip to PostgreSQL)
- * - Zero database connection pool pressure
+ * 1. Compute current window start (floor to window boundary)
+ * 2. Upsert row: INSERT ... ON CONFLICT DO UPDATE SET count = count + 1
+ * 3. Compare returned count against limit
+ * 4. Lazily delete expired windows (older than 2x window) to avoid table bloat
  */
 async function checkRateLimit(
   key: string,
@@ -113,28 +115,37 @@ async function checkRateLimit(
   resetAt: number;
 }> {
   const now = Date.now();
-  const windowSeconds = Math.ceil(windowMs / 1000);
-  const resetAt = now + windowMs;
+  const windowStart = Math.floor(now / windowMs) * windowMs;
+  const resetAt = windowStart + windowMs;
 
   try {
-    // Increment counter and set TTL (atomic operations in Redis)
-    const count = await incrementCounter(key, windowSeconds);
+    await ensureTable();
 
+    // Upsert: atomically increment the counter for this key+window
+    const rows = await query<{ count: number }>(
+      `INSERT INTO api_rate_limits (key, window_start, count)
+       VALUES ($1, $2, 1)
+       ON CONFLICT (key, window_start)
+       DO UPDATE SET count = api_rate_limits.count + 1
+       RETURNING count`,
+      [key, windowStart]
+    );
+
+    const count = rows[0]?.count ?? 1;
     const allowed = count <= maxRequests;
     const remaining = Math.max(0, maxRequests - count);
 
-    return {
-      allowed,
-      remaining,
-      resetAt,
-    };
+    // Lazy cleanup: delete windows older than 2x the window duration (fire-and-forget)
+    const cutoff = now - windowMs * 2;
+    query(`DELETE FROM api_rate_limits WHERE window_start < $1`, [cutoff]).catch(() => {});
+
+    return { allowed, remaining, resetAt };
   } catch (error) {
     logger.error('Failed to check rate limit', error instanceof Error ? error : null, { key });
-    // Fail closed in production to prevent brute-force during Redis outage
-    const isProduction = process.env.NODE_ENV === 'production';
+    // Fail open on DB error
     return {
-      allowed: !isProduction,
-      remaining: isProduction ? 0 : maxRequests,
+      allowed: true,
+      remaining: maxRequests,
       resetAt,
     };
   }
@@ -145,7 +156,6 @@ async function checkRateLimit(
  * Prioritizes user ID, falls back to IP address
  */
 function getRateLimitKey(request: NextRequest, prefix: string = 'rl'): string {
-  // Try to get user ID from auth header or session
   const authHeader = request.headers.get('authorization');
   const userId = extractUserIdFromAuth(authHeader);
 
@@ -153,7 +163,6 @@ function getRateLimitKey(request: NextRequest, prefix: string = 'rl'): string {
     return `${prefix}:user:${userId}`;
   }
 
-  // Fall back to IP address
   const ip = getClientIp(request);
   return `${prefix}:ip:${ip}`;
 }
@@ -165,13 +174,11 @@ function extractUserIdFromAuth(authHeader: string | null): string | null {
   if (!authHeader) return null;
 
   try {
-    // Bearer token format: Bearer <token>
     if (authHeader.startsWith('Bearer ')) {
       // TODO: Validate JWT and extract user ID
-      // For now, return null to fall back to IP
       return null;
     }
-  } catch (error) {
+  } catch {
     // Ignore parse errors
   }
 
@@ -182,23 +189,17 @@ function extractUserIdFromAuth(authHeader: string | null): string | null {
  * Get client IP address from request
  */
 function getClientIp(request: NextRequest): string {
-  // Try various headers in order of preference
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) {
     return forwarded.split(',')[0].trim();
   }
 
   const realIp = request.headers.get('x-real-ip');
-  if (realIp) {
-    return realIp;
-  }
+  if (realIp) return realIp;
 
   const cfIp = request.headers.get('cf-connecting-ip');
-  if (cfIp) {
-    return cfIp;
-  }
+  if (cfIp) return cfIp;
 
-  // NextRequest doesn't expose IP directly, use a placeholder
   return 'unknown';
 }
 

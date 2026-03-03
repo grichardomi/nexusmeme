@@ -290,7 +290,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       const unrealizedPnLPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;
 
       const requestPayload = {
-        botInstanceId: botId,
+        botInstanceId: trade.botId || botId,
         tradeId: trade.id,
         pair: trade.pair,
         exitTime: new Date().toISOString(),

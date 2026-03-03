@@ -386,8 +386,14 @@ class TradeSignalOrchestrator {
       // Get all active bots with enabled pairs
       const activeBots = await this.getActiveBots();
       if (activeBots.length === 0) {
+        // No running bots for new entries, but still run exit checks for any open trades
+        // (covers paused/stopped bots that still have open positions)
+        await Promise.all([
+          this.checkOpenTradesForMomentumFailure(),
+          this.checkOpenTradesForProfitTargets(),
+        ]);
         logger.debug('Orchestrator: no active bots found to trade');
-        return; // No bots to trade
+        return;
       }
 
       logger.debug('Orchestrator: found active bots', {

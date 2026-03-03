@@ -5,7 +5,6 @@ import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
 import { tradingConfig } from '@/config/environment';
-import { getCached, setCached, deleteCached, invalidateTradesCache } from '@/lib/redis';
 import { checkActionAllowed } from '@/services/billing/subscription';
 import { sendBotCreatedEmail } from '@/services/email/triggers';
 
@@ -28,27 +27,6 @@ export async function GET(_request: NextRequest) {
       status: string;
       createdAt: string;
       config: Record<string, unknown>;
-    }
-
-    interface MappedBot {
-      id: string;
-      exchange: string;
-      enabledPairs: string[];
-      tradingMode: 'paper' | 'live';
-      isActive: boolean;
-      createdAt: string;
-      totalTrades: number;
-      profitLoss: number;
-      initialCapital: number; // 0 = unlimited (uses real exchange balance)
-      name: string;
-      config: Record<string, unknown>;
-    }
-
-    // Check cache first (TTL: 10 seconds)
-    const cacheKey = `bots:user:${session.user.id}`;
-    const cachedBots = await getCached<MappedBot[]>(cacheKey);
-    if (cachedBots) {
-      return NextResponse.json(cachedBots);
     }
 
     const bots = await query<BotRow>(
@@ -121,9 +99,6 @@ export async function GET(_request: NextRequest) {
         config,
       };
     });
-
-    // Cache result (10 second TTL)
-    await setCached(cacheKey, mappedBots, 10);
 
     logger.info('Fetched bots for user', {
       userId: session.user.id,
@@ -356,9 +331,6 @@ export async function POST(request: NextRequest) {
       });
       // Don't fail bot creation if email fails
     }
-
-    // Invalidate bots cache
-    await deleteCached(`bots:user:${session.user.id}`);
 
     return NextResponse.json(
       {
@@ -715,11 +687,6 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
-    // Invalidate bots cache
-    await deleteCached(`bots:user:${session.user.id}`);
-    // Invalidate all trades cache for this bot (covers all limit values and all-bots variants)
-    await invalidateTradesCache(session.user.id, botId);
-
     return NextResponse.json({
       message: 'Bot updated successfully',
       bot: {
@@ -779,11 +746,6 @@ export async function DELETE(request: NextRequest) {
       userId: session.user.id,
       botId,
     });
-
-    // Invalidate bots cache
-    await deleteCached(`bots:user:${session.user.id}`);
-    // Invalidate all trades cache for this bot (covers all limit values and all-bots variants)
-    await invalidateTradesCache(session.user.id, botId);
 
     return NextResponse.json({ message: 'Bot deleted successfully' });
   } catch (error) {

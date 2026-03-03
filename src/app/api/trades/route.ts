@@ -3,7 +3,6 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { getCached, setCached } from '@/lib/redis';
 import { exchangeFeesConfig } from '@/config/environment';
 
 /**
@@ -151,12 +150,6 @@ export async function GET(request: NextRequest) {
     const twoYearsAgo = new Date();
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
-    // Create cache key including status filter
-    const cacheKey = botId
-      ? `trades:user:${session.user.id}:bot:${botId}:status:${statusFilter}:offset:${offset}:limit:${limit}`
-      : `trades:user:${session.user.id}:allbots:status:${statusFilter}:offset:${offset}:limit:${limit}`;
-
-    // Check cache first (TTL: 3 seconds - trades change frequently)
     interface CachedTrade {
       id: string;
       botId: string;
@@ -187,11 +180,6 @@ export async function GET(request: NextRequest) {
         averageReturn: number;
       };
       total?: number;
-    }
-
-    const cachedResponse = await getCached<TradeResponse>(cacheKey);
-    if (cachedResponse) {
-      return NextResponse.json(cachedResponse);
     }
 
     // Build WHERE clause for status filter
@@ -323,12 +311,11 @@ export async function GET(request: NextRequest) {
         },
         total: 0,
       };
-      await setCached(cacheKey, emptyResponse, 3);
       return NextResponse.json(emptyResponse);
     }
 
     if (trades.length === 0) {
-      const emptyResponse: TradeResponse = {
+      return NextResponse.json({
         trades: [],
         stats: {
           totalTrades: 0,
@@ -340,9 +327,7 @@ export async function GET(request: NextRequest) {
           averageReturn: 0,
         },
         total,
-      };
-      await setCached(cacheKey, emptyResponse, 3);
-      return NextResponse.json(emptyResponse);
+      });
     }
 
     // Calculate stats (using net P&L for accuracy after fees)
@@ -491,9 +476,6 @@ export async function GET(request: NextRequest) {
       stats,
       total,
     };
-
-    // Cache response (3 second TTL - trades can change frequently)
-    await setCached(cacheKey, response, 3);
 
     return NextResponse.json(response);
   } catch (error) {
