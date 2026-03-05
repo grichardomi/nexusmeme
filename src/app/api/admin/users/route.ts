@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
         s.id as subscription_id,
         s.status as subscription_status,
         s.plan_tier,
-        s.trial_ends_at
+        s.trial_ends_at,
+        b.config->>'billingTier' as billing_tier,
+        (b.config->>'totalAccountValue')::numeric as total_account_value,
+        b.config->>'accountValueUpdatedAt' as account_value_updated_at
       FROM users u
       LEFT JOIN LATERAL (
         SELECT id, status, plan_tier, trial_ends_at
@@ -42,6 +45,13 @@ export async function GET(request: NextRequest) {
         ORDER BY created_at DESC
         LIMIT 1
       ) s ON true
+      LEFT JOIN LATERAL (
+        SELECT config
+        FROM bot_instances
+        WHERE user_id = u.id
+        ORDER BY created_at DESC
+        LIMIT 1
+      ) b ON true
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -83,6 +93,9 @@ export async function GET(request: NextRequest) {
               trialEndsAt: u.trial_ends_at ? new Date(u.trial_ends_at) : null,
             }
           : null,
+        billingTier: u.billing_tier ?? null,
+        totalAccountValue: u.total_account_value ? parseFloat(u.total_account_value) : null,
+        accountValueUpdatedAt: u.account_value_updated_at ?? null,
       })),
       total,
       page,

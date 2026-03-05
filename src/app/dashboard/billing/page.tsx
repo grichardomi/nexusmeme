@@ -8,7 +8,7 @@ import { PerformanceFeesSummary } from '@/components/billing/PerformanceFeesSumm
 import { RecentTransactions } from '@/components/billing/RecentTransactions';
 import { ChargeHistory } from '@/components/billing/ChargeHistory';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
-import { CryptoPayButton } from '@/components/billing/CryptoPayButton';
+import { LemonSqueezyPayButton } from '@/components/billing/LemonSqueezyPayButton';
 import { GoLiveWizard } from '@/components/billing/GoLiveWizard';
 
 /**
@@ -30,6 +30,7 @@ export default function BillingPage() {
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [showGoLiveWizard, setShowGoLiveWizard] = useState(false);
+  const [feePercent, setFeePercent] = useState<number | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -61,6 +62,10 @@ export default function BillingPage() {
   useEffect(() => {
     if (status === 'authenticated') {
       fetchUserPlan();
+      fetch('/api/billing/fee-rate')
+        .then(r => r.json())
+        .then(d => setFeePercent(d.feePercent ?? null))
+        .catch(() => setFeePercent(5));
     }
   }, [status]);
 
@@ -122,7 +127,7 @@ export default function BillingPage() {
       case 'live_trial':
         return 'You are on a free trial with paper trading. Add a payment method to upgrade to live trading with real money.';
       case 'performance_fees':
-        return '15% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.';
+        return `${feePercent ?? 5}% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.`;
       default:
         return 'You are on a free trial. Upgrade to live trading when ready.';
     }
@@ -187,7 +192,7 @@ export default function BillingPage() {
                 <li>✓ 10 days to test live trading</li>
                 <li>✓ No capital limits</li>
                 <li>✓ No payment required</li>
-                <li>✓ After trial: 15% on profits</li>
+                <li>✓ After trial: {feePercent ?? 5}% on profits</li>
               </ul>
             </details>
           )}
@@ -202,7 +207,7 @@ export default function BillingPage() {
                   Ready to trade with real money?
                 </h3>
                 <p className="text-sm text-green-600 dark:text-green-400 mt-1">
-                  15% on profits only — paid monthly via crypto
+                  {feePercent ?? 5}% on profits only — paid monthly via card
                 </p>
               </div>
               <button
@@ -216,7 +221,7 @@ export default function BillingPage() {
         ) : (
           <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              💡 <strong>No subscriptions.</strong> 15% on profits — we only earn when you do.{' '}
+              💡 <strong>No subscriptions.</strong> {feePercent ?? 5}% on profits — we only earn when you do.{' '}
               <a href="/help/performance-fees" className="underline">Learn more →</a>
             </p>
           </section>
@@ -226,7 +231,7 @@ export default function BillingPage() {
         <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
 
         {/* Crypto Payment - Below fees on mobile */}
-        <CryptoPayButton tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
+        <LemonSqueezyPayButton tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
 
         {/* Recent Transactions */}
         <RecentTransactions />

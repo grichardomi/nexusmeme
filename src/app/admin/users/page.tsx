@@ -22,6 +22,9 @@ interface User {
   createdAt: Date;
   emailVerified: boolean;
   subscription: Subscription | null;
+  billingTier: 'starter' | 'live' | 'elite' | null;
+  totalAccountValue: number | null;
+  accountValueUpdatedAt: string | null;
 }
 
 interface ExtendModalState {
@@ -210,6 +213,8 @@ export default function AdminUsersPage() {
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Role</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Verified</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Trial</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Account Value</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Tier</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Joined</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Actions</th>
                 </tr>
@@ -241,6 +246,37 @@ export default function AdminUsersPage() {
                       )}
                     </td>
                     <td className="px-6 py-3 text-sm">{getTrialBadge(user.subscription)}</td>
+                    <td className="px-6 py-3 text-sm">
+                      {user.totalAccountValue !== null ? (
+                        <div>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            ${user.totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                          {user.accountValueUpdatedAt && (
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {new Date(user.accountValueUpdatedAt).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">No data</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-3 text-sm">
+                      {user.billingTier ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          user.billingTier === 'elite'
+                            ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                            : user.billingTier === 'live'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}>
+                          {user.billingTier === 'elite' ? '★ Elite' : user.billingTier === 'live' ? '◆ Live' : '● Starter'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
                     <td className="px-6 py-3 text-sm text-slate-600 dark:text-slate-400">
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>

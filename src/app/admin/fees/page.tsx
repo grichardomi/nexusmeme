@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
@@ -37,6 +37,14 @@ interface PaginationData {
   pages: number;
 }
 
+interface UserOverride {
+  user_id: string;
+  email: string;
+  fee_rate: number;
+  reason: string | null;
+  created_at: string;
+}
+
 export default function AdminFeesPage() {
   const { status } = useSession();
   const [fees, setFees] = useState<FeeRecord[]>([]);
@@ -55,13 +63,40 @@ export default function AdminFeesPage() {
   const [actionAmount, setActionAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // Fee rate management state
+  const [globalFeeRate, setGlobalFeeRate] = useState<number | null>(null);
+  const [userOverrides, setUserOverrides] = useState<UserOverride[]>([]);
+  const [editingGlobalRate, setEditingGlobalRate] = useState(false);
+  const [globalRateInput, setGlobalRateInput] = useState('');
+  const [overrideEmail, setOverrideEmail] = useState('');
+  const [overrideRate, setOverrideRate] = useState('');
+  const [overrideReason, setOverrideReason] = useState('');
+  const [rateSettingsError, setRateSettingsError] = useState<string | null>(null);
+  const [rateSaving, setRateSaving] = useState(false);
+
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
   }
 
+  const fetchBillingSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/billing-settings');
+      if (!res.ok) return;
+      const data = await res.json();
+      setGlobalFeeRate(parseFloat(String(data.globalFeeRate)));
+      setUserOverrides(data.userOverrides ?? []);
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
   useEffect(() => {
     fetchFees();
   }, [page, filterStatus, searchQuery]);
+
+  useEffect(() => {
+    if (status === 'authenticated') fetchBillingSettings();
+  }, [status, fetchBillingSettings]);
 
   const handleSearch = () => {
     setSearchQuery(searchInput);
@@ -157,6 +192,69 @@ export default function AdminFeesPage() {
       .join(' ');
   };
 
+  const saveGlobalRate = async () => {
+    const rate = parseFloat(globalRateInput);
+    if (isNaN(rate) || rate <= 0 || rate > 1) {
+      setRateSettingsError('Enter a decimal between 0.01 and 1.00 (e.g. 0.05 for 5%)');
+      return;
+    }
+    setRateSaving(true);
+    setRateSettingsError(null);
+    try {
+      const res = await fetch('/api/admin/billing-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'global', feeRate: rate }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setGlobalFeeRate(rate);
+      setEditingGlobalRate(false);
+    } catch (err) {
+      setRateSettingsError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  const saveUserOverride = async () => {
+    const rate = parseFloat(overrideRate);
+    if (!overrideEmail || isNaN(rate) || rate <= 0 || rate > 1) {
+      setRateSettingsError('Enter a valid email and decimal rate (e.g. 0.03 for 3%)');
+      return;
+    }
+    setRateSaving(true);
+    setRateSettingsError(null);
+    try {
+      const res = await fetch('/api/admin/billing-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'user', userEmail: overrideEmail, feeRate: rate, reason: overrideReason }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setOverrideEmail('');
+      setOverrideRate('');
+      setOverrideReason('');
+      await fetchBillingSettings();
+    } catch (err) {
+      setRateSettingsError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  const removeUserOverride = async (userId: string) => {
+    try {
+      const res = await fetch('/api/admin/billing-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'user', userId, feeRate: null }),
+      });
+      if (res.ok) await fetchBillingSettings();
+    } catch {
+      // non-fatal
+    }
+  };
+
   const pages = Math.ceil(totalFees / pageSize);
 
   return (
@@ -170,6 +268,118 @@ export default function AdminFeesPage() {
         </div>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Performance Fees Management</h1>
         <p className="text-slate-600 dark:text-slate-400 mt-2">View, adjust, waive, and refund performance fees</p>
+      </div>
+
+      {/* Fee Rate Management */}
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 space-y-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Fee Rate Settings</h2>
+
+        {rateSettingsError && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm">
+            {rateSettingsError}
+          </div>
+        )}
+
+        {/* Global Rate */}
+        <div className="flex items-center gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Global Performance Fee Rate</p>
+            {editingGlobalRate ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max="1"
+                  value={globalRateInput}
+                  onChange={(e) => setGlobalRateInput(e.target.value)}
+                  placeholder="e.g. 0.05"
+                  className="w-32 px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                />
+                <button
+                  onClick={saveGlobalRate}
+                  disabled={rateSaving}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                  {rateSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  onClick={() => setEditingGlobalRate(false)}
+                  className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {globalFeeRate !== null ? `${(globalFeeRate * 100).toFixed(2)}%` : '…'}
+                </span>
+                <button
+                  onClick={() => { setGlobalRateInput(globalFeeRate?.toString() ?? ''); setEditingGlobalRate(true); setRateSettingsError(null); }}
+                  className="px-3 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Per-User Overrides */}
+        <div>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Per-User Overrides</p>
+          {userOverrides.length > 0 && (
+            <div className="mb-3 space-y-2">
+              {userOverrides.map((ov) => (
+                <div key={ov.user_id} className="flex items-center gap-3 text-sm">
+                  <span className="flex-1 text-slate-700 dark:text-slate-300">{ov.email}</span>
+                  <span className="font-semibold text-slate-900 dark:text-white">{(ov.fee_rate * 100).toFixed(2)}%</span>
+                  {ov.reason && <span className="text-slate-500 dark:text-slate-400 text-xs">{ov.reason}</span>}
+                  <button
+                    onClick={() => removeUserOverride(ov.user_id)}
+                    className="text-red-500 hover:text-red-700 text-xs font-medium"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="email"
+              value={overrideEmail}
+              onChange={(e) => setOverrideEmail(e.target.value)}
+              placeholder="user@example.com"
+              className="px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm w-52"
+            />
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              max="1"
+              value={overrideRate}
+              onChange={(e) => setOverrideRate(e.target.value)}
+              placeholder="rate e.g. 0.03"
+              className="px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm w-36"
+            />
+            <input
+              type="text"
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="reason (optional)"
+              className="px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm w-48"
+            />
+            <button
+              onClick={saveUserOverride}
+              disabled={rateSaving}
+              className="px-4 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            >
+              Add Override
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Stats */}
@@ -291,7 +501,9 @@ export default function AdminFeesPage() {
                     <th className="px-6 py-3 text-left font-semibold text-slate-900 dark:text-white">Trade ID</th>
                     <th className="px-6 py-3 text-left font-semibold text-slate-900 dark:text-white">Pair</th>
                     <th className="px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">Profit</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">Fee (5%)</th>
+                    <th className="px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                      Fee {globalFeeRate !== null ? `(${(globalFeeRate * 100).toFixed(2)}%)` : ''}
+                    </th>
                     <th className="px-6 py-3 text-center font-semibold text-slate-900 dark:text-white">Status</th>
                     <th className="px-6 py-3 text-center font-semibold text-slate-900 dark:text-white">Action</th>
                   </tr>

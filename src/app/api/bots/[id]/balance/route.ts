@@ -5,6 +5,7 @@ import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { decrypt } from '@/lib/crypto';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
+import { marketDataAggregator } from '@/services/market-data/aggregator';
 
 /**
  * GET /api/bots/[id]/balance
@@ -41,52 +42,40 @@ export async function GET(
     const bot = botResult[0];
     const config = bot.config || {};
 
-    // Check if unlimited capital (0 = unlimited, uses real exchange balance)
-    // Backward compatible: also accept "unlimited" string (legacy format)
+    // Always fetch real balance from exchange regardless of capital mode.
+    // - Unlimited (0): balance also controls position sizing
+    // - Fixed amount: balance is for display, billing tier, and account value only
     const initialCapital = config.initialCapital;
     const isUnlimited = initialCapital === 0 || (typeof initialCapital === 'string' && initialCapital.toLowerCase() === 'unlimited');
-
-    if (!isUnlimited) {
-      return NextResponse.json(
-        { error: 'Balance only available for unlimited capital bots' },
-        { status: 400 }
-      );
-    }
-
-    // For unlimited capital, always fetch REAL balance from exchange
-    // This applies to BOTH paper and live trading modes
-    const tradingMode = config.tradingMode || 'paper';
-    logger.debug('Fetching balance for unlimited capital bot', {
+    logger.debug('Fetching bot exchange balance', {
       botId,
-      tradingMode,
-      note: 'Unlimited (0 or "unlimited") means use actual exchange balance regardless of mode',
+      tradingMode: config.tradingMode || 'paper',
+      isUnlimited,
     });
 
     const exchange = bot.exchange.toLowerCase();
 
     // Get API keys for this exchange
     const keysResult = await query(
-      `SELECT encrypted_public_key, encrypted_secret_key
+      `SELECT encrypted_public_key, encrypted_secret_key, validated_at
        FROM exchange_api_keys
        WHERE user_id = $1 AND exchange = $2`,
       [session.user.id, exchange]
     );
 
     if (keysResult.length === 0) {
-      logger.warn('No API keys configured for exchange', {
-        userId: session.user.id,
-        botId,
-        exchange,
-      });
       return NextResponse.json(
         {
-          error: 'No API keys configured for this exchange',
+          error: 'No API keys found for this exchange. Go to Settings → API Keys to add your credentials.',
           exchange,
           available: null,
         },
         { status: 400 }
       );
     }
+
+    // validated_at may be NULL for keys saved before validation was introduced — allow them through
+    // and backfill validated_at on successful balance fetch below
 
     const keys = keysResult[0];
 
@@ -123,80 +112,107 @@ export async function GET(
         }
       }
 
-      // Connect to exchange and fetch balance
+      // Keys are pre-validated at save time — connect and fetch balance directly
       const adapter = getExchangeAdapter(exchange);
+      await adapter.connect({ publicKey, secretKey });
 
-      try {
-        await adapter.connect({
-          publicKey,
-          secretKey,
-        });
-      } catch (connectError) {
-        const errorMsg = connectError instanceof Error ? connectError.message : String(connectError);
-        logger.error('Failed to connect to exchange adapter', connectError instanceof Error ? connectError : null, {
-          botId,
-          exchange,
-          error: errorMsg,
-        });
-        return NextResponse.json(
-          {
-            error: `Failed to authenticate with ${exchange}: ${errorMsg}`,
-            available: null,
-          },
-          { status: 400 }
-        );
-      }
-
-      // Get all balances
       let balances;
       try {
         balances = await adapter.getBalances();
       } catch (balanceError) {
         const errorMsg = balanceError instanceof Error ? balanceError.message : String(balanceError);
-        logger.error('Failed to fetch balances from exchange', balanceError instanceof Error ? balanceError : null, {
-          botId,
-          exchange,
-          error: errorMsg,
-        });
+        logger.error('Failed to fetch balances from exchange', balanceError instanceof Error ? balanceError : null, { botId, exchange, error: errorMsg });
         return NextResponse.json(
-          {
-            error: `Failed to fetch balance from ${exchange}: ${errorMsg}`,
-            available: null,
-          },
+          { error: 'Could not retrieve balance from exchange. Try again shortly.', available: null },
           { status: 400 }
         );
       }
 
-      // Calculate total USDT/USD value
-      let realBalance = 0;
+      // Build currency balance map
       const currencyBalances: Record<string, number> = {};
-
       for (const balance of balances) {
-        const asset = balance.asset.toUpperCase();
-        currencyBalances[asset] = balance.total;
-
-        // Sum USD and USDT
-        if (asset === 'USD' || asset === 'USDT') {
-          realBalance += balance.total;
-        }
+        currencyBalances[balance.asset.toUpperCase()] = balance.total;
       }
 
+      // Fetch BTC and ETH prices for total account valuation (non-fatal if unavailable)
+      let btcPrice = 0;
+      let ethPrice = 0;
+      try {
+        const priceMap = await marketDataAggregator.getMarketData(['BTC/USD', 'ETH/USD']);
+        btcPrice = priceMap.get('BTC/USD')?.price ?? 0;
+        ethPrice = priceMap.get('ETH/USD')?.price ?? 0;
+      } catch {
+        // Market data not yet warm — totalAccountValue will show USDT/USD only
+      }
+
+      // USDT/USD cash
+      const usdCash = (currencyBalances['USDT'] ?? 0) + (currencyBalances['USD'] ?? 0);
+
+      // BTC and ETH converted to USD
+      const btcValue = (currencyBalances['BTC'] ?? 0) * btcPrice;
+      const ethValue = (currencyBalances['ETH'] ?? 0) * ethPrice;
+
+      // Total account value in USD (for tier assignment and billing)
+      const totalAccountValue = usdCash + btcValue + ethValue;
+
+      // Trading balance = USDT/USD only (what the bot can actually deploy)
+      const realBalance = usdCash;
+
       // Apply 95% buffer to prevent "insufficient balance" errors
-      // from price fluctuations and balance changes between API calls
       const bufferedBalance = realBalance * 0.95;
 
-      logger.info('Fetched bot exchange balance with 95% buffer', {
+      // Billing tier based on total account value (including crypto holdings)
+      const billingTier =
+        totalAccountValue >= 50000 ? 'elite' :
+        totalAccountValue >= 5000  ? 'live'  :
+                                     'starter';
+
+      // Backfill validated_at for keys saved before validation was introduced (fire-and-forget)
+      if (!keysResult[0].validated_at) {
+        query(
+          `UPDATE exchange_api_keys SET validated_at = NOW() WHERE user_id = $1 AND exchange = $2`,
+          [session.user.id, exchange]
+        ).catch(() => {});
+      }
+
+      // Persist billingTier + totalAccountValue to bot config for admin visibility (fire-and-forget)
+      query(
+        `UPDATE bot_instances
+         SET config = config || jsonb_build_object(
+           'billingTier', $1::text,
+           'totalAccountValue', $2::numeric,
+           'accountValueUpdatedAt', $3::text
+         )
+         WHERE id = $4`,
+        [billingTier, totalAccountValue, new Date().toISOString(), botId]
+      ).catch(() => {});
+
+      logger.info('Fetched bot exchange balance', {
         botId,
         exchange,
-        realBalance,
-        bufferedBalance,
-        buffer: '5%',
-        currencyCount: balances.length,
+        usdCash,
+        btcValue: btcValue.toFixed(2),
+        ethValue: ethValue.toFixed(2),
+        totalAccountValue: totalAccountValue.toFixed(2),
+        billingTier,
+        btcPrice,
+        ethPrice,
       });
 
       return NextResponse.json({
-        available: bufferedBalance,
-        real: realBalance,
+        available: bufferedBalance,        // Deployable trading balance (95% of USDT/USD)
+        real: realBalance,                 // Raw USDT/USD balance
+        totalAccountValue,                 // Full account value incl. BTC + ETH holdings
+        breakdown: {
+          usdCash,
+          btcHoldings: currencyBalances['BTC'] ?? 0,
+          btcValue,
+          ethHoldings: currencyBalances['ETH'] ?? 0,
+          ethValue,
+          btcPrice,
+          ethPrice,
+        },
+        billingTier,                       // 'starter' | 'live' | 'elite'
         buffer: 0.95,
         exchange,
         currencyBalances,

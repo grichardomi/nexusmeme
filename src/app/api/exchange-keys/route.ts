@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { encrypt } from '@/lib/crypto';
+import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { z } from 'zod';
 
 /**
@@ -131,7 +132,40 @@ export async function POST(request: NextRequest) {
       throw dbError;
     }
 
-    logger.info('Exchange API keys updated', {
+    // Validate keys against exchange immediately after saving
+    let validationStatus: 'valid' | 'invalid' = 'invalid';
+    let validationError: string | null = null;
+
+    try {
+      const adapter = getExchangeAdapter(exchange);
+      await adapter.connect({ publicKey, secretKey });
+      await adapter.getBalances(); // lightweight call to confirm keys work
+      validationStatus = 'valid';
+
+      // Mark as validated in DB
+      await query(
+        `UPDATE exchange_api_keys SET validated_at = NOW() WHERE user_id = $1 AND exchange = $2`,
+        [session.user.id, exchange]
+      );
+
+      logger.info('Exchange API keys validated', { userId: session.user.id, exchange });
+    } catch (err) {
+      validationError = err instanceof Error ? err.message : String(err);
+      logger.warn('Exchange API keys failed validation', { userId: session.user.id, exchange, error: validationError });
+    }
+
+    if (validationStatus === 'invalid') {
+      return NextResponse.json(
+        {
+          error: `API keys saved but could not connect to ${exchange.toUpperCase()}. Please check your key and secret and try again.`,
+          validationFailed: true,
+          exchange,
+        },
+        { status: 422 }
+      );
+    }
+
+    logger.info('Exchange API keys updated and validated', {
       userId: session.user.id,
       exchange,
       action: result.updated ? 'updated' : 'created',
@@ -139,9 +173,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(
       {
-        message: result.updated ? 'API keys updated successfully' : 'API keys added successfully',
+        message: result.updated ? 'API keys updated and verified ✓' : 'API keys added and verified ✓',
         exchange,
         id: result.id,
+        validated: true,
       },
       { status: result.updated ? 200 : 201 }
     );

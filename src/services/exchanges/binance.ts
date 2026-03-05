@@ -593,16 +593,16 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     try {
       logger.info('Fetching Binance balances');
 
-      // Use circuit breaker + retry with exponential backoff
+      // Skip rate limiter — balance is a display call, not trade execution
       const data = await this.circuitBreaker.execute(async () => {
         return await withRetry(
           async () => {
-            return await this.privateRequest('/v3/account', {});
+            return await this.privateRequest('/v3/account', {}, 'GET', true);
           },
           {
-            maxRetries: 2,
+            maxRetries: 1,
             baseDelay: 200,
-            maxDelay: 2000,
+            maxDelay: 1000,
           }
         );
       });
@@ -900,12 +900,15 @@ export class BinanceAdapter extends BaseExchangeAdapter {
   private async privateRequest(
     path: string,
     params: Record<string, any>,
-    method: 'GET' | 'POST' | 'DELETE' = 'GET'
+    method: 'GET' | 'POST' | 'DELETE' = 'GET',
+    skipRateLimit = false
   ): Promise<any> {
     this.validateKeys();
 
-    // Acquire rate limit token BEFORE entering circuit breaker — same reason as publicRequest.
-    await binanceRateLimiter.acquire(1);
+    // Skip rate limiter for display/balance calls — only trade execution needs rate limiting
+    if (!skipRateLimit) {
+      await binanceRateLimiter.acquire(1);
+    }
 
     try {
       if (!this.keys) {
@@ -937,15 +940,23 @@ export class BinanceAdapter extends BaseExchangeAdapter {
         body = queryString;
       }
 
-      // 5. Add X-MBX-APIKEY header and make request
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'X-MBX-APIKEY': this.keys.publicKey,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body,
-      });
+      // 5. Add X-MBX-APIKEY header and make request (5s timeout)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method,
+          headers: {
+            'X-MBX-APIKEY': this.keys.publicKey,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       // Handle Binance-specific error responses
       if (!response.ok) {

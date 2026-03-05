@@ -7,10 +7,7 @@
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
-
-function getFeeRate(): number {
-  return getEnvironmentConfig().PERFORMANCE_FEE_RATE;
-}
+import { getEffectiveFeeRate } from './fee-rate';
 
 export interface PerformanceFeeRecord {
   id: string;
@@ -42,7 +39,8 @@ export async function recordPerformanceFee(
     return null;
   }
 
-  const feeAmount = profitAmount * getFeeRate();
+  const feeRate = await getEffectiveFeeRate(userId);
+  const feeAmount = profitAmount * feeRate;
 
   // Check if user is on free trial (waive fees)
   const userCheck = await query(
@@ -68,10 +66,10 @@ export async function recordPerformanceFee(
   try {
     const result = await query(
       `INSERT INTO performance_fees
-       (user_id, trade_id, bot_instance_id, profit_amount, fee_amount, status, pair)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (user_id, trade_id, bot_instance_id, profit_amount, fee_amount, status, pair, fee_rate, fee_rate_applied)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
        RETURNING *`,
-      [userId, tradeId, botInstanceId, profitAmount, feeAmount, status, pair]
+      [userId, tradeId, botInstanceId, profitAmount, feeAmount, status, pair, feeRate]
     );
 
     logger.info('Performance fee recorded', {
@@ -80,7 +78,7 @@ export async function recordPerformanceFee(
       profitAmount,
       feeAmount,
       status,
-      feePercent: getFeeRate() * 100,
+      feePercent: feeRate * 100,
     });
 
     return result[0];
@@ -192,7 +190,11 @@ export async function adjustFee(
   reason: string
 ): Promise<void> {
   try {
-    const correctedFee = correctedProfit * getFeeRate();
+    // Get the fee record to look up original rate; fall back to env
+    const originalFeeRecord = await query('SELECT user_id FROM performance_fees WHERE id = $1', [feeId]);
+    const feeUserId = originalFeeRecord[0]?.user_id ?? adminUserId;
+    const feeRate = await getEffectiveFeeRate(feeUserId);
+    const correctedFee = correctedProfit * feeRate;
 
     await transaction(async (client) => {
       // Get original fee record

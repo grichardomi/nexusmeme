@@ -34,6 +34,13 @@ const envSchema = z.object({
   COINBASE_COMMERCE_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
   COINBASE_COMMERCE_ENABLED: z.string().transform(val => val === 'true').default('false'),
 
+  /* Lemon Squeezy - Card/PayPal payments for performance fees */
+  LEMONSQUEEZY_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
+  LEMONSQUEEZY_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
+  LEMONSQUEEZY_STORE_ID: z.string().optional().transform(v => v?.trim() || undefined),
+  LEMONSQUEEZY_VARIANT_ID: z.string().optional().transform(v => v?.trim() || undefined),
+  LEMONSQUEEZY_ENABLED: z.string().transform(v => v === 'true').default('false'),
+
   /* Exchange APIs */
   KRAKEN_API_BASE_URL: z.string().url().default('https://api.kraken.com'),
   BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.us'),
@@ -294,7 +301,7 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 
   /* Performance Fees */
-  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.15'), // 15% of profits
+  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.05'), // 5% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
@@ -351,6 +358,11 @@ function getDefaultEnvironment(): Environment {
     COINBASE_COMMERCE_API_KEY: undefined,
     COINBASE_COMMERCE_WEBHOOK_SECRET: undefined,
     COINBASE_COMMERCE_ENABLED: false,
+    LEMONSQUEEZY_API_KEY: undefined,
+    LEMONSQUEEZY_WEBHOOK_SECRET: undefined,
+    LEMONSQUEEZY_STORE_ID: undefined,
+    LEMONSQUEEZY_VARIANT_ID: undefined,
+    LEMONSQUEEZY_ENABLED: false,
     KRAKEN_API_BASE_URL: 'https://api.kraken.com',
     BINANCE_API_BASE_URL: 'https://api.binance.us',
     COINBASE_API_BASE_URL: 'https://api.coinbase.com',
@@ -498,7 +510,7 @@ function getDefaultEnvironment(): Environment {
     BTC_DUMP_MOM1H_THRESHOLD: -0.5,
     BTC_DUMP_VOLUME_MIN: 2.5,
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
-    PERFORMANCE_FEE_RATE: 0.15,
+    PERFORMANCE_FEE_RATE: 0.05,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     CP_BTC_TREND_GATE_ENABLED: true,
     CP_BTC_EMA_SHORT_PERIOD: 50,
@@ -599,7 +611,7 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
       BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
-      PERFORMANCE_FEE_RATE: 0.15,
+      PERFORMANCE_FEE_RATE: 0.05,
       PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
       AI_CONFIDENCE_BOOST_ENABLED: false,
       AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,

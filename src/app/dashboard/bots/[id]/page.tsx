@@ -61,6 +61,7 @@ export default function BotDetailPage() {
   const [editCapitalMode, setEditCapitalMode] = useState<'fixed' | 'unlimited'>('fixed');
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
+  const [totalAccountValue, setTotalAccountValue] = useState<number | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [lastBalanceUpdate, setLastBalanceUpdate] = useState<Date | null>(null);
@@ -432,7 +433,16 @@ export default function BotDetailPage() {
 
       if (!response.ok) {
         const data = await response.json();
-        setBalanceError(data.error || 'Failed to fetch balance');
+        const rawError: string = data.error || '';
+        let friendlyError: string;
+        if (rawError.toLowerCase().includes('authenticate') || rawError.toLowerCase().includes('validate') || rawError.toLowerCase().includes('api key')) {
+          friendlyError = 'Binance API keys are invalid or missing. Go to Settings → API Keys and re-enter your Binance US API key and secret.';
+        } else if (rawError.toLowerCase().includes('no api keys')) {
+          friendlyError = 'No Binance API keys found. Go to Settings → API Keys to add your Binance US credentials.';
+        } else {
+          friendlyError = rawError || 'Unable to fetch balance. Check your API keys in Settings.';
+        }
+        setBalanceError(friendlyError);
         setLiveBalance(null);
         if (showLoading) {
           setIsLoadingBalance(false);
@@ -442,9 +452,10 @@ export default function BotDetailPage() {
 
       const data = await response.json();
       setLiveBalance(data.available);
+      setTotalAccountValue(data.totalAccountValue ?? null);
+
       setBalanceError(null);
       setLastBalanceUpdate(new Date());
-      console.log('Fetched live balance:', data.available);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       console.error('Error fetching balance:', errorMsg);
@@ -461,16 +472,9 @@ export default function BotDetailPage() {
     fetchBot();
   }, [id]);
 
-  // Auto-refresh balance every 10 seconds for unlimited capital bots (paper or live)
+  // Auto-refresh balance every 10 seconds for all bots
   useEffect(() => {
     if (!bot) {
-      return;
-    }
-
-    // Check if bot has unlimited capital (0 = unlimited)
-    const isUnlimited = bot.initialCapital === 0;
-
-    if (!isUnlimited) {
       return;
     }
 
@@ -620,17 +624,54 @@ export default function BotDetailPage() {
                       : '⚠️ Unavailable'
                     : `$${initialCapital.toLocaleString()}`}
                 </p>
-                {isUnlimitedCapital && (
-                  <>
-                    {balanceError && (
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-1">{balanceError}</p>
-                    )}
-                    {lastBalanceUpdate && (
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        {bot.tradingMode === 'live' ? '🔴 Live' : '📄 Dry-run'} • Updated: {lastBalanceUpdate.toLocaleTimeString()}
+                {!isUnlimitedCapital && totalAccountValue !== null && initialCapital > totalAccountValue && bot.tradingMode !== 'live' && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    💡 Initial capital (${initialCapital.toLocaleString()}) exceeds your account balance (${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Fine for paper trading, but live orders would fail — reduce before going live.
+                  </p>
+                )}
+                {!isUnlimitedCapital && totalAccountValue !== null && initialCapital > totalAccountValue && bot.tradingMode === 'live' && (
+                  <div className={`mt-2 p-2 rounded border ${bot.tradingMode === 'live' ? 'bg-red-100 dark:bg-red-900/40 border-red-400 dark:border-red-600' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+                    {bot.tradingMode === 'live' && (
+                      <p className="text-xs font-bold text-red-800 dark:text-red-200 uppercase tracking-wide mb-1">
+                        🚨 Live Trading At Risk
                       </p>
                     )}
-                  </>
+                    <p className="text-xs text-red-700 dark:text-red-300 font-medium">
+                      {bot.tradingMode === 'live'
+                        ? `Initial capital ($${initialCapital.toLocaleString()}) exceeds your Binance balance ($${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Real orders will be rejected — reduce initial capital immediately.`
+                        : `⚠️ Initial capital ($${initialCapital.toLocaleString()}) exceeds your actual account balance ($${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}). Orders will fail.`}
+                    </p>
+                    <button
+                      onClick={handleEditSettingsClick}
+                      className={`text-xs underline mt-1 inline-block ${bot.tradingMode === 'live' ? 'text-red-800 dark:text-red-200 font-semibold hover:text-red-900 dark:hover:text-red-100' : 'text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-200'}`}
+                    >
+                      {bot.tradingMode === 'live' ? 'Fix Now in Settings →' : 'Fix in Settings →'}
+                    </button>
+                  </div>
+                )}
+                {balanceError && (
+                  <div className="mt-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <p className="text-xs text-amber-700 dark:text-amber-300">{balanceError}</p>
+                    {(balanceError.includes('Settings') || balanceError.includes('API Keys')) && (
+                      <Link href="/dashboard/settings" className="text-xs text-amber-600 dark:text-amber-400 underline mt-1 inline-block hover:text-amber-800 dark:hover:text-amber-200">
+                        Go to Settings → API Keys →
+                      </Link>
+                    )}
+                  </div>
+                )}
+                {lastBalanceUpdate && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    {bot.tradingMode === 'live' ? '🔴 Live' : '📄 Dry-run'} • Updated: {lastBalanceUpdate.toLocaleTimeString()}
+                  </p>
+                )}
+                {totalAccountValue !== null && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Total Account Value</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
+                      ${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">incl. BTC + ETH</span>
+                    </p>
+                  </div>
                 )}
               </div>
 
