@@ -75,7 +75,7 @@ export default function AdminDashboardPage() {
     },
     {
       title: 'Performance Fees',
-      description: 'Adjust, waive, and refund performance fees',
+      description: 'Set global fee rate, per-user overrides, adjust, waive, and refund fees',
       icon: '💰',
       href: '/admin/fees',
       color: 'from-green-500 to-green-600',

@@ -82,17 +82,13 @@ export async function PUT(req: NextRequest) {
     const adminId = sessionAnyPut.user!.id!;
 
     if (type === 'global') {
+      if (feeRate === null) return NextResponse.json({ error: 'feeRate required for global update' }, { status: 400 });
+
       await query(
         `INSERT INTO billing_settings (key, value, updated_at)
          VALUES ('performance_fee_rate', $1, NOW())
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
         [String(feeRate)]
-      );
-
-      await query(
-        `INSERT INTO fee_adjustments_audit (admin_user_id, change_type, new_value, reason, created_at)
-         VALUES ($1, 'global_fee_rate_change', $2, $3, NOW())`,
-        [adminId, String(feeRate), reason ?? 'Admin update']
       );
 
       logger.info('Global fee rate updated', { adminId, feeRate });
@@ -124,12 +120,6 @@ export async function PUT(req: NextRequest) {
          ON CONFLICT (user_id) DO UPDATE
          SET fee_rate = EXCLUDED.fee_rate, reason = EXCLUDED.reason, updated_at = NOW()`,
         [resolvedUserId, feeRate, reason ?? '', adminId]
-      );
-
-      await query(
-        `INSERT INTO fee_adjustments_audit (admin_user_id, target_user_id, change_type, new_value, reason, created_at)
-         VALUES ($1, $2, 'user_fee_rate_override', $3, $4, NOW())`,
-        [adminId, resolvedUserId, String(feeRate), reason ?? 'Admin override']
       );
 
       logger.info('User fee rate override set', { adminId, resolvedUserId, feeRate });

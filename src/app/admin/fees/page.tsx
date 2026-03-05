@@ -19,6 +19,7 @@ interface FeeRecord {
   pair: string;
   profit_amount: number;
   fee_amount: number;
+  fee_rate_applied?: number | null;
   original_fee_amount?: number;
   adjustment_reason?: string;
   status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived' | 'disputed';
@@ -501,9 +502,7 @@ export default function AdminFeesPage() {
                     <th className="px-6 py-3 text-left font-semibold text-slate-900 dark:text-white">Trade ID</th>
                     <th className="px-6 py-3 text-left font-semibold text-slate-900 dark:text-white">Pair</th>
                     <th className="px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">Profit</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">
-                      Fee {globalFeeRate !== null ? `(${(globalFeeRate * 100).toFixed(2)}%)` : ''}
-                    </th>
+                    <th className="px-6 py-3 text-right font-semibold text-slate-900 dark:text-white">Fee</th>
                     <th className="px-6 py-3 text-center font-semibold text-slate-900 dark:text-white">Status</th>
                     <th className="px-6 py-3 text-center font-semibold text-slate-900 dark:text-white">Action</th>
                   </tr>
@@ -530,6 +529,11 @@ export default function AdminFeesPage() {
                       </td>
                       <td className="px-6 py-4 text-right text-slate-900 dark:text-white font-semibold">
                         ${fee.fee_amount.toFixed(2)}
+                        {fee.fee_rate_applied != null && (
+                          <div className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                            {(parseFloat(String(fee.fee_rate_applied)) * 100).toFixed(2)}%
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-center">
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(fee.status)}`}>

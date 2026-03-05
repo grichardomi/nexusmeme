@@ -87,7 +87,8 @@ export async function GET(request: NextRequest) {
         pf.billed_at,
         pf.paid_at,
         pf.stripe_invoice_id,
-        pf.coinbase_charge_id
+        pf.coinbase_charge_id,
+        pf.fee_rate_applied
       FROM performance_fees pf
       JOIN users u ON pf.user_id = u.id
       WHERE ${whereClause}
@@ -113,6 +114,7 @@ export async function GET(request: NextRequest) {
       paid_at: f.paid_at,
       stripe_invoice_id: f.stripe_invoice_id,
       coinbase_charge_id: f.coinbase_charge_id,
+      fee_rate_applied: f.fee_rate_applied != null ? parseFloat(String(f.fee_rate_applied)) : null,
     }));
 
     return NextResponse.json({

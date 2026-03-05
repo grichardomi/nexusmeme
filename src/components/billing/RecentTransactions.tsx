@@ -9,6 +9,7 @@ interface Transaction {
   pair: string;
   profit_amount: number;
   fee_amount: number;
+  fee_rate_applied?: number | null;
   status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived';
   paid_at?: string;
   created_at?: string;
@@ -235,7 +236,7 @@ export function RecentTransactions() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Fee (5%)</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Fee</p>
                     <p className="text-sm font-semibold text-slate-900 dark:text-white">
                       ${tx.fee_amount.toFixed(2)}
                     </p>
@@ -270,7 +271,7 @@ export function RecentTransactions() {
                     Profit
                   </th>
                   <th className="text-right py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
-                    Fee (5%)
+                    Fee
                   </th>
                   <th className="text-center py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
                     Status
