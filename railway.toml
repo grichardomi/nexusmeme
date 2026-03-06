@@ -17,7 +17,20 @@ name = "worker"
 cmd = "node dist/worker.js"
 
 [services.worker.env]
-# Worker-specific environment variables
 NODE_ENV = "production"
-# Worker processes jobs, no web interface needed
 IS_WORKER = "true"
+
+[[crons]]
+name = "billing-upcoming"
+schedule = "0 9 28 * *"
+cmd = "node scripts/run-cron.mjs billing-upcoming"
+
+[[crons]]
+name = "billing-monthly"
+schedule = "0 2 1 * *"
+cmd = "node scripts/run-cron.mjs billing-monthly"
+
+[[crons]]
+name = "billing-dunning"
+schedule = "0 9 * * *"
+cmd = "node scripts/run-cron.mjs billing-dunning"

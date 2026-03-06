@@ -310,7 +310,7 @@ const envSchema = z.object({
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
   BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Days after invoice before dunning starts
   BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Days after invoice before bots suspended
-  CRON_SECRET: z.string().min(1),                                          // Shared secret to authenticate cron calls
+  CRON_SECRET: z.string().min(1).default('build-phase-placeholder'),       // Shared secret to authenticate cron calls
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
   CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -525,7 +525,7 @@ function getDefaultEnvironment(): Environment {
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
     BILLING_SUSPENSION_DAYS: 14,
-    CRON_SECRET: 'dev-cron-secret',
+    CRON_SECRET: 'build-phase-placeholder',
     CP_BTC_TREND_GATE_ENABLED: true,
     CP_BTC_EMA_SHORT_PERIOD: 50,
     CP_BTC_EMA_LONG_PERIOD: 200,

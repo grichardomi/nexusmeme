@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 // import Image from 'next/image';
 import { Footer } from '@/components/layouts/Footer';
@@ -10,6 +10,14 @@ import { Footer } from '@/components/layouts/Footer';
 export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [feePercent, setFeePercent] = useState<number>(6);
+
+  useEffect(() => {
+    fetch('/api/billing/fee-rate')
+      .then(r => r.json())
+      .then(d => { if (d.feePercent) setFeePercent(d.feePercent); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     // Redirect authenticated users to dashboard
@@ -55,7 +63,7 @@ export default function Home() {
                     AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Start your 10-day free trial today.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
-                    15% only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.
+                    {feePercent}% only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.
                   </p>
                 </div>
 
@@ -89,7 +97,7 @@ export default function Home() {
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Free Trial</div>
                   </div>
                   <div className="space-y-1 text-center">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">15% Fee</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">{feePercent}% Fee</div>
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Only on Profits</div>
                   </div>
                 </div>
@@ -283,7 +291,7 @@ export default function Home() {
                 Crypto Trading Pricing <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">That Makes Sense</span>
               </h2>
               <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
-                We only earn when you earn. Pay nothing when you lose, 15% when you win.
+                We only earn when you earn. Pay nothing when you lose, {feePercent}% when you win.
               </p>
             </div>
 
@@ -292,7 +300,7 @@ export default function Home() {
               <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 border border-slate-200 dark:border-slate-700 hover:shadow-lg transition-shadow">
                 <div className="mb-6">
                   <div className="text-6xl font-bold bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent mb-2">
-                    15%
+                    {feePercent}%
                   </div>
                   <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Performance Fee</h3>
                 </div>
@@ -389,7 +397,7 @@ export default function Home() {
                 <strong>Everyone starts with the same 10-day free crypto trading trial</strong> with no capital limits.
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                After trial ends, you automatically scale to our performance fee model. 15% on profits — $0 on losses. We only earn when you do.
+                After trial ends, you automatically scale to our performance fee model. {feePercent}% on profits — $0 on losses. We only earn when you do.
               </p>
             </div>
           </div>

@@ -7,7 +7,8 @@ import { getLogoUrl } from './shared';
  */
 interface PerformanceFeeChargedProps {
   name?: string;
-  amount: number;
+  amount: number | string;
+  feePercent?: number | string;
   invoiceId: string;
   invoiceUrl?: string;
   trades: number;
@@ -16,10 +17,13 @@ interface PerformanceFeeChargedProps {
 export function PerformanceFeeChargedEmailTemplate({
   name = 'Trader',
   amount,
+  feePercent = 6,
   invoiceId,
   invoiceUrl,
   trades,
 }: PerformanceFeeChargedProps): EmailTemplate {
+  const amountNum = parseFloat(String(amount));
+  const feePercentNum = parseFloat(String(feePercent));
   const html = `
     <!DOCTYPE html>
     <html>
@@ -37,7 +41,6 @@ export function PerformanceFeeChargedEmailTemplate({
           .fee-box { background: white; border-left: 4px solid #28a745; padding: 20px; border-radius: 8px; margin: 20px 0; }
           .amount { font-size: 32px; font-weight: bold; color: #28a745; }
           .btn { display: inline-block; background: #28a745; color: white; padding: 12px 30px; border-radius: 4px; text-decoration: none; margin: 20px 0; font-weight: 600; }
-          .btn:hover { background: #218838; }
           h1 { margin: 0; font-size: 28px; }
           h3 { margin: 15px 0 10px 0; }
           p { margin: 10px 0; }
@@ -52,30 +55,28 @@ export function PerformanceFeeChargedEmailTemplate({
                 <img src="${getLogoUrl()}" alt="NexusMeme Logo" class="logo" width="150" height="150" style="max-width: 150px; width: 150px; height: auto; display: block;" />
               </div>
             </div>
-            <h1>✅ Performance Fee Charged</h1>
+            <h1>🧾 Performance Fee Invoice</h1>
           </div>
           <div class="content">
             <p>Hi ${name},</p>
-            <p>Great news! Your trading bot has generated profits, and we've collected your performance fee.</p>
+            <p>Your trading bot generated profits this month. Here is your performance fee invoice — pay via USDC on Base network.</p>
             <div class="fee-box">
-              <p style="margin: 0; color: #666; font-size: 14px;">Performance Fee (15% of Profits)</p>
-              <div class="amount">$${amount.toFixed(2)}</div>
+              <p style="margin: 0; color: #666; font-size: 14px;">Performance Fee (${feePercentNum}% of Profits)</p>
+              <div class="amount">$${amountNum.toFixed(2)} USDC</div>
               <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${trades} profitable trade(s)</p>
             </div>
             <div class="details">
-              <p><strong>Invoice ID:</strong> ${invoiceId}</p>
-              <p style="margin-bottom: 0;"><strong>Status:</strong> <span style="color: #28a745;">✓ Charged</span></p>
+              <p><strong>Invoice Reference:</strong> ${invoiceId}</p>
+              <p style="margin-bottom: 0;"><strong>Status:</strong> <span style="color: #f59e0b;">⏳ Awaiting Payment</span></p>
             </div>
-            <p>This confirms that your performance fee has been successfully charged to your card. Your trading bot continues to run and generate signals.</p>
-            ${invoiceUrl ? `<a href="${invoiceUrl}" class="btn" style="background-color: #28a745; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View Receipt</a>` : ''}
+            <p>Send exactly <strong>$${amountNum.toFixed(6)} USDC</strong> on the <strong>Base network</strong> to your dashboard wallet address. Payment confirms automatically within seconds.</p>
+            ${invoiceUrl ? `<a href="${invoiceUrl}" class="btn" style="background-color: #28a745; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0;">Pay Now →</a>` : ''}
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>How Performance Fees Work</h3>
-            <p>You only pay when your bot generates profits. We charge 15% of your realized profits each month. We only earn when you earn.</p>
-            <p><a href="https://nexusmeme.com/billing" style="color: #28a745; text-decoration: none; font-weight: 600;">View your billing dashboard →</a></p>
+            <p>You only pay when your bot generates profits. We charge ${feePercentNum}% of your realized profits each month. We only earn when you earn.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/support" style="color: #28a745; text-decoration: none;">Contact Support</a></p>
           </div>
         </div>
       </body>
@@ -83,24 +84,25 @@ export function PerformanceFeeChargedEmailTemplate({
   `;
 
   return {
-    subject: `✅ Performance Fee Charged - $${amount.toFixed(2)}`,
+    subject: `🧾 Performance Fee Invoice - $${amountNum.toFixed(2)} USDC due`,
     html,
     text: `
-Performance Fee Charged
+Performance Fee Invoice
 
 Hi ${name},
 
-Great news! Your trading bot has generated profits, and we've collected your performance fee.
+Your trading bot generated profits. Here is your invoice.
 
-Performance Fee (15% of Profits): $${amount.toFixed(2)}
+Performance Fee (${feePercentNum}% of profits): $${amountNum.toFixed(2)} USDC
 From: ${trades} profitable trade(s)
+Invoice Reference: ${invoiceId}
+Status: Awaiting Payment
 
-Invoice ID: ${invoiceId}
-Status: Charged
+Send $${amountNum.toFixed(6)} USDC on Base network via your billing dashboard.
+${invoiceUrl ? `Pay here: ${invoiceUrl}` : ''}
 
-This confirms that your performance fee has been successfully charged.
+We only earn when you earn.
 
-Best regards,
 The NexusMeme Team
     `,
   };
@@ -217,7 +219,7 @@ The NexusMeme Team
  */
 interface PerformanceFeeFailedProps {
   name?: string;
-  amount: number;
+  amount: number | string;
   retryCount?: number;
   supportUrl?: string;
 }
@@ -228,6 +230,7 @@ export function PerformanceFeeFailedEmailTemplate({
   retryCount = 1,
   supportUrl = 'https://nexusmeme.com/support',
 }: PerformanceFeeFailedProps): EmailTemplate {
+  const amountNum = parseFloat(String(amount));
   let messageText = '';
   let actionText = '';
 
@@ -280,7 +283,7 @@ export function PerformanceFeeFailedEmailTemplate({
             <p>${messageText}</p>
             <div class="warning-box">
               <p style="margin: 0; color: #666; font-size: 14px;">Amount Due</p>
-              <div class="amount">$${amount.toFixed(2)}</div>
+              <div class="amount">$${amountNum.toFixed(2)}</div>
               <p style="margin: 10px 0 0 0; color: #333; font-size: 14px;">Attempt: ${retryCount} of 3</p>
             </div>
             <h3>⚡ Action Required</h3>
@@ -309,7 +312,7 @@ Hi ${name},
 
 ${messageText}
 
-Amount Due: $${amount.toFixed(2)}
+Amount Due: $${amountNum.toFixed(2)}
 Attempt: ${retryCount} of 3
 
 ${actionText}

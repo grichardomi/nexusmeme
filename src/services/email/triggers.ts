@@ -285,7 +285,8 @@ export async function sendPerformanceFeeChargedEmail(
   amount: number,
   invoiceId: string,
   invoiceUrl?: string,
-  trades?: number
+  trades?: number,
+  feePercent?: number
 ): Promise<string> {
   const context: EmailContext = {
     name,
@@ -293,6 +294,7 @@ export async function sendPerformanceFeeChargedEmail(
     invoiceId,
     invoiceUrl,
     trades: trades || 1,
+    feePercent: feePercent ?? 6,
   };
 
   return queueEmail('performance_fee_charged', email, context);

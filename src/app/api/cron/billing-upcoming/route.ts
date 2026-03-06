@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import { sendUpcomingBillingNotifications } from '@/services/billing/monthly-billing-job';
+import { processPendingEmails } from '@/services/email/queue';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await sendUpcomingBillingNotifications();
+    await processPendingEmails();
     return NextResponse.json(result);
   } catch (error) {
     logger.error('Cron billing-upcoming failed', error instanceof Error ? error : null);

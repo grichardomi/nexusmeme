@@ -13,7 +13,8 @@ import {
   processIncomingUSDCTransfer,
   isUSDCPaymentEnabled,
 } from '@/services/billing/usdc-payment';
-import { sendPerformanceFeeChargedEmail } from '@/services/email/triggers';
+import { sendBotResumedEmail } from '@/services/email/triggers';
+import { processPendingEmails } from '@/services/email/queue';
 import { getEnvironmentConfig } from '@/config/environment';
 import { query } from '@/lib/db';
 
@@ -105,15 +106,16 @@ export async function POST(req: NextRequest) {
             [result.userId, result.reference ?? '']
           );
           if (userResult[0]) {
-            await sendPerformanceFeeChargedEmail(
+            const amount = parseFloat(String(userResult[0].amount_usd)).toFixed(2);
+            await sendBotResumedEmail(
               userResult[0].email,
               userResult[0].name || 'Trader',
-              parseFloat(String(userResult[0].amount_usd)),
-              result.reference ?? '',
-              '',
-              0
+              'all bots',
+              `Payment of $${amount} USDC received for invoice ${result.reference}. Your bots are trading again.`
             );
           }
+          // Flush immediately — user expects instant confirmation
+          await processPendingEmails();
         } catch (emailError) {
           logger.warn('Failed to send USDC payment confirmation email', {
             userId: result.userId,

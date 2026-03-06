@@ -153,7 +153,8 @@ export interface NewTicketAdminContext {
 
 export interface PerformanceFeeChargedContext {
   name?: string;
-  amount: number;
+  amount: number | string;
+  feePercent?: number | string;
   invoiceId: string;
   invoiceUrl?: string;
   trades?: number;

@@ -318,7 +318,7 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
       await sendPerformanceFeeFailedEmail(
         userFees.email,
         userFees.name || 'Trader',
-        userFees.total_fees,
+        parseFloat(String(userFees.total_fees)),
         1
       );
     } catch (emailError) {

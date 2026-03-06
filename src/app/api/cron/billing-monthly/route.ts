@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import { runMonthlyBillingJob } from '@/services/billing/monthly-billing-job';
+import { processPendingEmails } from '@/services/email/queue';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 min — billing may process many users
@@ -27,6 +28,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await runMonthlyBillingJob();
+    // Flush emails queued by the billing job immediately
+    await processPendingEmails();
     return NextResponse.json(result);
   } catch (error) {
     logger.error('Cron billing-monthly failed', error instanceof Error ? error : null);
