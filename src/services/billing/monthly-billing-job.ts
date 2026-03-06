@@ -12,7 +12,8 @@ import {
   sendPerformanceFeeFailedEmail,
   sendUpcomingBillingEmail,
 } from '@/services/email/triggers';
-import { createPerformanceFeeCharge, isCoinbaseCommerceEnabled } from './coinbase-commerce';
+import { createPerformanceFeeCharge, isCoinbaseBusinessEnabled } from './coinbase-business';
+import { createUSDCInvoice, isUSDCPaymentEnabled } from './usdc-payment';
 
 interface PendingUserFees {
   user_id: string;
@@ -37,16 +38,16 @@ export async function runMonthlyBillingJob(): Promise<{
 }> {
   logger.info('Starting monthly billing job');
 
-  // Check if Coinbase Commerce is enabled
-  if (!isCoinbaseCommerceEnabled()) {
-    logger.error('Monthly billing job failed: Coinbase Commerce not enabled');
+  // At least one payment method must be enabled
+  if (!isUSDCPaymentEnabled() && !isCoinbaseBusinessEnabled()) {
+    logger.error('Monthly billing job failed: no payment method enabled');
     return {
       success: false,
       billingRunId: '',
       successCount: 0,
       failureCount: 0,
       totalBilled: 0,
-      errors: ['Coinbase Commerce not enabled'],
+      errors: ['No payment method enabled (USDC or Coinbase Business)'],
     };
   }
 
@@ -217,24 +218,47 @@ async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
  * @param billingRunId - ID of the current billing run (for metrics scoping, optional for admin functions)
  */
 async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?: string): Promise<void> {
+  const env = getEnvironmentConfig();
+  const billingUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing`;
+
   try {
-    // Create Coinbase Commerce charge
-    const charge = await createPerformanceFeeCharge({
-      userId: userFees.user_id,
-      amount: userFees.total_fees,
-      description: `Trading Bot Performance Fee - ${userFees.fee_count} profitable trade(s)`,
-      feeIds: userFees.fee_ids,
-    });
+    let chargeReference = '';
+    let chargeUrl = billingUrl;
 
-    logger.info('Coinbase Commerce charge created', {
-      userId: userFees.user_id,
-      chargeId: charge.id,
-      chargeCode: charge.code,
-      amount: userFees.total_fees,
-      hostedUrl: charge.hosted_url,
-    });
+    if (isUSDCPaymentEnabled()) {
+      // Primary: create a direct USDC invoice
+      const invoice = await createUSDCInvoice(
+        userFees.user_id,
+        userFees.fee_ids,
+        userFees.total_fees
+      );
+      chargeReference = invoice.payment_reference;
+      chargeUrl = billingUrl;
 
-    // Mark fees as billed with billing_run_id for proper scoping
+      logger.info('USDC invoice created for monthly billing', {
+        userId: userFees.user_id,
+        reference: invoice.payment_reference,
+        amount: userFees.total_fees,
+      });
+    } else {
+      // Fallback: Coinbase Business charge
+      const charge = await createPerformanceFeeCharge({
+        userId: userFees.user_id,
+        amount: userFees.total_fees,
+        description: `Trading Bot Performance Fee - ${userFees.fee_count} profitable trade(s)`,
+        feeIds: userFees.fee_ids,
+      });
+      chargeReference = charge.code;
+      chargeUrl = charge.hosted_url;
+
+      logger.info('Coinbase Business charge created for monthly billing', {
+        userId: userFees.user_id,
+        chargeCode: charge.code,
+        amount: userFees.total_fees,
+      });
+    }
+
+    // Mark fees as billed
     if (billingRunId) {
       await transaction(async (client) => {
         await client.query(
@@ -258,18 +282,18 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
         getEndOfLastMonth(),
         userFees.total_fees,
         userFees.fee_count,
-        charge.id,
+        chargeReference,
       ]
     );
 
-    // Send notification email with payment link
+    // Send invoice email with payment instructions
     try {
       await sendPerformanceFeeChargedEmail(
         userFees.email,
         userFees.name || 'Trader',
         userFees.total_fees,
-        charge.code,
-        charge.hosted_url,
+        chargeReference,
+        chargeUrl,
         userFees.fee_count
       );
     } catch (emailError) {
@@ -277,13 +301,12 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
         userId: userFees.user_id,
         error: emailError instanceof Error ? emailError.message : String(emailError),
       });
-      // Don't fail the entire billing if email fails
     }
 
-    logger.info('User billing charge created successfully', {
+    logger.info('User billing processed successfully', {
       userId: userFees.user_id,
       amount: userFees.total_fees,
-      chargeCode: charge.code,
+      reference: chargeReference,
     });
   } catch (error) {
     logger.error('Failed to process user billing', error instanceof Error ? error : null, {
@@ -333,7 +356,7 @@ function getEndOfLastMonth(): Date {
 export async function runBillingJobForMonth(year: number, month: number): Promise<any> {
   logger.info('Running billing job for specific month', { year, month });
 
-  if (!isCoinbaseCommerceEnabled()) {
+  if (!isCoinbaseBusinessEnabled()) {
     throw new Error('Coinbase Commerce not enabled');
   }
 

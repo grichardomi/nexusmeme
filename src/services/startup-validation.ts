@@ -21,36 +21,18 @@ export async function validateStartup(): Promise<ValidationResult> {
 
   logger.info('Starting application startup validation');
 
-  // 1. Validate Coinbase Commerce configuration (required for billing)
-  if (!process.env.COINBASE_COMMERCE_API_KEY) {
-    warnings.push('COINBASE_COMMERCE_API_KEY is not set (billing will not work)');
+  // 1. Validate Coinbase Business configuration (required for billing)
+  if (!process.env.COINBASE_BUSINESS_API_KEY || !process.env.COINBASE_BUSINESS_API_SECRET) {
+    warnings.push('COINBASE_BUSINESS_API_KEY or COINBASE_BUSINESS_API_SECRET is not set (billing will not work)');
   } else {
-    try {
-      // Test Coinbase Commerce API connection
-      const response = await fetch('https://api.commerce.coinbase.com/checkouts', {
-        method: 'GET',
-        headers: {
-          'X-CC-Api-Key': process.env.COINBASE_COMMERCE_API_KEY,
-          'X-CC-Version': '2018-03-22',
-        },
-      });
-
-      if (response.ok) {
-        logger.info('✓ Coinbase Commerce API connection validated');
-      } else {
-        warnings.push(`Coinbase Commerce API returned status ${response.status}`);
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      warnings.push(`Coinbase Commerce API validation failed: ${errorMsg}`);
-    }
+    logger.info('✓ Coinbase Business API key and secret configured');
   }
 
-  // 2. Validate Coinbase Commerce webhook secret
-  if (!process.env.COINBASE_COMMERCE_WEBHOOK_SECRET) {
-    warnings.push('COINBASE_COMMERCE_WEBHOOK_SECRET is not set (webhooks will not work)');
+  // 2. Validate Coinbase Business webhook secret
+  if (!process.env.COINBASE_BUSINESS_WEBHOOK_SECRET) {
+    warnings.push('COINBASE_BUSINESS_WEBHOOK_SECRET is not set (webhooks will not work)');
   } else {
-    logger.info('✓ Coinbase Commerce webhook secret configured');
+    logger.info('✓ Coinbase Business webhook secret configured');
   }
 
   // 3. Validate database connection (already happens in db.ts)

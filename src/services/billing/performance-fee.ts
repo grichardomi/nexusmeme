@@ -1,6 +1,6 @@
 /**
  * Performance Fee Service
- * Handles 15% fee calculation on profitable trades
+ * Handles dynamic fee calculation on profitable trades (configurable via admin /admin/fees)
  * Manages fee tracking and Coinbase Commerce billing integration
  */
 

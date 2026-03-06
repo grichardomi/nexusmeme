@@ -29,17 +29,22 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
 
-  /* Coinbase Commerce - Crypto payments for performance fees */
-  COINBASE_COMMERCE_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
-  COINBASE_COMMERCE_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
-  COINBASE_COMMERCE_ENABLED: z.string().transform(val => val === 'true').default('false'),
+  /* Coinbase Business - Crypto payments for performance fees */
+  COINBASE_BUSINESS_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
+  COINBASE_BUSINESS_API_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
+  COINBASE_BUSINESS_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
+  COINBASE_BUSINESS_ENABLED: z.string().transform(val => val === 'true').default('false'),
+  COINBASE_BUSINESS_API_BASE_URL: z.string().default('https://business.coinbase.com/api/v1'),
+
+  /* Direct USDC Payment (Base Network) */
+  USDC_PAYMENT_ENABLED: z.string().transform(v => v === 'true').default('false'),
+  USDC_WALLET_ADDRESS: z.string().optional().transform(v => v?.trim() || undefined),
+  USDC_CONTRACT_ADDRESS: z.string().optional().transform(v => v?.trim() || undefined),
+  ALCHEMY_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
+  ALCHEMY_WEBHOOK_SIGNING_KEY: z.string().optional().transform(v => v?.trim() || undefined),
+  USDC_REQUIRED_CONFIRMATIONS: z.string().transform(Number).default('3'),
 
   /* Lemon Squeezy - Card/PayPal payments for performance fees */
-  LEMONSQUEEZY_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
-  LEMONSQUEEZY_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
-  LEMONSQUEEZY_STORE_ID: z.string().optional().transform(v => v?.trim() || undefined),
-  LEMONSQUEEZY_VARIANT_ID: z.string().optional().transform(v => v?.trim() || undefined),
-  LEMONSQUEEZY_ENABLED: z.string().transform(v => v === 'true').default('false'),
 
   /* Exchange APIs */
   KRAKEN_API_BASE_URL: z.string().url().default('https://api.kraken.com'),
@@ -303,6 +308,9 @@ const envSchema = z.object({
   /* Performance Fees */
   PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.05'), // 5% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
+  BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Days after invoice before dunning starts
+  BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Days after invoice before bots suspended
+  CRON_SECRET: z.string().min(1),                                          // Shared secret to authenticate cron calls
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
   CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -355,14 +363,17 @@ function getDefaultEnvironment(): Environment {
     INTERNAL_API_KEY: 'build-phase',
     UPSTASH_REDIS_REST_URL: 'https://build-phase.upstash.io',
     UPSTASH_REDIS_REST_TOKEN: 'build-phase',
-    COINBASE_COMMERCE_API_KEY: undefined,
-    COINBASE_COMMERCE_WEBHOOK_SECRET: undefined,
-    COINBASE_COMMERCE_ENABLED: false,
-    LEMONSQUEEZY_API_KEY: undefined,
-    LEMONSQUEEZY_WEBHOOK_SECRET: undefined,
-    LEMONSQUEEZY_STORE_ID: undefined,
-    LEMONSQUEEZY_VARIANT_ID: undefined,
-    LEMONSQUEEZY_ENABLED: false,
+    COINBASE_BUSINESS_API_KEY: undefined,
+    COINBASE_BUSINESS_API_SECRET: undefined,
+    COINBASE_BUSINESS_WEBHOOK_SECRET: undefined,
+    COINBASE_BUSINESS_ENABLED: false,
+    COINBASE_BUSINESS_API_BASE_URL: 'https://business.coinbase.com/api/v1',
+    USDC_PAYMENT_ENABLED: false,
+    USDC_WALLET_ADDRESS: undefined,
+    USDC_CONTRACT_ADDRESS: undefined,
+    ALCHEMY_API_KEY: undefined,
+    ALCHEMY_WEBHOOK_SIGNING_KEY: undefined,
+    USDC_REQUIRED_CONFIRMATIONS: 3,
     KRAKEN_API_BASE_URL: 'https://api.kraken.com',
     BINANCE_API_BASE_URL: 'https://api.binance.us',
     COINBASE_API_BASE_URL: 'https://api.coinbase.com',
@@ -512,6 +523,9 @@ function getDefaultEnvironment(): Environment {
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
     PERFORMANCE_FEE_RATE: 0.05,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
+    BILLING_GRACE_PERIOD_DAYS: 7,
+    BILLING_SUSPENSION_DAYS: 14,
+    CRON_SECRET: 'dev-cron-secret',
     CP_BTC_TREND_GATE_ENABLED: true,
     CP_BTC_EMA_SHORT_PERIOD: 50,
     CP_BTC_EMA_LONG_PERIOD: 200,
@@ -749,15 +763,15 @@ export function estimateRoundTripFeePct(exchange: string): number {
  * Billing configuration
  */
 export const billingConfig = {
-  coinbaseCommerce: {
+  coinbaseBusiness: {
     get apiKey() {
-      return getEnv('COINBASE_COMMERCE_API_KEY');
+      return getEnv('COINBASE_BUSINESS_API_KEY');
     },
     get webhookSecret() {
-      return getEnv('COINBASE_COMMERCE_WEBHOOK_SECRET');
+      return getEnv('COINBASE_BUSINESS_WEBHOOK_SECRET');
     },
     get enabled() {
-      return getEnv('COINBASE_COMMERCE_ENABLED');
+      return getEnv('COINBASE_BUSINESS_ENABLED');
     },
   },
   performanceFee: {

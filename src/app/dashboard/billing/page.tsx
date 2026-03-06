@@ -8,8 +8,8 @@ import { PerformanceFeesSummary } from '@/components/billing/PerformanceFeesSumm
 import { RecentTransactions } from '@/components/billing/RecentTransactions';
 import { ChargeHistory } from '@/components/billing/ChargeHistory';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
-import { LemonSqueezyPayButton } from '@/components/billing/LemonSqueezyPayButton';
 import { GoLiveWizard } from '@/components/billing/GoLiveWizard';
+import { USDCPayButton } from '@/components/billing/USDCPayButton';
 
 /**
  * Billing & Plan Page
@@ -207,7 +207,7 @@ export default function BillingPage() {
                   Ready to trade with real money?
                 </h3>
                 <p className="text-sm text-green-600 dark:text-green-400 mt-1">
-                  {feePercent ?? 5}% on profits only — paid monthly via card
+                  {feePercent ?? 5}% on profits only — paid monthly via crypto
                 </p>
               </div>
               <button
@@ -230,8 +230,8 @@ export default function BillingPage() {
         {/* Performance Fees - Full width on mobile, priority position */}
         <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
 
-        {/* Crypto Payment - Below fees on mobile */}
-        <LemonSqueezyPayButton tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
+        {/* USDC Direct Payment */}
+        <USDCPayButton tradingMode={userPlan?.tradingMode} />
 
         {/* Recent Transactions */}
         <RecentTransactions />

@@ -1,8 +1,8 @@
 /**
- * Coinbase Commerce Webhook Handler
+ * Coinbase Business Webhook Handler
  * POST /api/billing/coinbase/webhook
  *
- * Receives and processes webhook events from Coinbase Commerce
+ * Receives and processes webhook events from Coinbase Business
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,14 +10,14 @@ import { logger } from '@/lib/logger';
 import {
   verifyWebhookSignature,
   handleWebhookEvent,
-  isCoinbaseCommerceEnabled,
-} from '@/services/billing/coinbase-commerce';
+  isCoinbaseBusinessEnabled,
+} from '@/services/billing/coinbase-business';
 
 export async function POST(req: NextRequest) {
   try {
-    // Check if Coinbase Commerce is enabled
-    if (!isCoinbaseCommerceEnabled()) {
-      logger.warn('Coinbase Commerce webhook received but service is disabled');
+    // Check if Coinbase Business is enabled
+    if (!isCoinbaseBusinessEnabled()) {
+      logger.warn('Coinbase Business webhook received but service is disabled');
       return NextResponse.json({ error: 'Service disabled' }, { status: 400 });
     }
 
@@ -25,23 +25,23 @@ export async function POST(req: NextRequest) {
     const rawBody = await req.text();
 
     // Get signature from headers
-    const signature = req.headers.get('X-CC-Webhook-Signature');
+    const signature = req.headers.get('X-Hook0-Signature');
 
     if (!signature) {
-      logger.warn('Coinbase Commerce webhook missing signature');
+      logger.warn('Coinbase Business webhook missing signature');
       return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
     }
 
     // Verify signature
     if (!verifyWebhookSignature(rawBody, signature)) {
-      logger.warn('Coinbase Commerce webhook signature verification failed');
+      logger.warn('Coinbase Business webhook signature verification failed');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
     // Parse the event
     const event = JSON.parse(rawBody);
 
-    logger.info('Coinbase Commerce webhook received', {
+    logger.info('Coinbase Business webhook received', {
       eventType: event.event?.type,
       chargeId: event.event?.data?.id,
     });
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    logger.error('Coinbase Commerce webhook error', error instanceof Error ? error : null);
+    logger.error('Coinbase Business webhook error', error instanceof Error ? error : null);
 
     // Return 200 to prevent Coinbase from retrying on application errors
     // Only return non-200 for signature/auth failures

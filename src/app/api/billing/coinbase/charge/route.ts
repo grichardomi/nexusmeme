@@ -11,16 +11,16 @@ import { authOptions } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import {
   createPerformanceFeeCharge,
-  isCoinbaseCommerceEnabled,
+  isCoinbaseBusinessEnabled,
   getUserPendingCharges,
-} from '@/services/billing/coinbase-commerce';
+} from '@/services/billing/coinbase-business';
 import { getPendingFees, getUserFeeSummary } from '@/services/billing/performance-fee';
 import { getEnvironmentConfig } from '@/config/environment';
 
 export async function POST(_req: NextRequest) {
   try {
     // Check if Coinbase Commerce is enabled
-    if (!isCoinbaseCommerceEnabled()) {
+    if (!isCoinbaseBusinessEnabled()) {
       return NextResponse.json(
         { error: 'Coinbase Commerce payments are not enabled' },
         { status: 400 }
@@ -122,7 +122,7 @@ export async function POST(_req: NextRequest) {
 export async function GET() {
   try {
     // Check if Coinbase Commerce is enabled
-    if (!isCoinbaseCommerceEnabled()) {
+    if (!isCoinbaseBusinessEnabled()) {
       return NextResponse.json(
         { enabled: false, error: 'Coinbase Commerce payments are not enabled' },
         { status: 200 }

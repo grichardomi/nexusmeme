@@ -5,6 +5,7 @@
 
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 import { jobQueueManager } from '@/services/job-queue/singleton';
 import { sendBotSuspendedEmail, sendBotResumedEmail } from '@/services/email/triggers';
 
@@ -136,7 +137,7 @@ export async function suspendBot(userId: string, botInstanceId: string): Promise
           botInstanceId,
           'Payment for performance fees failed 3 times',
           'Please update your payment method to restore trading',
-          `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing`
+          `${getEnvironmentConfig().NEXT_PUBLIC_APP_URL}/dashboard/billing`
         );
       }
     } catch (emailError) {

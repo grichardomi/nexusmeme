@@ -1,16 +1,37 @@
 /**
- * Coinbase Commerce Service
+ * Coinbase Business Service
  * Handles crypto payments for performance fees
  *
- * API Docs: https://docs.cdp.coinbase.com/commerce/reference/createcharge
+ * API Base: https://business.coinbase.com/api/v1
+ * Auth: JWT signed with Ed25519 (CDP API keys), valid 120s per request
  */
 
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import crypto from 'crypto';
+import { generateJwt } from '@coinbase/cdp-sdk/auth';
 
-const COINBASE_COMMERCE_API_URL = 'https://api.commerce.coinbase.com';
+const getCoinbaseBusinessApiUrl = () => getEnvironmentConfig().COINBASE_BUSINESS_API_BASE_URL;
+
+/**
+ * Generate a short-lived JWT for a single CDP API request (Ed25519, 120s TTL)
+ */
+async function getCoinbaseAuthHeader(method: string, path: string): Promise<string> {
+  const env = getEnvironmentConfig();
+  const apiUrl = new URL(getCoinbaseBusinessApiUrl());
+
+  const jwt = await generateJwt({
+    apiKeyId: env.COINBASE_BUSINESS_API_KEY!,
+    apiKeySecret: env.COINBASE_BUSINESS_API_SECRET!,
+    requestMethod: method,
+    requestHost: apiUrl.hostname,
+    requestPath: path,
+    expiresIn: 120,
+  });
+
+  return `Bearer ${jwt}`;
+}
 
 export interface CoinbaseChargeData {
   id: string;
@@ -47,21 +68,21 @@ export interface CreateChargeParams {
 }
 
 /**
- * Check if Coinbase Commerce is enabled and configured
+ * Check if Coinbase Business is enabled and configured
  */
-export function isCoinbaseCommerceEnabled(): boolean {
+export function isCoinbaseBusinessEnabled(): boolean {
   const env = getEnvironmentConfig();
-  return env.COINBASE_COMMERCE_ENABLED && !!env.COINBASE_COMMERCE_API_KEY;
+  return env.COINBASE_BUSINESS_ENABLED && !!env.COINBASE_BUSINESS_API_KEY && !!env.COINBASE_BUSINESS_API_SECRET;
 }
 
 /**
- * Create a Coinbase Commerce charge for performance fees
+ * Create a Coinbase Business charge for performance fees
  */
 export async function createPerformanceFeeCharge(params: CreateChargeParams): Promise<CoinbaseChargeData> {
   const env = getEnvironmentConfig();
 
-  if (!env.COINBASE_COMMERCE_API_KEY) {
-    throw new Error('Coinbase Commerce API key not configured');
+  if (!env.COINBASE_BUSINESS_API_KEY || !env.COINBASE_BUSINESS_API_SECRET) {
+    throw new Error('Coinbase Business API key/secret not configured');
   }
 
   const { userId, amount, description, feeIds, redirectUrl, cancelUrl } = params;
@@ -99,23 +120,22 @@ export async function createPerformanceFeeCharge(params: CreateChargeParams): Pr
   };
 
   try {
-    const response = await fetch(`${COINBASE_COMMERCE_API_URL}/charges`, {
+    const response = await fetch(`${getCoinbaseBusinessApiUrl()}/payment-links`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CC-Api-Key': env.COINBASE_COMMERCE_API_KEY,
-        'X-CC-Version': '2018-03-22',
+        'Authorization': await getCoinbaseAuthHeader('POST', '/api/v1/payment-links'),
       },
       body: JSON.stringify(chargeData),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      logger.error('Coinbase Commerce API error', null, {
+      logger.error('Coinbase Business API error', null, {
         status: response.status,
         error: errorData,
       });
-      throw new Error(`Coinbase Commerce API error: ${response.status}`);
+      throw new Error(`Coinbase Business API error: ${response.status}`);
     }
 
     const result = await response.json();
@@ -148,7 +168,7 @@ export async function createPerformanceFeeCharge(params: CreateChargeParams): Pr
       [charge.id, feeIds]
     );
 
-    logger.info('Coinbase Commerce charge created', {
+    logger.info('Coinbase Business charge created', {
       chargeId: charge.id,
       chargeCode: charge.code,
       userId,
@@ -159,7 +179,7 @@ export async function createPerformanceFeeCharge(params: CreateChargeParams): Pr
 
     return charge;
   } catch (error) {
-    logger.error('Failed to create Coinbase Commerce charge', error instanceof Error ? error : null, {
+    logger.error('Failed to create Coinbase Business charge', error instanceof Error ? error : null, {
       userId,
       amount,
     });
@@ -168,20 +188,19 @@ export async function createPerformanceFeeCharge(params: CreateChargeParams): Pr
 }
 
 /**
- * Get charge status from Coinbase Commerce
+ * Get charge status from Coinbase Business
  */
 export async function getChargeStatus(chargeId: string): Promise<CoinbaseChargeData> {
   const env = getEnvironmentConfig();
 
-  if (!env.COINBASE_COMMERCE_API_KEY) {
-    throw new Error('Coinbase Commerce API key not configured');
+  if (!env.COINBASE_BUSINESS_API_KEY || !env.COINBASE_BUSINESS_API_SECRET) {
+    throw new Error('Coinbase Business API key/secret not configured');
   }
 
-  const response = await fetch(`${COINBASE_COMMERCE_API_URL}/charges/${chargeId}`, {
+  const response = await fetch(`${getCoinbaseBusinessApiUrl()}/charges/${chargeId}`, {
     method: 'GET',
     headers: {
-      'X-CC-Api-Key': env.COINBASE_COMMERCE_API_KEY,
-      'X-CC-Version': '2018-03-22',
+      'Authorization': await getCoinbaseAuthHeader('GET', `/api/v1/charges/${chargeId}`),
     },
   });
 
@@ -194,29 +213,60 @@ export async function getChargeStatus(chargeId: string): Promise<CoinbaseChargeD
 }
 
 /**
- * Verify Coinbase Commerce webhook signature
+ * Verify Coinbase Business webhook signature
+ * Header format: X-Hook0-Signature: t=<timestamp>,h=<header-names>,v1=<hmac-sha256>
+ * Signed payload: timestamp.headerNames.headerValues.rawBody
  */
 export function verifyWebhookSignature(payload: string, signature: string): boolean {
   const env = getEnvironmentConfig();
 
-  if (!env.COINBASE_COMMERCE_WEBHOOK_SECRET) {
-    logger.warn('Coinbase Commerce webhook secret not configured');
+  if (!env.COINBASE_BUSINESS_WEBHOOK_SECRET) {
+    logger.warn('Coinbase Business webhook secret not configured');
     return false;
   }
 
-  const computedSignature = crypto
-    .createHmac('sha256', env.COINBASE_COMMERCE_WEBHOOK_SECRET)
-    .update(payload)
-    .digest('hex');
+  try {
+    // Parse signature components: t=...,h=...,v1=...
+    const parts = Object.fromEntries(
+      signature.split(',').map(part => {
+        const idx = part.indexOf('=');
+        return [part.slice(0, idx), part.slice(idx + 1)];
+      })
+    );
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(computedSignature)
-  );
+    const { t: timestamp, v1: receivedHash } = parts;
+
+    if (!timestamp || !receivedHash) {
+      logger.warn('Coinbase Business webhook signature missing required components');
+      return false;
+    }
+
+    // Reject webhooks older than 5 minutes to prevent replay attacks
+    const webhookAge = Math.abs(Date.now() / 1000 - parseInt(timestamp));
+    if (webhookAge > 300) {
+      logger.warn('Coinbase Business webhook timestamp too old', { webhookAge });
+      return false;
+    }
+
+    // Compute expected signature: HMAC-SHA256(timestamp.rawBody, secret)
+    const signedPayload = `${timestamp}.${payload}`;
+    const computedHash = crypto
+      .createHmac('sha256', env.COINBASE_BUSINESS_WEBHOOK_SECRET)
+      .update(signedPayload)
+      .digest('hex');
+
+    return crypto.timingSafeEqual(
+      Buffer.from(receivedHash),
+      Buffer.from(computedHash)
+    );
+  } catch (error) {
+    logger.warn('Coinbase Business webhook signature verification error', { error });
+    return false;
+  }
 }
 
 /**
- * Handle Coinbase Commerce webhook event
+ * Handle Coinbase Business webhook event
  */
 export async function handleWebhookEvent(event: {
   type: string;
@@ -224,7 +274,7 @@ export async function handleWebhookEvent(event: {
 }): Promise<void> {
   const { type, data: charge } = event;
 
-  logger.info('Processing Coinbase Commerce webhook', {
+  logger.info('Processing Coinbase Business webhook', {
     eventType: type,
     chargeId: charge.id,
     chargeCode: charge.code,
@@ -253,7 +303,7 @@ export async function handleWebhookEvent(event: {
       break;
 
     default:
-      logger.info('Unhandled Coinbase Commerce event type', { type });
+      logger.info('Unhandled Coinbase Business event type', { type });
   }
 }
 
@@ -314,7 +364,7 @@ async function handleChargeExpired(charge: CoinbaseChargeData): Promise<void> {
 
       const failedAttempts = billingResult.rows[0]?.failed_charge_attempts || 0;
 
-      logger.info('Coinbase Commerce charge expired', {
+      logger.info('Coinbase Business charge expired', {
         chargeId,
         userId,
         feeCount: feeIds?.length || 0,
@@ -454,7 +504,7 @@ async function handleChargeConfirmed(charge: CoinbaseChargeData): Promise<void> 
         [userId]
       );
 
-      logger.info('Coinbase Commerce payment confirmed', {
+      logger.info('Coinbase Business payment confirmed', {
         chargeId,
         userId,
         feeCount: feeIds?.length || 0,
@@ -576,7 +626,7 @@ async function handleChargeFailed(charge: CoinbaseChargeData): Promise<void> {
 
       const failedAttempts = billingResult.rows[0]?.failed_charge_attempts || 0;
 
-      logger.info('Coinbase Commerce charge failed', {
+      logger.info('Coinbase Business charge failed', {
         chargeId,
         userId,
         feeCount: feeIds?.length || 0,
@@ -665,7 +715,7 @@ async function handleChargeDelayed(charge: CoinbaseChargeData): Promise<void> {
       [chargeId]
     );
 
-    logger.info('Coinbase Commerce charge delayed', { chargeId });
+    logger.info('Coinbase Business charge delayed', { chargeId });
   } catch (error) {
     logger.error('Failed to handle charge delay', error instanceof Error ? error : null, {
       chargeId,
@@ -693,7 +743,7 @@ async function handleChargePending(charge: CoinbaseChargeData): Promise<void> {
       ]
     );
 
-    logger.info('Coinbase Commerce charge pending confirmation', {
+    logger.info('Coinbase Business charge pending confirmation', {
       chargeId,
       network: charge.payments?.[0]?.network,
     });
@@ -765,15 +815,14 @@ export async function getUserPendingCharges(userId: string): Promise<Array<{
 export async function cancelCharge(chargeId: string): Promise<void> {
   const env = getEnvironmentConfig();
 
-  if (!env.COINBASE_COMMERCE_API_KEY) {
-    throw new Error('Coinbase Commerce API key not configured');
+  if (!env.COINBASE_BUSINESS_API_KEY || !env.COINBASE_BUSINESS_API_SECRET) {
+    throw new Error('Coinbase Business API key/secret not configured');
   }
 
-  const response = await fetch(`${COINBASE_COMMERCE_API_URL}/charges/${chargeId}/cancel`, {
+  const response = await fetch(`${getCoinbaseBusinessApiUrl()}/charges/${chargeId}/cancel`, {
     method: 'POST',
     headers: {
-      'X-CC-Api-Key': env.COINBASE_COMMERCE_API_KEY,
-      'X-CC-Version': '2018-03-22',
+      'Authorization': await getCoinbaseAuthHeader('POST', `/api/v1/charges/${chargeId}/cancel`),
     },
   });
 
@@ -799,5 +848,5 @@ export async function cancelCharge(chargeId: string): Promise<void> {
     [chargeId]
   );
 
-  logger.info('Coinbase Commerce charge cancelled', { chargeId });
+  logger.info('Coinbase Business charge cancelled', { chargeId });
 }
