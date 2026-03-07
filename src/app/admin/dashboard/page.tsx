@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 
@@ -8,6 +8,114 @@ import { useSession } from 'next-auth/react';
  * Admin Dashboard
  * Central hub for admin operations with metrics and quick access
  */
+
+interface CronJob {
+  id: string;
+  name: string;
+  url: string;
+  schedule: string;
+  enabled: boolean;
+  status: 'idle' | 'running' | 'success' | 'error' | 'disabled';
+  lastRun: string | null;
+  lastRunResult: string | null;
+  nextRun: string;
+}
+
+interface SchedulePreset {
+  label: string;
+  value: string;
+}
+
+const SCHEDULE_PRESETS: SchedulePreset[] = [
+  { label: 'Every minute',            value: '* * * * *' },
+  { label: 'Every 5 minutes',         value: '*/5 * * * *' },
+  { label: 'Every 15 minutes',        value: '*/15 * * * *' },
+  { label: 'Every 30 minutes',        value: '*/30 * * * *' },
+  { label: 'Hourly',                  value: '0 * * * *' },
+  { label: 'Every 6 hours',           value: '0 */6 * * *' },
+  { label: 'Every 12 hours',          value: '0 */12 * * *' },
+  { label: 'Daily @ midnight',        value: '0 0 * * *' },
+  { label: 'Daily @ 09:00',           value: '0 9 * * *' },
+  { label: 'Daily @ 02:00',           value: '0 2 * * *' },
+  { label: 'Weekdays @ 09:00',        value: '0 9 * * 1-5' },
+  { label: 'Weekly (Mon @ 09:00)',     value: '0 9 * * 1' },
+  { label: 'Monthly (1st @ 02:00)',   value: '0 2 1 * *' },
+  { label: 'Monthly (15th @ 09:00)',  value: '0 9 15 * *' },
+  { label: 'Monthly (28th @ 09:00)',  value: '0 9 28 * *' },
+  { label: 'Quarterly (1st Jan/Apr/Jul/Oct)', value: '0 0 1 1,4,7,10 *' },
+  { label: 'Custom…',                 value: '__custom__' },
+];
+
+function labelForSchedule(schedule: string): string {
+  const match = SCHEDULE_PRESETS.find(p => p.value === schedule && p.value !== '__custom__');
+  return match ? match.label : schedule;
+}
+
+function computeNextRun(schedule: string): string {
+  const parts = schedule.trim().split(/\s+/);
+  if (parts.length !== 5) return 'Unknown';
+  const [minPart, hourPart, domPart] = parts;
+  const now = new Date();
+
+  // Handle */N patterns
+  const resolveField = (part: string, max: number): number => {
+    if (part === '*') return -1;
+    if (part.startsWith('*/')) return parseInt(part.slice(2));
+    return parseInt(part);
+  };
+
+  const minVal = resolveField(minPart, 59);
+  const hourVal = resolveField(hourPart, 23);
+
+  const candidate = new Date(now);
+  candidate.setSeconds(0, 0);
+
+  try {
+    if (minPart.startsWith('*/')) {
+      const step = parseInt(minPart.slice(2));
+      const nextMin = Math.ceil((now.getMinutes() + 1) / step) * step;
+      candidate.setMinutes(nextMin >= 60 ? 0 : nextMin);
+      if (nextMin >= 60) candidate.setHours(candidate.getHours() + 1);
+    } else if (minPart !== '*') {
+      candidate.setMinutes(minVal);
+    }
+
+    if (hourPart.startsWith('*/')) {
+      const step = parseInt(hourPart.slice(2));
+      const nextHour = Math.ceil((now.getHours() + 1) / step) * step;
+      candidate.setHours(nextHour >= 24 ? 0 : nextHour);
+      if (nextHour >= 24) candidate.setDate(candidate.getDate() + 1);
+    } else if (hourPart !== '*') {
+      candidate.setHours(hourVal);
+    }
+
+    if (domPart !== '*' && !domPart.startsWith('*/')) {
+      candidate.setDate(parseInt(domPart));
+      if (candidate <= now) {
+        candidate.setMonth(candidate.getMonth() + 1);
+        candidate.setDate(parseInt(domPart));
+      }
+    } else if (candidate <= now) {
+      const stepMin = minPart.startsWith('*/') ? parseInt(minPart.slice(2)) : 0;
+      if (stepMin > 0) {
+        // already handled above
+      } else if (hourPart === '*' || hourPart.startsWith('*/')) {
+        candidate.setHours(candidate.getHours() + 1);
+      } else {
+        candidate.setDate(candidate.getDate() + 1);
+      }
+    }
+    return candidate.toLocaleString();
+  } catch {
+    return 'Unknown';
+  }
+}
+
+const CRON_JOBS_DEFAULTS = [
+  { id: 'billing-monthly',  name: 'Billing Monthly',  url: '/api/cron/billing-monthly',  schedule: '0 2 1 * *',   enabled: true },
+  { id: 'billing-upcoming', name: 'Billing Upcoming', url: '/api/cron/billing-upcoming', schedule: '0 9 28 * *',  enabled: true },
+  { id: 'billing-dunning',  name: 'Billing Dunning',  url: '/api/cron/billing-dunning',  schedule: '0 9 * * *',   enabled: true },
+];
 
 interface DashboardStats {
   openTickets: number;
@@ -19,10 +127,127 @@ interface DashboardStats {
   discordChannels: number;
 }
 
+function CronStatusBadge({ status }: { status: CronJob['status'] }) {
+  const map: Record<CronJob['status'], string> = {
+    idle:     'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
+    running:  'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 animate-pulse',
+    success:  'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
+    error:    'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
+    disabled: 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 line-through',
+  };
+  const label: Record<CronJob['status'], string> = {
+    idle: 'Idle', running: 'Running', success: 'Success', error: 'Error', disabled: 'Disabled',
+  };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${map[status]}`}>
+      {label[status]}
+    </span>
+  );
+}
+
+function CronToggle({ enabled, onChange }: { enabled: boolean; onChange: () => void }) {
+  return (
+    <button
+      onClick={onChange}
+      title={enabled ? 'Disable job' : 'Enable job'}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+        enabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+          enabled ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  );
+}
+
 export default function AdminDashboardPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const [cronJobs, setCronJobs] = useState<CronJob[]>(
+    CRON_JOBS_DEFAULTS.map(c => ({
+      ...c,
+      status: 'idle',
+      lastRun: null,
+      lastRunResult: null,
+      nextRun: computeNextRun(c.schedule),
+    }))
+  );
+
+  const toggleCronEnabled = useCallback((id: string) => {
+    setCronJobs(prev =>
+      prev.map(j =>
+        j.id === id
+          ? {
+              ...j,
+              enabled: !j.enabled,
+              status: j.enabled ? 'disabled' : (j.status === 'disabled' ? 'idle' : j.status),
+            }
+          : j
+      )
+    );
+  }, []);
+
+  // Track whether each job is showing the custom cron input
+  const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
+
+  const updateSchedule = useCallback((id: string, schedule: string) => {
+    setCronJobs(prev =>
+      prev.map(j =>
+        j.id === id ? { ...j, schedule, nextRun: computeNextRun(schedule) } : j
+      )
+    );
+  }, []);
+
+  const triggerCron = useCallback(async (id: string) => {
+    const job = cronJobs.find(j => j.id === id);
+    if (!job || !job.enabled) return;
+
+    setCronJobs(prev =>
+      prev.map(j => (j.id === id ? { ...j, status: 'running' } : j))
+    );
+
+    const startedAt = new Date().toLocaleString();
+    try {
+      const res = await fetch('/api/admin/cron/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: id }),
+      });
+      const data = await res.json();
+      setCronJobs(prev =>
+        prev.map(j =>
+          j.id === id
+            ? {
+                ...j,
+                status: res.ok ? 'success' : 'error',
+                lastRun: startedAt,
+                lastRunResult: res.ok ? `OK (${data.status})` : `Error ${data.status}: ${String(data.body ?? '').slice(0, 120)}`,
+                nextRun: computeNextRun(j.schedule),
+              }
+            : j
+        )
+      );
+    } catch (err: any) {
+      setCronJobs(prev =>
+        prev.map(j =>
+          j.id === id
+            ? {
+                ...j,
+                status: 'error',
+                lastRun: startedAt,
+                lastRunResult: String(err?.message ?? err),
+                nextRun: computeNextRun(j.schedule),
+              }
+            : j
+        )
+      );
+    }
+  }, [cronJobs]);
 
   useEffect(() => {
     fetchStats();
@@ -245,6 +470,112 @@ export default function AdminDashboardPage() {
               </div>
             </Link>
           ))}
+        </div>
+      </div>
+
+      {/* Cron Jobs */}
+      <div className="space-y-4">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+          Cron Jobs
+        </h2>
+
+        <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                <th className="text-left px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Job</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Interval</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Last Run</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Status</th>
+                <th className="text-left px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Next Run</th>
+                <th className="text-center px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Active</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {cronJobs.map(job => {
+                const isCustom = !SCHEDULE_PRESETS.some(p => p.value === job.schedule && p.value !== '__custom__');
+                const selectValue = isCustom ? '__custom__' : job.schedule;
+                return (
+                  <tr
+                    key={job.id}
+                    className={`border-b last:border-0 border-slate-100 dark:border-slate-700 transition ${
+                      job.enabled
+                        ? 'hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                        : 'opacity-50 bg-slate-50 dark:bg-slate-900/30'
+                    }`}
+                  >
+                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-white whitespace-nowrap">
+                      {job.name}
+                      <div className="text-xs text-slate-400 font-mono">{job.url}</div>
+                    </td>
+                    <td className="px-4 py-3 min-w-[220px]">
+                      <select
+                        value={selectValue}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val === '__custom__') {
+                            setCustomInputs(prev => ({ ...prev, [job.id]: job.schedule }));
+                            updateSchedule(job.id, job.schedule);
+                          } else {
+                            setCustomInputs(prev => { const n = { ...prev }; delete n[job.id]; return n; });
+                            updateSchedule(job.id, val);
+                          }
+                        }}
+                        className="w-full text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {SCHEDULE_PRESETS.map(p => (
+                          <option key={p.value} value={p.value}>{p.label}</option>
+                        ))}
+                      </select>
+                      {(isCustom || customInputs[job.id] !== undefined) && (
+                        <div className="mt-1">
+                          <input
+                            type="text"
+                            placeholder="* * * * *"
+                            value={customInputs[job.id] ?? job.schedule}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setCustomInputs(prev => ({ ...prev, [job.id]: val }));
+                              if (val.trim().split(/\s+/).length === 5) updateSchedule(job.id, val.trim());
+                            }}
+                            className="w-full text-xs font-mono rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-400 font-mono mt-0.5">{job.schedule}</div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                      {job.lastRun ?? <span className="text-slate-400">Never</span>}
+                      {job.lastRunResult && (
+                        <div className="text-xs text-slate-400 truncate max-w-[180px]" title={job.lastRunResult}>
+                          {job.lastRunResult}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <CronStatusBadge status={job.status} />
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap text-xs">
+                      {job.nextRun}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <CronToggle enabled={job.enabled} onChange={() => toggleCronEnabled(job.id)} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => triggerCron(job.id)}
+                        disabled={!job.enabled || job.status === 'running'}
+                        className="px-3 py-1.5 text-xs font-medium rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white transition whitespace-nowrap"
+                      >
+                        {job.status === 'running' ? 'Running...' : 'Run Now'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
