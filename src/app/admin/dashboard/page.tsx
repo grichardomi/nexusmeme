@@ -46,10 +46,6 @@ const SCHEDULE_PRESETS: SchedulePreset[] = [
   { label: 'Custom…',                 value: '__custom__' },
 ];
 
-function labelForSchedule(schedule: string): string {
-  const match = SCHEDULE_PRESETS.find(p => p.value === schedule && p.value !== '__custom__');
-  return match ? match.label : schedule;
-}
 
 function computeNextRun(schedule: string): string {
   const parts = schedule.trim().split(/\s+/);
@@ -58,14 +54,14 @@ function computeNextRun(schedule: string): string {
   const now = new Date();
 
   // Handle */N patterns
-  const resolveField = (part: string, max: number): number => {
+  const resolveField = (part: string): number => {
     if (part === '*') return -1;
     if (part.startsWith('*/')) return parseInt(part.slice(2));
     return parseInt(part);
   };
 
-  const minVal = resolveField(minPart, 59);
-  const hourVal = resolveField(hourPart, 23);
+  const minVal = resolveField(minPart);
+  const hourVal = resolveField(hourPart);
 
   const candidate = new Date(now);
   candidate.setSeconds(0, 0);
