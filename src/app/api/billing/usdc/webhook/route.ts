@@ -40,6 +40,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (!verifyAlchemySignature(rawBody, signature)) {
+      // DEBUG: log all HMAC candidates to find which method Alchemy uses
+      const crypto = await import('crypto');
+      const k = process.env.ALCHEMY_WEBHOOK_SIGNING_KEY ?? '';
+      const h = (key: string | Buffer) => crypto.createHmac('sha256', key).update(rawBody).digest('hex');
+      logger.warn('WEBHOOK_SIG_DEBUG', {
+        received: signature,
+        hmac_full_utf8: h(k),
+        hmac_stripped_utf8: h(k.replace(/^whsec_/, '')),
+        hmac_stripped_b64: h(Buffer.from(k.replace(/^whsec_/, ''), 'base64')),
+      });
       logger.warn('Alchemy webhook signature verification failed');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
