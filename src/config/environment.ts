@@ -40,6 +40,7 @@ const envSchema = z.object({
   USDC_PAYMENT_ENABLED: z.string().transform(v => v === 'true').default('false'),
   USDC_WALLET_ADDRESS: z.string().optional().transform(v => v?.trim() || undefined),
   USDC_CONTRACT_ADDRESS: z.string().optional().transform(v => v?.trim() || undefined),
+  USDC_CHAIN_ID: z.string().transform(Number).default('8453'), // Base mainnet
   ALCHEMY_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   ALCHEMY_WEBHOOK_SIGNING_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   USDC_REQUIRED_CONFIRMATIONS: z.string().transform(Number).default('3'),
@@ -166,7 +167,7 @@ const envSchema = z.object({
   /* Minimum peak profit before collapse protection kicks in */
   /* Philosophy: Only protect peaks above fee round-trip + buffer; below this let time-gated early loss handle it */
   PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - above 0.2% fee round-trip + buffer
-  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('1.0'), // 2.0% - arms after weak profit target; catches moderate/strong reversals before they cross 0%
+  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('2.5'), // 2.5% - must reach meaningful peak before erosion arms; prevents premature exits in trending markets
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - meaningful peak, not noise
@@ -371,6 +372,7 @@ function getDefaultEnvironment(): Environment {
     USDC_PAYMENT_ENABLED: false,
     USDC_WALLET_ADDRESS: undefined,
     USDC_CONTRACT_ADDRESS: undefined,
+    USDC_CHAIN_ID: 8453,
     ALCHEMY_API_KEY: undefined,
     ALCHEMY_WEBHOOK_SIGNING_KEY: undefined,
     USDC_REQUIRED_CONFIRMATIONS: 3,
@@ -447,7 +449,7 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.008, // 0.8% - above fee round-trip + buffer
-    EROSION_PEAK_MIN_PCT: 1.0, // 1.0% - arms after fee round-trip + buffer; protects any meaningful gain
+    EROSION_PEAK_MIN_PCT: 2.5, // 2.5% - must reach meaningful peak before erosion arms; prevents premature exits in trending markets
     EROSION_MIN_PEAK_PCT: 0.008, // 0.8% - meaningful peak, not noise
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold

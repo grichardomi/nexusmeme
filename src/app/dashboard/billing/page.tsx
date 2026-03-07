@@ -228,7 +228,7 @@ export default function BillingPage() {
         )}
 
         {/* Performance Fees - Full width on mobile, priority position */}
-        <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} />
+        <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} feePercent={feePercent} />
 
         {/* USDC Direct Payment */}
         <USDCPayButton tradingMode={userPlan?.tradingMode} />

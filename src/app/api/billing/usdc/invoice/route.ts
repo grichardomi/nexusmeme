@@ -20,8 +20,46 @@ export const dynamic = 'force-dynamic';
 
 type SessionUser = { id?: string };
 
-export async function GET(_req: NextRequest) {
+function getMockInvoiceResponse() {
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const walletAddress = '0x1111111111111111111111111111111111111111';
+  return {
+    enabled: true,
+    walletAddress,
+    usdcContract: '0x0000000000000000000000000000000000000000',
+    chainId: 84532,
+    network: 'Base (Mock)',
+    pendingFees: {
+      count: 1,
+      totalAmount: 1.00,
+    },
+    activeInvoice: {
+      id: 'mock-invoice',
+      reference: 'MOCK-1234ABCD',
+      amount: 1.00,
+      walletAddress,
+      expiresAt,
+      status: 'pending',
+    },
+    // Mock: total_fees_collected = total_profits * 0.06 exactly (16.67 * 0.06 = 1.00)
+    summary: {
+      total_profits: 16.67,
+      total_fees_collected: 1.00,
+      pending_fees: 1.00,
+    },
+  };
+}
+
+export async function GET(req: NextRequest) {
   try {
+    const mockMode =
+      req.nextUrl.searchParams.get('mock') === '1' ||
+      process.env.NEXT_PUBLIC_USDC_PAYMENT_MOCK === 'true' ||
+      process.env.USDC_PAYMENT_MOCK === 'true';
+    if (mockMode) {
+      return NextResponse.json(getMockInvoiceResponse());
+    }
+
     const session = await getServerSession(authOptions);
     const userId = (session as { user?: SessionUser } | null)?.user?.id;
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -40,6 +78,8 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json({
       enabled,
       walletAddress: enabled ? env.USDC_WALLET_ADDRESS : null,
+      usdcContract: enabled ? env.USDC_CONTRACT_ADDRESS : null,
+      chainId: env.USDC_CHAIN_ID,
       network: 'Base',
       pendingFees: {
         count: pendingFees.length,
@@ -61,8 +101,17 @@ export async function GET(_req: NextRequest) {
   }
 }
 
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
+    const mockMode =
+      req.nextUrl.searchParams.get('mock') === '1' ||
+      process.env.NEXT_PUBLIC_USDC_PAYMENT_MOCK === 'true' ||
+      process.env.USDC_PAYMENT_MOCK === 'true';
+    if (mockMode) {
+      const mock = getMockInvoiceResponse();
+      return NextResponse.json({ invoice: mock.activeInvoice });
+    }
+
     const session = await getServerSession(authOptions);
     const userId = (session as { user?: SessionUser } | null)?.user?.id;
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

@@ -429,6 +429,9 @@ class TradeSignalOrchestrator {
       // Fetch market data once for all pairs
       await marketDataAggregator.getMarketData(allPairs);
 
+      // BTC 1h momentum — used for ETH position size reduction (Rec #3)
+      let btcMomentum1h = 0;
+
       // ZERO PASS A: Fetch BTC momentum for drop protection (needed by risk manager)
       // Determine BTC pair based on exchange (Kraken uses USD, Binance uses USDT)
       try {
@@ -441,6 +444,7 @@ class TradeSignalOrchestrator {
           // Calculate BTC 1h momentum (needs minimum 26 candles for indicator calculation)
           const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '15m', 100);
           if (btcCandles.momentum1h !== undefined) {
+            btcMomentum1h = btcCandles.momentum1h; // store for per-pair ETH size reduction
             riskManager.updateBTCMomentum(btcCandles.momentum1h / 100); // Convert percent to decimal
             logger.debug('Orchestrator: BTC momentum updated for risk management', {
               btcPair,
@@ -780,12 +784,33 @@ class TradeSignalOrchestrator {
               capitalPreservationMultiplier: globalCpMultiplier, // Layer 1 BTC trend gate (per-bot Layers 2+3 applied in fan-out)
             };
 
+            // Rec #3: Reduce ETH position 50% when BTC 1h momentum is negative
+            const isEthPair = pair.startsWith('ETH');
+            const btcMomWeak = btcMomentum1h < 0;
+            if (isEthPair && btcMomWeak) {
+              decision.capitalPreservationMultiplier = (decision.capitalPreservationMultiplier ?? 1) * 0.5;
+              logger.info('Orchestrator: ETH position halved — BTC 1h momentum negative', {
+                pair,
+                btcMomentum1h: btcMomentum1h.toFixed(3),
+                newMultiplier: decision.capitalPreservationMultiplier,
+              });
+            }
+
             tradeDecisions.push(decision);
 
+            // Rec #2: Log regime classification + profit target so ADX detection is verifiable
+            const adxVal = indicators.adx ?? 0;
+            const regimeClass = adxVal >= 40 ? 'STRONG' : adxVal >= 25 ? 'MODERATE' : 'WEAK';
+            const expectedTarget = adxVal >= 40 ? '12%' : adxVal >= 25 ? '5%' : '2%';
             console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, {
               confidence: analysis.signal.confidence,
               minThreshold: minConfidenceThreshold,
               regime: analysis.regime.regime,
+              adx: adxVal.toFixed(1),
+              regimeClass,
+              expectedProfitTarget: expectedTarget,
+              btcMomentum1h: btcMomentum1h.toFixed(3),
+              cpMultiplier: decision.capitalPreservationMultiplier,
             });
             logger.info('Orchestrator: TRADE DECISION CREATED (5-stage filter passed)', {
               pair,
@@ -796,6 +821,11 @@ class TradeSignalOrchestrator {
               stopLoss: analysis.signal.stopLoss,
               takeProfit: analysis.signal.takeProfit,
               regime: analysis.regime.regime,
+              adx: adxVal.toFixed(1),
+              regimeClass,
+              expectedProfitTarget: expectedTarget,
+              btcMomentum1h: btcMomentum1h.toFixed(3),
+              cpMultiplier: decision.capitalPreservationMultiplier,
             });
           } else if (analysis.signal && analysis.signal.confidence < minConfidenceThreshold) {
             logger.warn('Orchestrator: signal generated but rejected due to low confidence', {

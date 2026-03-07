@@ -21,6 +21,7 @@ interface PerformanceFeesData {
 interface PerformanceFeesSummaryProps {
   tradingMode?: 'paper' | 'live';
   onGoLive?: () => void;
+  feePercent?: number | null;
 }
 
 /**
@@ -28,10 +29,30 @@ interface PerformanceFeesSummaryProps {
  * Shows overview of profits, fees by status, and billing lifecycle
  * Best practice: Clear fee status progression and actionable next steps
  */
-export function PerformanceFeesSummary({ tradingMode, onGoLive }: PerformanceFeesSummaryProps) {
+export function PerformanceFeesSummary({ tradingMode, onGoLive, feePercent }: PerformanceFeesSummaryProps) {
+  const displayFeePercent = feePercent ?? 5;
   const [data, setData] = useState<PerformanceFeesData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchFeesSummary = async () => {
+    try {
+      const response = await fetch('/api/fees/performance');
+      if (!response.ok) throw new Error('Failed to fetch fees');
+      const feeData = await response.json();
+      setData(feeData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load fees');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Hooks must always be called before any early return (Rules of Hooks)
+  useEffect(() => {
+    if (tradingMode === 'paper') return;
+    fetchFeesSummary();
+  }, [tradingMode]);
 
   // Paper trading - show simulated stats only
   if (tradingMode === 'paper') {
@@ -62,23 +83,6 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive }: PerformanceFee
       </section>
     );
   }
-
-  useEffect(() => {
-    fetchFeesSummary();
-  }, []);
-
-  const fetchFeesSummary = async () => {
-    try {
-      const response = await fetch('/api/fees/performance');
-      if (!response.ok) throw new Error('Failed to fetch fees');
-      const feeData = await response.json();
-      setData(feeData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load fees');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Calculate next billing date (1st of next month)
   const getNextBillingDate = () => {
@@ -151,7 +155,7 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive }: PerformanceFee
           <p className="text-xs text-slate-500 dark:text-slate-400">Showing last 2 years</p>
         </div>
         <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded w-fit">
-          15% on profits
+          {displayFeePercent}% on profits
         </span>
       </div>
 
@@ -324,7 +328,7 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive }: PerformanceFee
           </svg>
         </summary>
         <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg text-sm text-slate-600 dark:text-slate-400 space-y-2">
-          <p>1. Trade → 15% of profits added to pending</p>
+          <p>1. Trade → {displayFeePercent}% of profits added to pending</p>
           <p>2. Monthly → Pending fees charged on 1st</p>
           <p>3. Losing trades → No fee</p>
         </div>

@@ -22,12 +22,12 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
+    const rawBody = await req.text();
+    const signature = req.headers.get('X-Alchemy-Signature') ?? '';
+
     if (!isUSDCPaymentEnabled()) {
       return NextResponse.json({ error: 'USDC payment disabled' }, { status: 400 });
     }
-
-    const rawBody = await req.text();
-    const signature = req.headers.get('X-Alchemy-Signature') ?? '';
 
     if (!signature) {
       logger.warn('Alchemy webhook missing signature header');

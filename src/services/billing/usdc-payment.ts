@@ -164,8 +164,9 @@ export function verifyAlchemySignature(rawBody: string, signature: string): bool
     return false;
   }
 
-  // Strip whsec_ prefix — use the remaining string directly as HMAC key (UTF-8, not base64)
-  const secret = env.ALCHEMY_WEBHOOK_SIGNING_KEY.replace(/^whsec_/, '');
+  // Alchemy uses Svix: whsec_ prefix + base64-encoded raw secret bytes
+  const secretBase64 = env.ALCHEMY_WEBHOOK_SIGNING_KEY.replace(/^whsec_/, '');
+  const secret = Buffer.from(secretBase64, 'base64');
 
   const computed = crypto
     .createHmac('sha256', secret)
