@@ -20,6 +20,11 @@ import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+// Alchemy validates webhook URLs with a GET request before sending notifications
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
