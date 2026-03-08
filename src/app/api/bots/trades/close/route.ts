@@ -478,7 +478,7 @@ export async function POST(req: NextRequest) {
     });
 
     // STEP 3: Record performance fee if profitable (separate from transaction)
-    // Record for ALL profitable trades - status will be 'waived' for trial users
+    // recordPerformanceFee handles waiving internally (trial users, paper mode)
     if (actualProfitLoss > 0) {
       try {
         await recordPerformanceFee(
@@ -493,6 +493,7 @@ export async function POST(req: NextRequest) {
           userId,
           tradeId: data.tradeId,
           profitAmount: actualProfitLoss,
+          tradingMode,
         });
       } catch (feeError) {
         // Log but don't fail the trade close if fee recording fails
@@ -503,13 +504,6 @@ export async function POST(req: NextRequest) {
         });
         // Continue - trade is already closed, fee can be retried later
       }
-    } else if (isPaperTrading && actualProfitLoss > 0) {
-      logger.info('Skipping fee recording for paper trading (simulated profit)', {
-        userId,
-        tradeId: data.tradeId,
-        simulatedProfit: actualProfitLoss,
-        tradingMode,
-      });
     }
 
     logger.info('Trade close request processed successfully', {

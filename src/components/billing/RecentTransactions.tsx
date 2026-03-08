@@ -6,6 +6,9 @@ import { useLoadMore } from '@/hooks/useLoadMore';
 interface Transaction {
   id?: string;
   trade_id: string;
+  bot_instance_id?: string;
+  bot_name?: string;
+  bot_trading_mode?: string;
   pair: string;
   profit_amount: number;
   fee_amount: number;
@@ -20,6 +23,11 @@ interface Transaction {
 
 type StatusFilter = 'all' | 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived';
 
+interface BotOption {
+  id: string;
+  name: string;
+}
+
 /**
  * Recent Transactions Component
  * Shows recent trades with fees with load more pagination and filtering
@@ -27,16 +35,34 @@ type StatusFilter = 'all' | 'pending_billing' | 'billed' | 'paid' | 'refunded' |
  */
 export function RecentTransactions() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [botFilter, setBotFilter] = useState<string>('all');
+  const [bots, setBots] = useState<BotOption[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
 
-  // Memoize fetch function with status filter
+  // Fetch user's bots for the filter dropdown
+  useEffect(() => {
+    fetch('/api/bots')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const list: BotOption[] = (data?.bots ?? data ?? []).map((b: any) => ({
+          id: b.id,
+          name: b.config?.name || b.name || `Bot ${String(b.id).slice(0, 8)}`,
+        }));
+        setBots(list);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Memoize fetch function with status + bot filters
   const fetchTransactionsData = useCallback(async (offset: number, limit: number) => {
-    const statusParam = statusFilter !== 'all' ? `&status=${statusFilter}` : '';
-    const response = await fetch(`/api/fees/performance?type=transactions&offset=${offset}&limit=${limit}${statusParam}`);
+    const params = new URLSearchParams({ type: 'transactions', offset: String(offset), limit: String(limit) });
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (botFilter !== 'all') params.set('bot', botFilter);
+    const response = await fetch(`/api/fees/performance?${params}`);
     if (!response.ok) throw new Error('Failed to fetch transactions');
 
     const data = await response.json();
@@ -45,7 +71,7 @@ export function RecentTransactions() {
       items: data.recentTransactions || [],
       total: data.transactionTotal || 0,
     };
-  }, [statusFilter]);
+  }, [statusFilter, botFilter]);
 
   // Load more pagination
   const { items: transactions, isLoading, error, hasMore, load, loadMore, reset } = useLoadMore<Transaction>({
@@ -54,11 +80,11 @@ export function RecentTransactions() {
     fetchFn: fetchTransactionsData,
   });
 
-  // Initialize on mount and when filter changes
+  // Reload when filters change
   useEffect(() => {
     reset();
     load();
-  }, [load, reset, statusFilter]);
+  }, [load, reset, statusFilter, botFilter]);
 
   // Smooth scroll to new items after load more completes
   useEffect(() => {
@@ -164,23 +190,44 @@ export function RecentTransactions() {
       >
         <div className="px-4 sm:px-6 pb-4 sm:pb-6">
           {/* Filter Row */}
-          <div className="flex items-center justify-between mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              Filter by status
-            </p>
+          <div className="flex flex-wrap items-center gap-2 mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+            {/* Bot filter — only shown when user has multiple bots */}
+            {bots.length > 1 && (
+              <select
+                value={botFilter}
+                onChange={(e) => setBotFilter(e.target.value)}
+                className="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">All Bots</option>
+                {bots.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Status filter */}
             <select
-              id="status-filter"
               value={statusFilter}
               onChange={(e) => handleFilterChange(e.target.value as StatusFilter)}
               className="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="all">All</option>
+              <option value="all">All Statuses</option>
               <option value="pending_billing">Pending</option>
               <option value="billed">Billed</option>
               <option value="paid">Paid</option>
               <option value="refunded">Refunded</option>
               <option value="waived">Waived</option>
             </select>
+
+            {/* Active filter pills */}
+            {(statusFilter !== 'all' || botFilter !== 'all') && (
+              <button
+                onClick={() => { setStatusFilter('all'); setBotFilter('all'); }}
+                className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white underline ml-auto"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
 
       {error && (
@@ -221,6 +268,11 @@ export function RecentTransactions() {
                     <p className="text-sm font-medium text-slate-900 dark:text-white mt-0.5">
                       {tx.pair}
                     </p>
+                    {tx.bot_name && (
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-[160px]" title={tx.bot_name}>
+                        {tx.bot_name}
+                      </p>
+                    )}
                   </div>
                   <span
                     className={`px-2.5 py-1 rounded text-xs font-semibold ${getStatusBadgeClass(tx.status)}`}
@@ -265,6 +317,9 @@ export function RecentTransactions() {
                     Trade ID
                   </th>
                   <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
+                    Bot
+                  </th>
+                  <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
                     Pair
                   </th>
                   <th className="text-right py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
@@ -286,6 +341,11 @@ export function RecentTransactions() {
                   <tr key={tx.id || `${tx.trade_id}-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">
                     <td className="py-4 px-4 text-sm font-mono text-slate-900 dark:text-white">
                       {tx.trade_id.slice(0, 8)}...
+                    </td>
+                    <td className="py-4 px-4 text-sm text-slate-700 dark:text-slate-300 max-w-[160px]">
+                      <span className="truncate block" title={tx.bot_name}>
+                        {tx.bot_name ?? '—'}
+                      </span>
                     </td>
                     <td className="py-4 px-4 text-sm font-medium text-slate-900 dark:text-white">
                       {tx.pair}
@@ -375,14 +435,6 @@ export function RecentTransactions() {
                   </span>
                 )}
               </p>
-              {statusFilter !== 'all' && (
-                <button
-                  onClick={() => handleFilterChange('all')}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                >
-                  Clear filter
-                </button>
-              )}
             </div>
           )}
         </div>

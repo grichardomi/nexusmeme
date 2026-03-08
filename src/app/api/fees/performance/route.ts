@@ -194,19 +194,24 @@ export async function GET(request: Request) {
     // Fetch transactions if requested or on initial load
     if (type === 'summary' || type === 'transactions') {
       try {
-        const statusFilter = url.searchParams.get('status'); // Optional status filter
+        const statusFilter = url.searchParams.get('status');
+        const botFilter = url.searchParams.get('bot');
 
         // 2-year viewing window (best practice for performance and UX)
         const twoYearsAgo = new Date();
         twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
-        // Get total count with optional status filter and 2-year window
+        // Get total count with optional filters and 2-year window
         let countQuery = `SELECT COUNT(*) as total FROM performance_fees WHERE user_id = $1 AND created_at >= $2`;
         let countParams: any[] = [session.user.id, twoYearsAgo.toISOString()];
 
         if (statusFilter && statusFilter !== 'all') {
           countQuery += ` AND status = $${countParams.length + 1}`;
           countParams.push(statusFilter);
+        }
+        if (botFilter && botFilter !== 'all') {
+          countQuery += ` AND bot_instance_id = $${countParams.length + 1}`;
+          countParams.push(botFilter);
         }
 
         const countResult = await query(countQuery, countParams);
@@ -217,6 +222,7 @@ export async function GET(request: Request) {
           SELECT
             pf.id,
             pf.trade_id,
+            pf.bot_instance_id,
             pf.profit_amount,
             pf.fee_amount,
             pf.fee_rate_applied,
@@ -225,8 +231,11 @@ export async function GET(request: Request) {
             pf.paid_at,
             pf.billed_at,
             pf.stripe_invoice_id,
-            pf.pair
+            pf.pair,
+            COALESCE(bi.config->>'name', 'Bot ' || LEFT(pf.bot_instance_id::text, 8)) as bot_name,
+            bi.trading_mode as bot_trading_mode
           FROM performance_fees pf
+          LEFT JOIN bot_instances bi ON bi.id = pf.bot_instance_id
           WHERE pf.user_id = $1
             AND pf.created_at >= $2
         `;
@@ -236,6 +245,10 @@ export async function GET(request: Request) {
           txnQuery += ` AND pf.status = $${txnParams.length + 1}`;
           txnParams.push(statusFilter);
         }
+        if (botFilter && botFilter !== 'all') {
+          txnQuery += ` AND pf.bot_instance_id = $${txnParams.length + 1}`;
+          txnParams.push(botFilter);
+        }
 
         txnQuery += ` ORDER BY pf.created_at DESC OFFSET $${txnParams.length + 1} LIMIT $${txnParams.length + 2}`;
         txnParams.push(offset, txnLimit);
@@ -244,6 +257,9 @@ export async function GET(request: Request) {
         recentTransactions = txnResult.map((t: any) => ({
           id: t.id,
           trade_id: t.trade_id,
+          bot_instance_id: t.bot_instance_id,
+          bot_name: t.bot_name,
+          bot_trading_mode: t.bot_trading_mode,
           profit_amount: parseFloat(t.profit_amount || 0),
           fee_amount: parseFloat(t.fee_amount || 0),
           fee_rate_applied: t.fee_rate_applied != null ? parseFloat(String(t.fee_rate_applied)) : null,

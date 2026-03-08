@@ -45,11 +45,11 @@ export async function recordPerformanceFee(
   // Check if user is on free trial (waive fees)
   const userCheck = await query(
     `SELECT
-      us.plan,
+      us.plan_tier AS plan,
       us.trial_ends_at,
       bi.config
      FROM users u
-     LEFT JOIN user_subscriptions us ON u.id = us.user_id
+     LEFT JOIN subscriptions us ON u.id = us.user_id
      LEFT JOIN bot_instances bi ON bi.id = $2
      WHERE u.id = $1`,
     [userId, botInstanceId]
