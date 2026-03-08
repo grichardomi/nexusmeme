@@ -233,11 +233,9 @@ export async function GET(request: Request) {
             pf.stripe_invoice_id,
             pf.pair,
             COALESCE(bi.config->>'name', 'Bot ' || LEFT(pf.bot_instance_id::text, 8)) as bot_name,
-            bi.trading_mode as bot_trading_mode,
-            t.exit_time
+            bi.trading_mode as bot_trading_mode
           FROM performance_fees pf
           LEFT JOIN bot_instances bi ON bi.id = pf.bot_instance_id
-          LEFT JOIN trades t ON t.trade_id::text = pf.trade_id::text
           WHERE pf.user_id = $1
             AND pf.created_at >= $2
         `;
@@ -267,7 +265,7 @@ export async function GET(request: Request) {
           fee_rate_applied: t.fee_rate_applied != null ? parseFloat(String(t.fee_rate_applied)) : null,
           status: t.status,
           created_at: t.created_at,
-          exit_time: t.exit_time || null,
+          exit_time: t.created_at || null, // created_at is set at trade close time
           paid_at: t.paid_at,
           billed_at: t.billed_at,
           stripe_invoice_id: t.stripe_invoice_id,
