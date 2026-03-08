@@ -175,11 +175,6 @@ export function RecentTransactions() {
             )}
           </div>
         </div>
-        {!isCollapsed && totalCount > 0 && (
-          <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full font-medium">
-            {transactions.length} loaded
-          </span>
-        )}
       </button>
 
       {/* Collapsible Content */}
