@@ -263,7 +263,7 @@ export function RecentTransactions() {
                     <p className="text-sm font-medium text-slate-900 dark:text-white mt-0.5">
                       {tx.pair}
                     </p>
-                    {tx.bot_name && (
+                    {bots.length > 1 && tx.bot_name && (
                       <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-[160px]" title={tx.bot_name}>
                         {tx.bot_name}
                       </p>
@@ -311,9 +311,11 @@ export function RecentTransactions() {
                   <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
                     Trade ID
                   </th>
-                  <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
-                    Bot
-                  </th>
+                  {bots.length > 1 && (
+                    <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
+                      Bot
+                    </th>
+                  )}
                   <th className="text-left py-3 px-4 font-semibold text-slate-900 dark:text-white text-sm">
                     Pair
                   </th>
@@ -337,11 +339,13 @@ export function RecentTransactions() {
                     <td className="py-4 px-4 text-sm font-mono text-slate-900 dark:text-white">
                       {tx.trade_id.slice(0, 8)}...
                     </td>
-                    <td className="py-4 px-4 text-sm text-slate-700 dark:text-slate-300 max-w-[160px]">
-                      <span className="truncate block" title={tx.bot_name}>
-                        {tx.bot_name ?? '—'}
-                      </span>
-                    </td>
+                    {bots.length > 1 && (
+                      <td className="py-4 px-4 text-sm text-slate-700 dark:text-slate-300 max-w-[160px]">
+                        <span className="truncate block" title={tx.bot_name}>
+                          {tx.bot_name ?? '—'}
+                        </span>
+                      </td>
+                    )}
                     <td className="py-4 px-4 text-sm font-medium text-slate-900 dark:text-white">
                       {tx.pair}
                     </td>
