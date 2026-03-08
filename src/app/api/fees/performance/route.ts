@@ -233,9 +233,11 @@ export async function GET(request: Request) {
             pf.stripe_invoice_id,
             pf.pair,
             COALESCE(bi.config->>'name', 'Bot ' || LEFT(pf.bot_instance_id::text, 8)) as bot_name,
-            bi.trading_mode as bot_trading_mode
+            bi.trading_mode as bot_trading_mode,
+            t.exit_time
           FROM performance_fees pf
           LEFT JOIN bot_instances bi ON bi.id = pf.bot_instance_id
+          LEFT JOIN trades t ON t.trade_id::text = pf.trade_id::text
           WHERE pf.user_id = $1
             AND pf.created_at >= $2
         `;
@@ -265,6 +267,7 @@ export async function GET(request: Request) {
           fee_rate_applied: t.fee_rate_applied != null ? parseFloat(String(t.fee_rate_applied)) : null,
           status: t.status,
           created_at: t.created_at,
+          exit_time: t.exit_time || null,
           paid_at: t.paid_at,
           billed_at: t.billed_at,
           stripe_invoice_id: t.stripe_invoice_id,
@@ -278,21 +281,32 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fetch billing status
+    // Fetch billing status — derived from USDC invoices (primary payment method)
     try {
-      const billingResult = await query(
-        `SELECT
-           billing_status,
-           failed_charge_attempts,
-           pause_trading_on_failed_charge
-         FROM user_stripe_billing
-         WHERE user_id = $1`,
+      const overdueResult = await query(
+        `SELECT COUNT(*) as overdue_count
+         FROM usdc_payment_references
+         WHERE user_id = $1
+           AND status = 'pending'
+           AND expires_at < NOW()`,
+        [session.user.id]
+      );
+      const suspendedResult = await query(
+        `SELECT COUNT(*) as suspended_count
+         FROM bot_instances
+         WHERE user_id = $1 AND status = 'paused'`,
         [session.user.id]
       );
 
-      if (billingResult.length > 0) {
-        billingStatus = billingResult[0];
+      const overdueCount = parseInt(overdueResult[0]?.overdue_count || 0);
+      const suspendedCount = parseInt(suspendedResult[0]?.suspended_count || 0);
+
+      if (overdueCount > 0 && suspendedCount > 0) {
+        billingStatus = { billing_status: 'suspended', failed_charge_attempts: overdueCount, pause_trading_on_failed_charge: true };
+      } else if (overdueCount > 0) {
+        billingStatus = { billing_status: 'past_due', failed_charge_attempts: overdueCount, pause_trading_on_failed_charge: false };
       }
+      // else stays 'active'
     } catch (err) {
       logger.warn('Could not fetch billing status', {
         userId: session.user.id,
@@ -351,11 +365,7 @@ export async function GET(request: Request) {
           status: h.status || 'pending',
           paid_at: h.paid_at,
           created_at: h.created_at,
-          invoice_url: h.coinbase_charge_id
-            ? `https://commerce.coinbase.com/charges/${h.coinbase_charge_id}`
-            : h.stripe_invoice_id
-            ? `https://dashboard.stripe.com/invoices/${h.stripe_invoice_id}`
-            : null,
+          invoice_url: null, // USDC invoices paid via /dashboard/billing directly
         }));
       } catch (err) {
         logger.warn('Could not fetch charge history', {
