@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { renderEmailTemplate } from '@/email/render';
 import { EmailTemplateType } from '@/types/email';
+import { appUrl } from '@/email/templates/shared';
 
 /**
  * Email Preview API
@@ -32,22 +33,22 @@ export async function GET(req: NextRequest) {
   const contextMap: Record<EmailTemplateType, any> = {
     welcome: {
       name: 'John Trader',
-      verificationUrl: 'https://nexusmeme.com/verify?token=abc123',
+      verificationUrl: appUrl('/verify?token=abc123'),
     },
     email_verification: {
       name: 'Jane Smith',
-      verificationUrl: 'https://nexusmeme.com/verify?token=abc123',
+      verificationUrl: appUrl('/verify?token=abc123'),
     },
     password_reset: {
       name: 'John Trader',
-      resetUrl: 'https://nexusmeme.com/reset?token=xyz789',
+      resetUrl: appUrl('/reset?token=xyz789'),
     },
     subscription_created: {
       name: 'John Trader',
       plan: 'Pro',
       price: 99,
       period: 'monthly',
-      dashboardUrl: 'https://nexusmeme.com/dashboard',
+      dashboardUrl: appUrl('/dashboard'),
     },
     subscription_upgraded: {
       name: 'John Trader',
@@ -65,25 +66,25 @@ export async function GET(req: NextRequest) {
       name: 'John Trader',
       trialEndsDate: '2024-02-15',
       daysRemaining: 3,
-      upgradePath: 'https://nexusmeme.com/pricing',
+      upgradePath: appUrl('/pricing'),
     },
     invoice_created: {
       name: 'John Trader',
       invoiceNumber: 'INV-2024-001',
       plan: 'Pro',
-      amount: 9900, // in cents
+      amount: 9900,
       currency: 'USD',
       period: 'monthly',
       issueDate: '2024-01-15',
       dueDate: '2024-02-15',
-      invoiceUrl: 'https://nexusmeme.com/invoices/INV-2024-001',
+      invoiceUrl: appUrl('/invoices/INV-2024-001'),
     },
     bot_created: {
       name: 'John Trader',
       botName: 'Momentum Trader #1',
       strategy: 'Moving Average Crossover',
       exchange: 'Binance',
-      dashboardUrl: 'https://nexusmeme.com/dashboard/bots/bot123',
+      dashboardUrl: appUrl('/dashboard/bots/bot123'),
     },
     trade_alert: {
       name: 'John Trader',
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
       price: 45231.5,
       amount: 0.002,
       profit: 150.25,
-      dashboardUrl: 'https://nexusmeme.com/dashboard',
+      dashboardUrl: appUrl('/dashboard'),
     },
     account_settings_changed: {
       name: 'John Trader',
@@ -102,44 +103,45 @@ export async function GET(req: NextRequest) {
       ticketId: 'TICKET-001',
       subject: 'Problem with bot configuration',
       message: 'I\'m having issues with my bot setup',
-      ticketUrl: 'https://nexusmeme.com/support/tickets/TICKET-001',
+      ticketUrl: appUrl('/support/tickets/TICKET-001'),
     },
     ticket_replied: {
       ticketId: 'TICKET-001',
       subject: 'Problem with bot configuration',
       replyMessage: 'We\'ve identified the issue. Please check your configuration settings.',
-      ticketUrl: 'https://nexusmeme.com/support/tickets/TICKET-001',
+      ticketUrl: appUrl('/support/tickets/TICKET-001'),
     },
     ticket_resolved: {
       ticketId: 'TICKET-001',
       subject: 'Problem with bot configuration',
-      ticketUrl: 'https://nexusmeme.com/support/tickets/TICKET-001',
+      ticketUrl: appUrl('/support/tickets/TICKET-001'),
     },
     new_ticket_admin: {
       ticketId: 'TICKET-001',
       subject: 'Problem with bot configuration',
       userEmail: 'user@example.com',
       message: 'I\'m having issues with my bot setup',
-      ticketUrl: 'https://nexusmeme.com/admin/tickets/TICKET-001',
+      ticketUrl: appUrl('/admin/tickets/TICKET-001'),
     },
     performance_fee_charged: {
       name: 'John Trader',
       amount: 50.25,
       invoiceId: 'in_1234567890',
-      invoiceUrl: 'https://invoice.stripe.com/i/acct_1234567890',
+      invoiceUrl: appUrl('/dashboard/billing'),
       trades: 3,
     },
     performance_fee_failed: {
       name: 'John Trader',
       amount: 50.25,
       retryCount: 2,
-      supportUrl: 'https://nexusmeme.com/support',
     },
     performance_fee_dunning: {
       name: 'John Trader',
       amount: 50.25,
       attemptNumber: 1,
       deadline: '2024-02-15T02:00:00Z',
+      walletAddress: '0xAbCd1234EfAb5678CdEf9012AbCd3456EfAb7890',
+      paymentReference: 'NXM-A3F9B2C1',
     },
     performance_fee_adjustment: {
       name: 'John Trader',
@@ -155,42 +157,60 @@ export async function GET(req: NextRequest) {
     bot_suspended_payment_failure: {
       name: 'John Trader',
       botInstanceId: 'bot_123',
-      reason: 'Payment for performance fees failed 3 times',
-      action: 'Please update your payment method',
-      billingUrl: 'https://nexusmeme.com/dashboard/billing',
+      reason: 'Performance fee invoice unpaid',
+      action: 'Please send your USDC payment to restore trading',
+      billingUrl: appUrl('/dashboard/billing'),
     },
     bot_resumed: {
       name: 'John Trader',
       botInstanceId: 'bot_123',
-      message: 'Your trading bot has been resumed after payment was successfully processed',
+      message: 'Your trading bot has been resumed after your USDC payment was confirmed.',
     },
     upcoming_billing: {
       name: 'John Trader',
       totalPendingFees: 42.75,
       tradeCount: 8,
       billingDate: 'February 1, 2025',
-      billingUrl: 'https://nexusmeme.com/dashboard/billing',
+      billingUrl: appUrl('/dashboard/billing'),
     },
     trial_ending_performance_fees: {
       name: 'John Trader',
       trialEndsDate: '2024-02-15',
       daysRemaining: 3,
       performanceFeePercent: 5,
-      addPaymentPath: 'https://nexusmeme.com/dashboard/billing/payment-methods?returnTo=trading',
+      addPaymentPath: appUrl('/dashboard/billing/payment-methods?returnTo=trading'),
     },
     trial_ending_soon_performance_fees: {
       name: 'John Trader',
       trialEndsDate: '2024-02-15',
       daysRemaining: 1,
       performanceFeePercent: 5,
-      addPaymentPath: 'https://nexusmeme.com/dashboard/billing/payment-methods?returnTo=trading',
+      addPaymentPath: appUrl('/dashboard/billing/payment-methods?returnTo=trading'),
     },
     trial_ending_soon_add_payment: {
       name: 'John Trader',
       trialEndsDate: '2024-02-15',
       daysRemaining: 1,
       performanceFeePercent: 5,
-      setupPaymentPath: 'https://nexusmeme.com/dashboard/billing/payment-methods?setup=true',
+      setupPaymentPath: appUrl('/dashboard/billing/payment-methods?setup=true'),
+    },
+    trial_started: {
+      name: 'John Trader',
+      trialDays: 10,
+      trialEndsAt: 'March 17, 2026',
+      dashboardUrl: appUrl('/dashboard'),
+    },
+    invoice_expired: {
+      name: 'John Trader',
+      amount: 12.50,
+      paymentReference: 'NXM-A3F9B2C1',
+      billingUrl: appUrl('/dashboard/billing'),
+    },
+    fee_rate_changed: {
+      name: 'John Trader',
+      prevRatePct: 5.0,
+      newRatePct: 6.0,
+      reason: 'Rate adjustment effective March 2026.',
     },
   };
 

@@ -7,6 +7,7 @@ import type {
   EmailTemplate,
   EmailTemplateType,
   EmailContext,
+  FeeRateChangedContext,
   WelcomeEmailContext,
   PasswordResetEmailContext,
   SubscriptionCreatedContext,
@@ -30,6 +31,8 @@ import type {
   UpcomingBillingContext,
   BotSuspensionContext,
   BotResumedContext,
+  TrialStartedContext,
+  InvoiceExpiredContext,
 } from '@/types/email';
 import { WelcomeEmailTemplate } from './templates/welcome';
 import { PasswordResetEmailTemplate } from './templates/password-reset';
@@ -37,6 +40,7 @@ import {
   SubscriptionCreatedEmailTemplate,
   SubscriptionUpgradedEmailTemplate,
   SubscriptionCancelledEmailTemplate,
+  TrialStartedEmailTemplate,
 } from './templates/subscription';
 import {
   TrialEndingEmailTemplate,
@@ -55,6 +59,8 @@ import {
   PerformanceFeeChargedEmailTemplate,
   PerformanceFeeFailedEmailTemplate,
   PerformanceFeeRefundEmailTemplate,
+  PerformanceFeeDunningEmailTemplate,
+  InvoiceExpiredEmailTemplate,
   FeeAdjustmentEmailTemplate,
   UpcomingBillingEmailTemplate,
 } from './templates/performance-fees';
@@ -295,11 +301,14 @@ export function renderEmailTemplate(
 
     case 'performance_fee_dunning': {
       const ctx = context as PerformanceFeeDunningContext;
-      return PerformanceFeeFailedEmailTemplate({
+      return PerformanceFeeDunningEmailTemplate({
         name: ctx.name,
         amount: ctx.amount,
-        retryCount: ctx.attemptNumber,
-        supportUrl: process.env.NEXTAUTH_URL,
+        attemptNumber: ctx.attemptNumber,
+        deadline: ctx.deadline,
+        walletAddress: ctx.walletAddress,
+        paymentReference: ctx.paymentReference,
+        billingUrl: ctx.billingUrl,
       });
     }
 
@@ -351,6 +360,64 @@ export function renderEmailTemplate(
         botInstanceId: ctx.botInstanceId,
         message: ctx.message,
       });
+    }
+
+    case 'trial_started': {
+      const ctx = context as TrialStartedContext;
+      return TrialStartedEmailTemplate({
+        name: ctx.name,
+        trialDays: ctx.trialDays,
+        trialEndsAt: ctx.trialEndsAt,
+        dashboardUrl: ctx.dashboardUrl,
+      });
+    }
+
+    case 'invoice_expired': {
+      const ctx = context as InvoiceExpiredContext;
+      return InvoiceExpiredEmailTemplate({
+        name: ctx.name,
+        amount: ctx.amount,
+        paymentReference: ctx.paymentReference,
+        billingUrl: ctx.billingUrl,
+      });
+    }
+
+    case 'fee_rate_changed': {
+      const ctx = context as FeeRateChangedContext;
+      const direction = ctx.newRatePct > ctx.prevRatePct ? 'increased' : 'decreased';
+      return {
+        subject: `Your Performance Fee Rate Has Been Updated — ${ctx.newRatePct.toFixed(1)}%`,
+        html: `
+          <!DOCTYPE html><html><head><meta charset="utf-8">
+          <style>
+            body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;line-height:1.6;color:#333}
+            .container{max-width:600px;margin:0 auto;padding:20px}
+            .header{background:#007bff;color:white;padding:40px 20px;text-align:center;border-radius:8px 8px 0 0}
+            .content{background:#f9f9f9;padding:40px 20px}
+            .footer{background:#333;color:white;padding:20px;text-align:center;font-size:12px;border-radius:0 0 8px 8px}
+            .rate-box{background:white;border:2px solid #007bff;padding:20px;border-radius:8px;margin:20px 0;display:flex;justify-content:space-between;align-items:center}
+            .rate{font-size:28px;font-weight:bold}
+            .old{color:#999;text-decoration:line-through}
+            .new{color:#007bff}
+            p{margin:10px 0}
+          </style></head><body>
+          <div class="container">
+            <div class="header"><h1 style="margin:0;font-size:24px">📋 Performance Fee Rate Update</h1></div>
+            <div class="content">
+              <p>Hi ${ctx.name || 'Trader'},</p>
+              <p>Your performance fee rate has been <strong>${direction}</strong>.</p>
+              <div class="rate-box">
+                <div><div style="font-size:12px;color:#666;margin-bottom:4px">Previous Rate</div><div class="rate old">${ctx.prevRatePct.toFixed(1)}%</div></div>
+                <div style="font-size:24px;color:#ccc">→</div>
+                <div><div style="font-size:12px;color:#666;margin-bottom:4px">New Rate</div><div class="rate new">${ctx.newRatePct.toFixed(1)}%</div></div>
+              </div>
+              ${ctx.reason ? `<p><strong>Note:</strong> ${ctx.reason}</p>` : ''}
+              <p>This rate applies to all future profitable trades. You only pay when your bot earns.</p>
+            </div>
+            <div class="footer"><p>&copy; 2024 NexusMeme. All rights reserved.</p></div>
+          </div></body></html>`,
+        text: `Performance Fee Rate Updated\n\nHi ${ctx.name || 'Trader'},\n\nYour performance fee rate has been ${direction} from ${ctx.prevRatePct.toFixed(1)}% to ${ctx.newRatePct.toFixed(1)}%.\n\n${ctx.reason || ''}\n\nThe NexusMeme Team`,
+      };
     }
 
     default:

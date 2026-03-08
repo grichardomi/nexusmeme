@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { recordPerformanceFee } from '@/services/billing/performance-fee';
+import { sendTradeAlertEmail } from '@/services/email/triggers';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { withRetry } from '@/lib/resilience';
@@ -514,6 +515,38 @@ export async function POST(req: NextRequest) {
       actualExitPrice,
       actualProfitLoss,
     });
+
+    // Trade close notification — live trades only, fire-and-forget
+    if (!isPaperTrading) {
+      (async () => {
+        try {
+          const userRows = await query<{ email: string; name: string; trade_alerts: boolean }>(
+            `SELECT u.email, u.name, COALESCE(ep.trade_alerts, true) as trade_alerts
+             FROM users u
+             LEFT JOIN email_preferences ep ON ep.user_id = u.id
+             WHERE u.id = $1`,
+            [userId]
+          );
+          const user = userRows[0];
+          if (user?.trade_alerts) {
+            const botRows = await query<{ config: any }>(
+              `SELECT config FROM bot_instances WHERE id = $1`,
+              [data.botInstanceId]
+            );
+            const botName = botRows[0]?.config?.name || 'Trading Bot';
+            const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/dashboard/bots/${data.botInstanceId}`;
+            await sendTradeAlertEmail(
+              user.email, user.name || 'Trader',
+              botName, data.pair, 'SELL',
+              actualExitPrice, 0, dashboardUrl,
+              actualProfitLoss
+            );
+          }
+        } catch {
+          // fire-and-forget
+        }
+      })();
+    }
 
     return NextResponse.json(
       {

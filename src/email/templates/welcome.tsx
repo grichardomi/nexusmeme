@@ -1,5 +1,5 @@
 import { EmailTemplate } from '@/types/email';
-import { getLogoUrl } from './shared';
+import { getLogoUrl, appUrl } from './shared';
 
 interface WelcomeEmailProps {
   name: string;
@@ -52,7 +52,13 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
               <li>Upgrade to live trading anytime - pay only 15% on profits</li>
             </ul>
             <p><strong>To get started, please verify your email address:</strong></p>
-            <a href="${verificationUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Verify Email Address</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${verificationUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Verify Email Address</a>
+                </td>
+              </tr>
+            </table>
             <p style="font-size: 12px; color: #666;">This link will expire in 24 hours.</p>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h2>What's Next?</h2>
@@ -67,7 +73,7 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/unsubscribe" style="color: #667eea; text-decoration: none;">Unsubscribe</a> | <a href="https://nexusmeme.com/privacy" style="color: #667eea; text-decoration: none;">Privacy</a></p>
+            <p><a href="${appUrl('/unsubscribe')}" style="color: #667eea; text-decoration: none;">Unsubscribe</a> | <a href="${appUrl('/privacy')}" style="color: #667eea; text-decoration: none;">Privacy</a></p>
           </div>
         </div>
       </body>

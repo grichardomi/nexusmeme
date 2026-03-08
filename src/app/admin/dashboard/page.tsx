@@ -108,9 +108,11 @@ function computeNextRun(schedule: string): string {
 }
 
 const CRON_JOBS_DEFAULTS = [
-  { id: 'billing-monthly',  name: 'Billing Monthly',  url: '/api/cron/billing-monthly',  schedule: '0 2 1 * *',   enabled: true },
-  { id: 'billing-upcoming', name: 'Billing Upcoming', url: '/api/cron/billing-upcoming', schedule: '0 9 28 * *',  enabled: true },
-  { id: 'billing-dunning',  name: 'Billing Dunning',  url: '/api/cron/billing-dunning',  schedule: '0 9 * * *',   enabled: true },
+  { id: 'billing-monthly',    name: 'Billing Monthly',    url: '/api/cron/billing-monthly',    schedule: '0 2 1 * *',   enabled: true },
+  { id: 'billing-upcoming',   name: 'Billing Upcoming',   url: '/api/cron/billing-upcoming',   schedule: '0 9 28 * *',  enabled: true },
+  { id: 'billing-dunning',    name: 'Billing Dunning',    url: '/api/cron/billing-dunning',    schedule: '0 9 * * *',   enabled: true },
+  { id: 'email-processor',    name: 'Email Processor',    url: '/api/cron/email-processor',    schedule: '*/5 * * * *', enabled: true },
+  { id: 'billing-retry',      name: 'Billing Retry',      url: '/api/cron/billing-retry',      schedule: '0 10 * * 3',  enabled: true },
 ];
 
 interface DashboardStats {
@@ -164,28 +166,42 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [cronJobs, setCronJobs] = useState<CronJob[]>(
-    CRON_JOBS_DEFAULTS.map(c => ({
-      ...c,
-      status: 'idle',
-      lastRun: null,
-      lastRunResult: null,
-      nextRun: computeNextRun(c.schedule),
-    }))
-  );
+  const [cronJobs, setCronJobs] = useState<CronJob[]>(() => {
+    let savedEnabled: Record<string, boolean> = {};
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('cron_enabled') : null;
+      if (raw) savedEnabled = JSON.parse(raw);
+    } catch {}
+    return CRON_JOBS_DEFAULTS.map(c => {
+      const enabled = savedEnabled[c.id] ?? c.enabled;
+      return {
+        ...c,
+        enabled,
+        status: enabled ? 'idle' : 'disabled',
+        lastRun: null,
+        lastRunResult: null,
+        nextRun: computeNextRun(c.schedule),
+      };
+    });
+  });
 
   const toggleCronEnabled = useCallback((id: string) => {
-    setCronJobs(prev =>
-      prev.map(j =>
+    setCronJobs(prev => {
+      const next = prev.map(j =>
         j.id === id
           ? {
               ...j,
               enabled: !j.enabled,
-              status: j.enabled ? 'disabled' : (j.status === 'disabled' ? 'idle' : j.status),
+              status: (j.enabled ? 'disabled' : (j.status === 'disabled' ? 'idle' : j.status)) as CronJob['status'],
             }
           : j
-      )
-    );
+      );
+      try {
+        const enabledMap = Object.fromEntries(next.map(j => [j.id, j.enabled]));
+        localStorage.setItem('cron_enabled', JSON.stringify(enabledMap));
+      } catch {}
+      return next;
+    });
   }, []);
 
   // Track whether each job is showing the custom cron input

@@ -43,13 +43,13 @@ export function isUSDCPaymentEnabled(): boolean {
 }
 
 /**
- * Generate a unique 8-char payment reference (e.g. NXM-A3F9B2C1)
+ * Generate a unique payment reference (e.g. NXM-A3F9B2C1)
  * Short enough to type, unique enough to avoid collisions
  */
-function generatePaymentReference(): string {
+function generatePaymentReference(refLength: number): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I confusion
   let ref = 'NXM-';
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < refLength; i++) {
     ref += chars[Math.floor(Math.random() * chars.length)];
   }
   return ref;
@@ -63,9 +63,10 @@ function generatePaymentReference(): string {
  *
  * Returns the raw unit string to store and display (divide by 1_000_000 for USD display).
  */
-function computeUniqueRawAmount(totalAmountUSD: number): string {
-  const baseRaw = Math.round(totalAmountUSD * 1_000_000); // USDC has 6 decimals
-  const microOffset = Math.floor(Math.random() * 999) + 1; // 1–999 raw units
+function computeUniqueRawAmount(totalAmountUSD: number, microOffsetMax: number): string {
+  const usdcDecimals = 1_000_000; // USDC protocol constant: 6 decimal places
+  const baseRaw = Math.round(totalAmountUSD * usdcDecimals);
+  const microOffset = Math.floor(Math.random() * microOffsetMax) + 1; // 1–max raw units
   return String(baseRaw + microOffset);
 }
 
@@ -88,24 +89,30 @@ export async function createUSDCInvoice(
   }
 
   // Generate unique reference — retry if collision (extremely rare)
-  let paymentReference = generatePaymentReference();
+  let paymentReference = generatePaymentReference(env.USDC_PAYMENT_REF_LENGTH);
   let attempts = 0;
-  while (attempts < 5) {
+  while (attempts < env.USDC_PAYMENT_REF_RETRIES) {
     const existing = await query(
       `SELECT id FROM usdc_payment_references WHERE payment_reference = $1`,
       [paymentReference]
     );
     if (!existing[0]) break;
-    paymentReference = generatePaymentReference();
+    paymentReference = generatePaymentReference(env.USDC_PAYMENT_REF_LENGTH);
     attempts++;
+    if (attempts === env.USDC_PAYMENT_REF_RETRIES) {
+      throw new Error(
+        `Failed to generate unique payment reference after ${attempts} attempts — please retry`
+      );
+    }
   }
 
   // Unique micro-amount: avoids wrong-user credit when two users owe identical amounts
-  const amountUsdcRaw = computeUniqueRawAmount(totalAmount);
-  const displayAmountUSD = parseInt(amountUsdcRaw, 10) / 1_000_000;
+  const amountUsdcRaw = computeUniqueRawAmount(totalAmount, env.USDC_MICRO_OFFSET_MAX);
+  const usdcDecimals = 1_000_000; // USDC protocol constant: 6 decimal places
+  const displayAmountUSD = parseInt(amountUsdcRaw, 10) / usdcDecimals;
 
   const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7); // 7 days to pay
+  expiresAt.setDate(expiresAt.getDate() + env.USDC_INVOICE_EXPIRY_DAYS);
 
   const result = await query(
     `INSERT INTO usdc_payment_references
@@ -308,16 +315,45 @@ export async function processIncomingUSDCTransfer(transfer: {
  * Expire overdue invoices (run nightly)
  */
 export async function expireOverdueInvoices(): Promise<number> {
-  const result = await query(
-    `UPDATE usdc_payment_references
+  const expired = await query<{
+    id: string;
+    user_id: string;
+    payment_reference: string;
+    amount_usd: string;
+    email: string;
+    name: string;
+  }>(
+    `UPDATE usdc_payment_references r
      SET status = 'expired', updated_at = NOW()
-     WHERE status = 'pending' AND expires_at < NOW()
-     RETURNING id`,
+     FROM users u
+     WHERE r.user_id = u.id
+       AND r.status = 'pending'
+       AND r.expires_at < NOW()
+     RETURNING r.id, r.user_id, r.payment_reference, r.amount_usd, u.email, u.name`,
     []
   );
-  const count = result.length;
-  if (count > 0) {
-    logger.info('Expired overdue USDC invoices', { count });
+
+  if (expired.length > 0) {
+    logger.info('Expired overdue USDC invoices', { count: expired.length });
+
+    const { sendInvoiceExpiredEmail } = await import('@/services/email/triggers');
+    const env = getEnvironmentConfig();
+    const billingUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing`;
+
+    for (const inv of expired) {
+      try {
+        await sendInvoiceExpiredEmail(
+          inv.email,
+          inv.name || 'Trader',
+          parseFloat(String(inv.amount_usd)),
+          inv.payment_reference,
+          billingUrl
+        );
+      } catch (emailErr) {
+        logger.warn('Failed to send invoice expired email', { invoiceId: inv.id });
+      }
+    }
   }
-  return count;
+
+  return expired.length;
 }

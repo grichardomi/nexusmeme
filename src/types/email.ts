@@ -29,7 +29,10 @@ export type EmailTemplateType =
   | 'performance_fee_refund'
   | 'bot_suspended_payment_failure'
   | 'bot_resumed'
-  | 'upcoming_billing';
+  | 'upcoming_billing'
+  | 'trial_started'
+  | 'invoice_expired'
+  | 'fee_rate_changed';
 
 export interface EmailTemplate {
   subject: string;
@@ -172,6 +175,9 @@ export interface PerformanceFeeDunningContext {
   amount: number;
   attemptNumber: number;
   deadline: string;
+  walletAddress?: string;
+  paymentReference?: string;
+  billingUrl?: string;
 }
 
 export interface PerformanceFeeAdjustmentContext {
@@ -209,6 +215,27 @@ export interface BotResumedContext {
   message?: string;
 }
 
+export interface TrialStartedContext {
+  name?: string;
+  trialDays: number;
+  trialEndsAt: string;
+  dashboardUrl: string;
+}
+
+export interface InvoiceExpiredContext {
+  name?: string;
+  amount: number;
+  paymentReference: string;
+  billingUrl: string;
+}
+
+export interface FeeRateChangedContext {
+  name?: string;
+  prevRatePct: number;
+  newRatePct: number;
+  reason?: string;
+}
+
 export type EmailContext =
   | WelcomeEmailContext
   | PasswordResetEmailContext
@@ -232,7 +259,10 @@ export type EmailContext =
   | PerformanceFeeRefundContext
   | UpcomingBillingContext
   | BotSuspensionContext
-  | BotResumedContext;
+  | BotResumedContext
+  | TrialStartedContext
+  | InvoiceExpiredContext
+  | FeeRateChangedContext;
 
 export interface EmailJob {
   id: string;

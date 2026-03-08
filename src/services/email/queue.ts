@@ -8,8 +8,7 @@ import { getPool } from '@/lib/db';
 import { sendEmail, getActiveProvider } from './provider';
 import { renderEmailTemplate } from '@/email/render';
 import { EmailTemplateType, EmailContext, EmailJob } from '@/types/email';
-
-const MAX_RETRIES = 3;
+import { getEnvironmentConfig } from '@/config/environment';
 
 function parseEmailContext(raw: unknown): EmailContext {
   if (typeof raw === 'string') {
@@ -47,7 +46,8 @@ export async function queueEmail(
     // Kick off background processing via job queue (best effort)
     try {
       const { jobQueueManager } = await import('@/services/job-queue/singleton');
-      const jobId = await jobQueueManager.enqueue('send_email', { emailId }, { priority: 7, maxRetries: 3 });
+      const emailEnv = getEnvironmentConfig();
+      const jobId = await jobQueueManager.enqueue('send_email', { emailId }, { priority: emailEnv.EMAIL_JOB_PRIORITY, maxRetries: emailEnv.EMAIL_MAX_RETRIES });
       console.log(`✅ Email job enqueued: ${jobId} for email ${emailId}`);
     } catch (jobError) {
       console.warn('⚠️  Could not enqueue email processing job:', jobError instanceof Error ? jobError.message : jobError);
@@ -65,18 +65,21 @@ export async function queueEmail(
  * Process pending emails from queue
  */
 export async function processPendingEmails(): Promise<number> {
+  const env = getEnvironmentConfig();
   const client = await getPool().connect();
   let processedCount = 0;
   const provider = getActiveProvider();
 
   try {
-    // Get pending emails
+    // Get pending emails (respect exponential backoff hold time)
     const result = await client.query(
       `SELECT id, type, to_email, context, retries FROM email_queue
-       WHERE status = 'pending' AND retries < $1
+       WHERE status = 'pending'
+         AND retries < $1
+         AND (next_retry_at IS NULL OR next_retry_at <= NOW())
        ORDER BY created_at ASC
-       LIMIT 100`,
-      [MAX_RETRIES]
+       LIMIT $2`,
+      [env.EMAIL_MAX_RETRIES, env.EMAIL_BATCH_SIZE]
     );
 
     if (result.rows.length > 0) {
@@ -121,7 +124,7 @@ export async function processPendingEmails(): Promise<number> {
         // Increment retry count
         const newRetries = row.retries + 1;
 
-        if (newRetries >= MAX_RETRIES) {
+        if (newRetries >= env.EMAIL_MAX_RETRIES) {
           // Mark as failed
           await client.query(
             `UPDATE email_queue
@@ -135,14 +138,17 @@ export async function processPendingEmails(): Promise<number> {
           );
           console.error(`   ⚠️  Email failed permanently after ${newRetries} attempts: ${errorMsg}`);
         } else {
-          // Reset to pending for retry
+          // Exponential backoff: 2^retries minutes (2m, 4m, 8m, ...)
+          const backoffMinutes = Math.pow(2, newRetries);
           await client.query(
             `UPDATE email_queue
-             SET retries = $1, updated_at = NOW()
-             WHERE id = $2`,
-            [newRetries, emailId]
+             SET retries = $1,
+                 next_retry_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                 updated_at = NOW()
+             WHERE id = $3`,
+            [newRetries, backoffMinutes, emailId]
           );
-          console.error(`   ⏳ Retrying (attempt ${newRetries}/${MAX_RETRIES})`);
+          console.error(`   ⏳ Retry ${newRetries}/${env.EMAIL_MAX_RETRIES} in ${backoffMinutes}m`);
         }
       }
     }

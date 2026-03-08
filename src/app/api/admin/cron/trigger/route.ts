@@ -13,6 +13,8 @@ const JOB_URLS: Record<string, string> = {
   'billing-monthly':  '/api/cron/billing-monthly',
   'billing-upcoming': '/api/cron/billing-upcoming',
   'billing-dunning':  '/api/cron/billing-dunning',
+  'email-processor':  '/api/cron/email-processor',
+  'billing-retry':    '/api/cron/billing-retry',
 };
 
 export async function POST(req: NextRequest) {

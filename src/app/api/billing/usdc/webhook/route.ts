@@ -39,21 +39,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
     }
 
-    const skipVerify = process.env.ALCHEMY_WEBHOOK_SKIP_VERIFY === 'true';
-    if (!skipVerify && !verifyAlchemySignature(rawBody, signature)) {
-      const crypto = await import('crypto');
-      const k = process.env.ALCHEMY_WEBHOOK_SIGNING_KEY ?? '';
-      const h = (key: string | Buffer) => crypto.createHmac('sha256', key).update(rawBody).digest('hex');
-      logger.warn('WEBHOOK_SIG_DEBUG', {
-        received: signature,
-        hmac_full_utf8: h(k),
-        hmac_stripped_utf8: h(k.replace(/^whsec_/, '')),
-        hmac_stripped_b64: h(Buffer.from(k.replace(/^whsec_/, ''), 'base64')),
-      });
+    if (!verifyAlchemySignature(rawBody, signature)) {
       logger.warn('Alchemy webhook signature verification failed');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-    if (skipVerify) logger.warn('WEBHOOK_SIG_BYPASS active — log signature for fix', { received: signature });
 
     const event = JSON.parse(rawBody);
 

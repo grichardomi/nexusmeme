@@ -54,7 +54,13 @@ export function TicketCreatedEmailTemplate(props: {
             </div>
 
             <p>Our support team will get back to you as soon as possible. You can check the status of your ticket and view responses at:</p>
-            <a href="${ticketUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View Your Ticket</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${ticketUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View Your Ticket</a>
+                </td>
+              </tr>
+            </table>
 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h2>What to Expect</h2>
@@ -138,7 +144,13 @@ export function TicketRepliedEmailTemplate(props: {
             </div>
 
             <p>You can view your full ticket conversation and reply at:</p>
-            <a href="${ticketUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View Ticket & Reply</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${ticketUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View Ticket & Reply</a>
+                </td>
+              </tr>
+            </table>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
               Please don't hesitate to reply with any follow-up questions or additional information.
@@ -232,7 +244,13 @@ export function NewTicketAdminEmailTemplate(props: {
             </div>
 
             <p>Review and respond to this ticket:</p>
-            <a href="${ticketUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View & Respond to Ticket</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${ticketUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View & Respond to Ticket</a>
+                </td>
+              </tr>
+            </table>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
               Please prioritize based on the ticket's priority level. Thank you!

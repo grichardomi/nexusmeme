@@ -1,5 +1,5 @@
 import { EmailTemplate } from '@/types/email';
-import { getLogoUrl } from './shared';
+import { getLogoUrl, appUrl } from './shared';
 
 interface PasswordResetEmailProps {
   name: string;
@@ -46,7 +46,13 @@ export function PasswordResetEmailTemplate({
             <p>Hi ${name || 'Trader'},</p>
             <p>You requested a password reset for your NexusMeme account.</p>
             <p><strong>Click the button below to reset your password:</strong></p>
-            <a href="${resetUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Reset Password</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${resetUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Reset Password</a>
+                </td>
+              </tr>
+            </table>
             <p style="font-size: 12px; color: #666;">This link will expire in 1 hour.</p>
             <div class="warning">
               <strong>⚠️ Security Notice:</strong> If you didn't request this password reset, please ignore this email or contact support if you're concerned about your account security.
@@ -56,7 +62,7 @@ export function PasswordResetEmailTemplate({
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/support" style="color: #667eea; text-decoration: none;">Support</a> | <a href="https://nexusmeme.com/privacy" style="color: #667eea; text-decoration: none;">Privacy</a></p>
+            <p><a href="${appUrl('/support')}" style="color: #667eea; text-decoration: none;">Support</a> | <a href="${appUrl('/privacy')}" style="color: #667eea; text-decoration: none;">Privacy</a></p>
           </div>
         </div>
       </body>

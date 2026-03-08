@@ -1,5 +1,5 @@
 import { EmailTemplate } from '@/types/email';
-import { getLogoUrl } from './shared';
+import { getLogoUrl, appUrl } from './shared';
 
 interface InvoiceEmailProps {
   name: string;
@@ -87,7 +87,13 @@ export function InvoiceEmailTemplate({
             </div>
 
             <p style="text-align: center;">
-              <a href="${invoiceUrl}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View Full Invoice</a>
+              <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${invoiceUrl}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View Full Invoice</a>
+                </td>
+              </tr>
+            </table>
             </p>
 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
@@ -100,7 +106,7 @@ export function InvoiceEmailTemplate({
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/billing" style="color: #667eea; text-decoration: none;">Billing Portal</a> | <a href="https://nexusmeme.com/privacy" style="color: #667eea; text-decoration: none;">Privacy</a></p>
+            <p><a href="${appUrl('/dashboard/billing')}" style="color: #667eea; text-decoration: none;">Billing Portal</a> | <a href="${appUrl('/privacy')}" style="color: #667eea; text-decoration: none;">Privacy</a></p>
           </div>
         </div>
       </body>

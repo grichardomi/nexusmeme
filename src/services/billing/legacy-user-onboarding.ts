@@ -1,6 +1,8 @@
 import { getPool } from '@/lib/db';
 import { initializeSubscription } from './subscription';
 import { logger } from '@/lib/logger';
+import { sendTrialStartedEmail } from '@/services/email/triggers';
+import { getEnvironmentConfig } from '@/config/environment';
 
 /**
  * Legacy User Onboarding Service
@@ -93,14 +95,33 @@ export async function assignStarterPlanToLegacyUser(
 
       const subscription = await initializeSubscription(userId, email, name);
 
+      const trialEndsAt = subscription.trialEndsAt ?? (subscription as any).trial_ends_at ?? null;
+
       logger.info('Successfully assigned live trial plan to legacy user', {
         userId,
         email,
         subscriptionId: subscription.id,
-        trialEndsAt: subscription.trialEndsAt ?? (subscription as any).trial_ends_at ?? null,
+        trialEndsAt,
       });
 
-      const trialEndsAt = subscription.trialEndsAt ?? (subscription as any).trial_ends_at ?? null;
+      // Send trial welcome email (fire-and-forget — don't fail subscription on email error)
+      try {
+        const env = getEnvironmentConfig();
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const trialDays = trialEndsAt
+          ? Math.round((new Date(trialEndsAt).getTime() - Date.now()) / msPerDay)
+          : env.TRIAL_DURATION_DAYS;
+        const dashboardUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard`;
+        await sendTrialStartedEmail(
+          email,
+          name || 'Trader',
+          Math.max(trialDays, 1),
+          trialEndsAt ? new Date(trialEndsAt) : new Date(Date.now() + env.TRIAL_DURATION_DAYS * msPerDay),
+          dashboardUrl
+        );
+      } catch (emailErr) {
+        logger.warn('Failed to send trial started email', { userId, email });
+      }
 
       return {
         success: true,

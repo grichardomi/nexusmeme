@@ -1,5 +1,5 @@
 import { EmailTemplate } from '@/types/email';
-import { getLogoUrl } from './shared';
+import { getLogoUrl, appUrl } from './shared';
 
 /**
  * Bot Suspended Email
@@ -16,11 +16,11 @@ interface BotSuspendedProps {
 export function BotSuspendedEmailTemplate({
   name = 'Trader',
   botInstanceId,
-  reason = 'Multiple payment attempts failed',
-  action = 'Please update your payment method to restore trading',
+  reason = 'Performance fee invoice unpaid',
+  action = 'Please send your USDC payment to restore trading',
   billingUrl,
 }: BotSuspendedProps): EmailTemplate {
-  const billingLink = billingUrl || 'https://nexusmeme.com/dashboard/billing';
+  const billingLink = billingUrl || appUrl('/dashboard/billing');
 
   const html = `
     <!DOCTYPE html>
@@ -69,14 +69,20 @@ export function BotSuspendedEmailTemplate({
             <h3>Action Required</h3>
             <p>${action}</p>
             <p>Once your payment is processed, your bot will be <strong>automatically resumed</strong> and will continue trading.</p>
-            <a href="${billingLink}" class="btn" style="background-color: #dc3545; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Update Payment Method</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #dc3545;">
+                  <a href="${billingLink}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Pay Now →</a>
+                </td>
+              </tr>
+            </table>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>Need Help?</h3>
-            <p>If you believe this is an error, please <a href="https://nexusmeme.com/support" style="color: #dc3545; text-decoration: none; font-weight: 600;">contact our support team</a>.</p>
+            <p>If you believe this is an error, please <a href="${appUrl('/support')}" style="color: #dc3545; text-decoration: none; font-weight: 600;">contact our support team</a>.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/support" style="color: #dc3545; text-decoration: none;">Contact Support</a></p>
+            <p><a href="${appUrl('/support')}" style="color: #dc3545; text-decoration: none;">Contact Support</a></p>
           </div>
         </div>
       </body>
@@ -101,7 +107,7 @@ Action Required: ${action}
 
 Once your payment is processed, your bot will be automatically resumed.
 
-Update payment method: ${billingLink}
+Pay now: ${billingLink}
 
 Best regards,
 The NexusMeme Team
@@ -169,15 +175,21 @@ export function BotResumedEmailTemplate({
               <p style="margin-bottom: 0;"><strong>Status:</strong> Running - Actively trading</p>
             </div>
             <p>Your bot will continue executing trades based on your strategy. Monitor performance in your dashboard.</p>
-            <a href="https://nexusmeme.com/dashboard" class="btn" style="background-color: #28a745; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">View Dashboard</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #28a745;">
+                  <a href="${appUrl('/dashboard')}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View Dashboard</a>
+                </td>
+              </tr>
+            </table>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <p style="font-size: 14px; color: #666;">
-              Tip: Keep your payment method up to date to avoid future interruptions.
+              Tip: Your USDC invoices are generated monthly. Keep an eye on your billing dashboard so you can pay promptly and keep your bot running.
             </p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/support" style="color: #28a745; text-decoration: none;">Contact Support</a></p>
+            <p><a href="${appUrl('/support')}" style="color: #28a745; text-decoration: none;">Contact Support</a></p>
           </div>
         </div>
       </body>
@@ -199,7 +211,7 @@ Status: Running - Actively trading
 
 Your bot will continue executing trades based on your strategy.
 
-View dashboard: https://nexusmeme.com/dashboard
+View dashboard: ${appUrl('/dashboard')}
 
 Best regards,
 The NexusMeme Team

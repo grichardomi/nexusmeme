@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { query } from '@/lib/db';
+import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 /**
@@ -67,12 +67,11 @@ export async function POST(request: NextRequest) {
       // Fall back to using entry prices if market data unavailable
     }
 
-    // Close each trade
-    let closedCount = 0;
+    // Close all trades atomically
     const closedTrades: string[] = [];
-
-    for (const trade of openTrades) {
-      try {
+    const closedCount = await transaction(async (client) => {
+      let count = 0;
+      for (const trade of openTrades) {
         const exitPrice = priceMap.get(trade.pair) || parseFloat(trade.entry_price);
         const entryPrice = parseFloat(trade.entry_price);
         const quantity = parseFloat(trade.amount);
@@ -80,8 +79,7 @@ export async function POST(request: NextRequest) {
         const profitLoss = (exitPrice - entryPrice) * quantity;
         const profitLossPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
 
-        // Update trade as closed
-        await query(
+        await client.query(
           `UPDATE trades
            SET status = 'closed',
                exit_price = $1,
@@ -93,7 +91,7 @@ export async function POST(request: NextRequest) {
           [exitPrice, profitLoss, profitLossPercent, trade.id]
         );
 
-        closedCount++;
+        count++;
         closedTrades.push(trade.pair);
 
         logger.info('Closed trade via close-all', {
@@ -102,14 +100,9 @@ export async function POST(request: NextRequest) {
           exitPrice,
           profitLoss,
         });
-      } catch (err) {
-        logger.error('Failed to close individual trade', err instanceof Error ? err : null, {
-          tradeId: trade.id,
-          botId,
-        });
-        // Continue with next trade instead of failing entire operation
       }
-    }
+      return count;
+    });
 
     return NextResponse.json({
       message: `Closed ${closedCount} out of ${openTrades.length} open trades`,

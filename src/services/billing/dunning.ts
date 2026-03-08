@@ -29,6 +29,7 @@ interface OverdueInvoice {
   created_at: string;
   expires_at: string;
   days_overdue: number;
+  last_dunning_attempt: number;
 }
 
 /**
@@ -51,7 +52,10 @@ export async function runDunningCheck(): Promise<{
   // Expire stale invoices first
   const expired = await expireOverdueInvoices();
 
-  // Get all pending invoices past grace period
+  // Dunning phases:
+  //   Day 7+  (attempt 1): First reminder — send once, then skip until Day 10
+  //   Day 10+ (attempt 2): Final warning  — send once, then skip until Day 14
+  //   Day 14+             : Suspend bots
   const overdueInvoices = await query<OverdueInvoice>(
     `SELECT
        r.id,
@@ -63,6 +67,7 @@ export async function runDunningCheck(): Promise<{
        r.wallet_address,
        r.created_at,
        r.expires_at,
+       COALESCE(r.last_dunning_attempt, 0) AS last_dunning_attempt,
        EXTRACT(DAY FROM NOW() - r.created_at)::INT AS days_overdue
      FROM usdc_payment_references r
      JOIN users u ON u.id = r.user_id
@@ -78,10 +83,16 @@ export async function runDunningCheck(): Promise<{
       if (invoice.days_overdue >= env.BILLING_SUSPENSION_DAYS) {
         await handleSuspension(invoice, env.NEXT_PUBLIC_APP_URL);
         suspensions++;
-      } else {
-        await sendDunningReminder(invoice, env.NEXT_PUBLIC_APP_URL);
+      } else if (invoice.days_overdue >= env.DUNNING_WARNING_DAYS && invoice.last_dunning_attempt < 2) {
+        // Day 10+ final warning — send only once
+        await sendDunningReminder(invoice, env.NEXT_PUBLIC_APP_URL, 2);
+        reminders++;
+      } else if (invoice.days_overdue >= env.BILLING_GRACE_PERIOD_DAYS && invoice.last_dunning_attempt < 1) {
+        // Day 7+ first reminder — send only once
+        await sendDunningReminder(invoice, env.NEXT_PUBLIC_APP_URL, 1);
         reminders++;
       }
+      // else: already emailed at this phase, skip until next phase
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error('Dunning action failed', err instanceof Error ? err : null, {
@@ -97,10 +108,13 @@ export async function runDunningCheck(): Promise<{
 }
 
 /**
- * Send dunning reminder email with payment instructions
+ * Send dunning reminder email and record the attempt to prevent re-sending
  */
-async function sendDunningReminder(invoice: OverdueInvoice, appUrl: string): Promise<void> {
-  const attempt = invoice.days_overdue >= 10 ? 2 : 1;
+async function sendDunningReminder(
+  invoice: OverdueInvoice,
+  appUrl: string,
+  attempt: 1 | 2
+): Promise<void> {
   const billingUrl = `${appUrl}/dashboard/billing`;
 
   const deadlineDate = new Date(invoice.expires_at).toLocaleDateString('en-US', {
@@ -112,7 +126,16 @@ async function sendDunningReminder(invoice: OverdueInvoice, appUrl: string): Pro
     invoice.name || 'Trader',
     parseFloat(String(invoice.amount_usd)),
     attempt,
-    deadlineDate
+    deadlineDate,
+    invoice.wallet_address,
+    invoice.payment_reference,
+    billingUrl
+  );
+
+  // Record attempt so we don't resend the same phase tomorrow
+  await query(
+    `UPDATE usdc_payment_references SET last_dunning_attempt = $1, updated_at = NOW() WHERE id = $2`,
+    [attempt, invoice.id]
   );
 
   logger.info('Dunning reminder sent', {
@@ -120,7 +143,6 @@ async function sendDunningReminder(invoice: OverdueInvoice, appUrl: string): Pro
     reference: invoice.payment_reference,
     daysOverdue: invoice.days_overdue,
     attempt,
-    billingUrl,
   });
 }
 

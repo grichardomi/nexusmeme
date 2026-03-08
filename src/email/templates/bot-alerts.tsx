@@ -1,5 +1,5 @@
 import { EmailTemplate } from '@/types/email';
-import { getLogoUrl } from './shared';
+import { getLogoUrl, appUrl } from './shared';
 
 interface BotCreatedEmailProps {
   name: string;
@@ -78,7 +78,13 @@ export function BotCreatedEmailTemplate({
               <li>Monitor bot performance in your dashboard</li>
             </ol>
 
-            <a href="${dashboardUrl}" class="btn">View Bot in Dashboard</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${dashboardUrl}" style="display: inline-block; padding: 12px 30px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View Bot in Dashboard</a>
+                </td>
+              </tr>
+            </table>
 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
 
@@ -88,7 +94,7 @@ export function BotCreatedEmailTemplate({
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://docs.nexusmeme.com/bots" style="color: #667eea; text-decoration: none;">Bot Guide</a> | <a href="https://nexusmeme.com/support" style="color: #667eea; text-decoration: none;">Support</a></p>
+            <p><a href="https://docs.nexusmeme.com/bots" style="color: #667eea; text-decoration: none;">Bot Guide</a> | <a href="${appUrl('/support')}" style="color: #667eea; text-decoration: none;">Support</a></p>
           </div>
         </div>
       </body>
@@ -220,7 +226,13 @@ export function TradeAlertEmailTemplate({
             </div>
 
             <p>Track all your trades and bot performance in your dashboard:</p>
-            <a href="${dashboardUrl}" class="btn">View Dashboard</a>
+            <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${dashboardUrl}" style="display: inline-block; padding: 12px 30px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">View Dashboard</a>
+                </td>
+              </tr>
+            </table>
 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
 
@@ -230,7 +242,7 @@ export function TradeAlertEmailTemplate({
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/settings/notifications" style="color: #667eea; text-decoration: none;">Manage Alerts</a> | <a href="https://nexusmeme.com/privacy" style="color: #667eea; text-decoration: none;">Privacy</a></p>
+            <p><a href="${appUrl('/settings/notifications')}" style="color: #667eea; text-decoration: none;">Manage Alerts</a> | <a href="${appUrl('/privacy')}" style="color: #667eea; text-decoration: none;">Privacy</a></p>
           </div>
         </div>
       </body>

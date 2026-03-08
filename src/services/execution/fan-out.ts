@@ -1,5 +1,6 @@
 import { query, transaction } from '@/lib/db';
 import { logger, logTradeExecution } from '@/lib/logger';
+import { sendTradeAlertEmail } from '@/services/email/triggers';
 import type { TradeDecision, ExecutionPlan } from '@/types/market';
 import DynamicPositionSizer from '@/services/trading/dynamic-position-sizer';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
@@ -650,6 +651,37 @@ class ExecutionFanOut {
       signalPrice: plan.price,
       tradingMode,
     });
+
+    // Trade open notification — live trades only, respects user preference
+    if (tradingMode === 'live') {
+      (async () => {
+        try {
+          const userRows = await query<{ email: string; name: string; trade_alerts: boolean }>(
+            `SELECT u.email, u.name, COALESCE(ep.trade_alerts, true) as trade_alerts
+             FROM users u
+             LEFT JOIN email_preferences ep ON ep.user_id = u.id
+             WHERE u.id = $1`,
+            [userId]
+          );
+          const user = userRows[0];
+          if (user?.trade_alerts) {
+            const botRows = await query<{ config: any }>(
+              `SELECT config FROM bot_instances WHERE id = $1`,
+              [botInstanceId]
+            );
+            const botName = botRows[0]?.config?.name || 'Trading Bot';
+            const dashboardUrl = `${process.env.NEXT_PUBLIC_APP_URL || ''}/dashboard/bots/${botInstanceId}`;
+            await sendTradeAlertEmail(
+              user.email, user.name || 'Trader',
+              botName, pair, 'BUY',
+              executionPrice, amount, dashboardUrl
+            );
+          }
+        } catch {
+          // fire-and-forget — never block trade execution
+        }
+      })();
+    }
 
     return { executed: true, tradeId: recordResult[0].id };
   }

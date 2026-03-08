@@ -9,6 +9,8 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
+import { sendFeeRateChangedEmail } from '@/services/email/triggers';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,9 +38,10 @@ export async function GET() {
       ),
     ]);
 
+    const env = getEnvironmentConfig();
     const globalFeeRate = settingRows[0]
       ? parseFloat(String(settingRows[0].value))
-      : 0.05;
+      : env.PERFORMANCE_FEE_RATE;
 
     return NextResponse.json({
       globalFeeRate,
@@ -84,6 +87,13 @@ export async function PUT(req: NextRequest) {
     if (type === 'global') {
       if (feeRate === null) return NextResponse.json({ error: 'feeRate required for global update' }, { status: 400 });
 
+      // Read previous rate BEFORE updating
+      const prevRows = await query(
+        `SELECT value FROM billing_settings WHERE key = 'performance_fee_rate'`,
+        []
+      );
+      const prevRate: number = prevRows[0] ? parseFloat(String(prevRows[0].value)) : getEnvironmentConfig().PERFORMANCE_FEE_RATE;
+
       await query(
         `INSERT INTO billing_settings (key, value, updated_at)
          VALUES ('performance_fee_rate', $1, NOW())
@@ -91,7 +101,31 @@ export async function PUT(req: NextRequest) {
         [String(feeRate)]
       );
 
-      logger.info('Global fee rate updated', { adminId, feeRate });
+      logger.info('Global fee rate updated', { adminId, prevRate, feeRate });
+
+      // Notify all active live users (non-trial) of the rate change (fire-and-forget)
+      (async () => {
+        try {
+
+          const users = await query<{ email: string; name: string }>(
+            `SELECT DISTINCT u.email, u.name
+             FROM users u
+             JOIN subscriptions s ON s.user_id = u.id
+             WHERE s.plan_tier != 'live_trial'
+               AND s.status IN ('active', 'trialing')
+               AND COALESCE((SELECT ep.billing_notifications FROM email_preferences ep WHERE ep.user_id = u.id), true)`,
+            []
+          );
+
+          for (const u of users) {
+            await sendFeeRateChangedEmail(u.email, u.name || 'Trader', prevRate, feeRate);
+          }
+          logger.info('Fee change notifications sent', { count: users.length, prevRate, feeRate });
+        } catch (emailErr) {
+          logger.warn('Failed to send global fee change notifications', {});
+        }
+      })();
+
       return NextResponse.json({ success: true, globalFeeRate: feeRate });
     }
 
@@ -123,6 +157,38 @@ export async function PUT(req: NextRequest) {
       );
 
       logger.info('User fee rate override set', { adminId, resolvedUserId, feeRate });
+
+      // Notify the specific user of their custom rate
+      (async () => {
+        try {
+          // Fetch user info, their current override (prev rate), and global rate in one go
+          const userRows = await query<{ email: string; name: string; billing_notifications: boolean; prev_override: string | null; global_rate: string | null }>(
+            `SELECT u.email, u.name,
+               COALESCE(ep.billing_notifications, true) as billing_notifications,
+               (SELECT ubo2.fee_rate FROM user_billing_overrides ubo2 WHERE ubo2.user_id = u.id) as prev_override,
+               (SELECT bs.value FROM billing_settings bs WHERE bs.key = 'performance_fee_rate') as global_rate
+             FROM users u
+             LEFT JOIN email_preferences ep ON ep.user_id = u.id
+             WHERE u.id = $1`,
+            [resolvedUserId]
+          );
+          const u = userRows[0];
+          if (u?.billing_notifications) {
+            const prevUserRate = u.prev_override !== null
+              ? parseFloat(String(u.prev_override))
+              : (u.global_rate !== null ? parseFloat(String(u.global_rate)) : getEnvironmentConfig().PERFORMANCE_FEE_RATE);
+            await sendFeeRateChangedEmail(
+              u.email, u.name || 'Trader',
+              prevUserRate,
+              feeRate!,
+              reason || 'Your performance fee rate has been updated by the NexusMeme team.'
+            );
+          }
+        } catch {
+          // fire-and-forget
+        }
+      })();
+
       return NextResponse.json({ success: true, userId: resolvedUserId, feeRate });
     }
 

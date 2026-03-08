@@ -311,7 +311,22 @@ const envSchema = z.object({
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
   BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Days after invoice before dunning starts
   BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Days after invoice before bots suspended
+  DUNNING_WARNING_DAYS: z.string().transform(Number).default('10'),        // Day for second dunning attempt (final warning)
   CRON_SECRET: z.string().min(1).default('build-phase-placeholder'),       // Shared secret to authenticate cron calls
+
+  /* USDC Invoice & Payment Configuration */
+  USDC_INVOICE_EXPIRY_DAYS: z.string().transform(Number).default('7'),    // Days until invoice expires
+  USDC_PAYMENT_REF_LENGTH: z.string().transform(Number).default('8'),     // Length of payment reference suffix
+  USDC_PAYMENT_REF_RETRIES: z.string().transform(Number).default('5'),    // Max attempts to generate unique reference
+  USDC_MICRO_OFFSET_MAX: z.string().transform(Number).default('999'),     // Max micro-offset raw units for unique amounts
+
+  /* Trial Configuration */
+  TRIAL_DURATION_DAYS: z.string().transform(Number).default('10'),        // Length of free trial in days
+
+  /* Email Queue Configuration */
+  EMAIL_MAX_RETRIES: z.string().transform(Number).default('3'),           // Max delivery attempts before marking failed
+  EMAIL_JOB_PRIORITY: z.string().transform(Number).default('7'),          // Job queue priority for email jobs
+  EMAIL_BATCH_SIZE: z.string().transform(Number).default('100'),          // Max emails processed per queue flush
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
   CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -527,7 +542,16 @@ function getDefaultEnvironment(): Environment {
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
     BILLING_SUSPENSION_DAYS: 14,
+    DUNNING_WARNING_DAYS: 10,
     CRON_SECRET: 'build-phase-placeholder',
+    USDC_INVOICE_EXPIRY_DAYS: 7,
+    USDC_PAYMENT_REF_LENGTH: 8,
+    USDC_PAYMENT_REF_RETRIES: 5,
+    USDC_MICRO_OFFSET_MAX: 999,
+    TRIAL_DURATION_DAYS: 10,
+    EMAIL_MAX_RETRIES: 3,
+    EMAIL_JOB_PRIORITY: 7,
+    EMAIL_BATCH_SIZE: 100,
     CP_BTC_TREND_GATE_ENABLED: true,
     CP_BTC_EMA_SHORT_PERIOD: 50,
     CP_BTC_EMA_LONG_PERIOD: 200,

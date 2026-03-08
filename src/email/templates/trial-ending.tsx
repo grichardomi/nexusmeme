@@ -1,5 +1,5 @@
 import { EmailTemplate } from '@/types/email';
-import { getLogoUrl } from './shared';
+import { getLogoUrl, appUrl } from './shared';
 
 interface TrialEndingEmailProps {
   name: string;
@@ -88,8 +88,14 @@ export function TrialEndingEmailTemplate({
             <p><strong>How it works:</strong> Your bot makes a $1,000 profit? You pay $150 (15% fee). Your bot loses money? You pay nothing. That's it!</p>
 
             <p style="text-align: center;">
-              <a href="${upgradePath}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Add Payment Method</a>
-              <a href="https://nexusmeme.com/help/performance-fees" class="btn-secondary" style="background-color: #6c757d; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Learn More</a>
+              <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${upgradePath}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Add Payment Method</a>
+                </td>
+              </tr>
+            </table>
+              <a href="${appUrl('/help/performance-fees')}" class="btn-secondary" style="background-color: #6c757d; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; margin: 20px 0; line-height: 1.5; font-size: 16px; letter-spacing: 0.3px;">Learn More</a>
             </p>
 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
@@ -109,7 +115,7 @@ export function TrialEndingEmailTemplate({
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/plans" style="color: #667eea; text-decoration: none;">View Plans</a> | <a href="https://nexusmeme.com/privacy" style="color: #667eea; text-decoration: none;">Privacy</a></p>
+            <p><a href="${appUrl('/plans')}" style="color: #667eea; text-decoration: none;">View Plans</a> | <a href="${appUrl('/privacy')}" style="color: #667eea; text-decoration: none;">Privacy</a></p>
           </div>
         </div>
       </body>
@@ -136,7 +142,7 @@ Add payment method: ${upgradePath}
 
 When your trial expires, your bot will pause. You can reactivate anytime by adding a payment method.
 
-Learn more: https://nexusmeme.com/help/performance-fees
+Learn more: ${appUrl('/help/performance-fees')}
 
 Best regards,
 The NexusMeme Team
@@ -225,7 +231,13 @@ export function TrialEndingPerformanceFeesEmailTemplate({
             </ul>
 
             <p style="text-align: center; margin: 30px 0;">
-              <a href="${addPaymentPath}" class="btn" style="background-color: #667eea; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; font-size: 16px;">Add Payment Method</a>
+              <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #667eea;">
+                  <a href="${addPaymentPath}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Add Payment Method</a>
+                </td>
+              </tr>
+            </table>
             </p>
 
             <h2>Example Scenarios</h2>
@@ -249,12 +261,12 @@ export function TrialEndingPerformanceFeesEmailTemplate({
             </table>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
-              Have questions? Visit our <a href="https://nexusmeme.com/help/billing">billing FAQ</a> or reply to this email.
+              Have questions? Visit our <a href="${appUrl('/help/billing')}">billing FAQ</a> or reply to this email.
             </p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://nexusmeme.com/pricing" style="color: #667eea; text-decoration: none;">View Plans</a> | <a href="https://nexusmeme.com/privacy" style="color: #667eea; text-decoration: none;">Privacy</a></p>
+            <p><a href="${appUrl('/pricing')}" style="color: #667eea; text-decoration: none;">View Plans</a> | <a href="${appUrl('/privacy')}" style="color: #667eea; text-decoration: none;">Privacy</a></p>
           </div>
         </div>
       </body>
@@ -284,7 +296,7 @@ How it works:
 
 Add a payment method to continue: ${addPaymentPath}
 
-Questions? Visit our billing FAQ: https://nexusmeme.com/help/billing
+Questions? Visit our billing FAQ: ${appUrl('/help/billing')}
 
 Best regards,
 The NexusMeme Team
@@ -364,7 +376,13 @@ export function TrialEndingSoonPerformanceFeesEmailTemplate({
             <p><strong>Quick Example:</strong> If you make $1,000 profit, you pay ${(1000 * performanceFeePercent / 100).toFixed(2)}. If you lose money, you pay nothing!</p>
 
             <p style="text-align: center; margin: 30px 0;">
-              <a href="${addPaymentPath}" class="btn" style="background-color: #ff6b6b; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; font-size: 16px;">Add Payment Method Now</a>
+              <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #ff6b6b;">
+                  <a href="${addPaymentPath}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Add Payment Method Now</a>
+                </td>
+              </tr>
+            </table>
             </p>
 
             <p><strong>What happens if you don't add a payment method?</strong></p>
@@ -376,7 +394,7 @@ export function TrialEndingSoonPerformanceFeesEmailTemplate({
             </ul>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
-              Need help? <a href="https://nexusmeme.com/help/billing">View billing FAQ</a> or reply to this email.
+              Need help? <a href="${appUrl('/help/billing')}">View billing FAQ</a> or reply to this email.
             </p>
           </div>
           <div class="footer">
@@ -491,7 +509,13 @@ export function TrialEndingSoonAddPaymentEmailTemplate({
             </ol>
 
             <p style="text-align: center; margin: 30px 0;">
-              <a href="${setupPaymentPath}" class="btn" style="background-color: #ff6b6b; color: white; padding: 14px 32px; border-radius: 4px; text-decoration: none; display: inline-block; font-weight: 600; font-size: 16px;">Set Up Payment in 1 Minute</a>
+              <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
+              <tr>
+                <td style="border-radius: 4px; background-color: #ff6b6b;">
+                  <a href="${setupPaymentPath}" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: bold; color: #ffffff; text-decoration: none; border-radius: 4px; font-family: Arial, sans-serif;">Set Up Payment in 1 Minute</a>
+                </td>
+              </tr>
+            </table>
             </p>
 
             <h2>No Upfront Cost</h2>
@@ -506,7 +530,7 @@ export function TrialEndingSoonAddPaymentEmailTemplate({
             </ul>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
-              Questions about our performance fee structure? <a href="https://nexusmeme.com/help/billing">View FAQ</a> or reply to this email.
+              Questions about our performance fee structure? <a href="${appUrl('/help/billing')}">View FAQ</a> or reply to this email.
             </p>
           </div>
           <div class="footer">

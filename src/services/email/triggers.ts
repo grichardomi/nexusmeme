@@ -326,13 +326,19 @@ export async function sendPerformanceFeeDunningEmail(
   name: string,
   amount: number,
   attemptNumber: number,
-  deadline: string
+  deadline: string,
+  walletAddress?: string,
+  paymentReference?: string,
+  billingUrl?: string
 ): Promise<string> {
   const context: EmailContext = {
     name,
     amount,
     attemptNumber,
     deadline,
+    walletAddress,
+    paymentReference,
+    billingUrl,
   };
 
   return queueEmail('performance_fee_dunning', email, context);
@@ -437,4 +443,63 @@ export async function sendBotResumedEmail(
   };
 
   return queueEmail('bot_resumed', email, context);
+}
+
+/**
+ * Send trial started email (new user live trial activated)
+ */
+export async function sendTrialStartedEmail(
+  email: string,
+  name: string,
+  trialDays: number,
+  trialEndsAt: Date,
+  dashboardUrl: string
+): Promise<string> {
+  const context = {
+    name,
+    trialDays,
+    trialEndsAt: trialEndsAt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+    dashboardUrl,
+  };
+
+  return queueEmail('trial_started', email, context as any);
+}
+
+/**
+ * Send invoice expired email
+ */
+export async function sendInvoiceExpiredEmail(
+  email: string,
+  name: string,
+  amount: number,
+  paymentReference: string,
+  billingUrl: string
+): Promise<string> {
+  const context = {
+    name,
+    amount,
+    paymentReference,
+    billingUrl,
+  };
+
+  return queueEmail('invoice_expired', email, context as any);
+}
+
+/**
+ * Notify user their performance fee rate has changed
+ */
+export async function sendFeeRateChangedEmail(
+  email: string,
+  name: string,
+  prevRate: number,
+  newRate: number,
+  reason?: string
+): Promise<string> {
+  const context = {
+    name,
+    prevRatePct: prevRate * 100,
+    newRatePct: newRate * 100,
+    reason,
+  };
+  return queueEmail('fee_rate_changed', email, context as any);
 }
