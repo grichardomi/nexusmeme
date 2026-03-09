@@ -108,11 +108,12 @@ function computeNextRun(schedule: string): string {
 }
 
 const CRON_JOBS_DEFAULTS = [
-  { id: 'billing-monthly',    name: 'Billing Monthly',    url: '/api/cron/billing-monthly',    schedule: '0 2 1 * *',   enabled: true },
-  { id: 'billing-upcoming',   name: 'Billing Upcoming',   url: '/api/cron/billing-upcoming',   schedule: '0 9 28 * *',  enabled: true },
-  { id: 'billing-dunning',    name: 'Billing Dunning',    url: '/api/cron/billing-dunning',    schedule: '0 9 * * *',   enabled: true },
-  { id: 'email-processor',    name: 'Email Processor',    url: '/api/cron/email-processor',    schedule: '*/5 * * * *', enabled: true },
-  { id: 'billing-retry',      name: 'Billing Retry',      url: '/api/cron/billing-retry',      schedule: '0 10 * * 3',  enabled: true },
+  { id: 'billing-monthly',       name: 'Billing Monthly',       url: '/api/cron/billing-monthly',       schedule: '0 2 1 * *',   enabled: true },
+  { id: 'billing-upcoming',      name: 'Billing Upcoming',      url: '/api/cron/billing-upcoming',      schedule: '0 9 28 * *',  enabled: true },
+  { id: 'billing-dunning',       name: 'Billing Dunning',       url: '/api/cron/billing-dunning',       schedule: '0 9 * * *',   enabled: true },
+  { id: 'email-processor',       name: 'Email Processor',       url: '/api/cron/email-processor',       schedule: '*/5 * * * *', enabled: true },
+  { id: 'billing-retry',         name: 'Billing Retry',         url: '/api/cron/billing-retry',         schedule: '0 10 * * 3',  enabled: true },
+  { id: 'trial-notifications',   name: 'Trial Notifications',   url: '/api/cron/trial-notifications',   schedule: '0 */6 * * *', enabled: true },
 ];
 
 interface DashboardStats {

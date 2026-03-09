@@ -32,7 +32,8 @@ export type EmailTemplateType =
   | 'upcoming_billing'
   | 'trial_started'
   | 'invoice_expired'
-  | 'fee_rate_changed';
+  | 'fee_rate_changed'
+  | 'login_alert';
 
 export interface EmailTemplate {
   subject: string;
@@ -236,7 +237,18 @@ export interface FeeRateChangedContext {
   reason?: string;
 }
 
+export interface LoginAlertContext {
+  name?: string;
+  email: string;
+  attemptCount: number;
+  isLocked: boolean;
+  lockedUntil?: string;
+  resetUrl: string;
+  ipAddress?: string;
+}
+
 export type EmailContext =
+  | LoginAlertContext
   | WelcomeEmailContext
   | PasswordResetEmailContext
   | SubscriptionCreatedContext

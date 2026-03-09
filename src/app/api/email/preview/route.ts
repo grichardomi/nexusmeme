@@ -212,6 +212,15 @@ export async function GET(req: NextRequest) {
       newRatePct: 6.0,
       reason: 'Rate adjustment effective March 2026.',
     },
+    login_alert: {
+      name: 'John Trader',
+      email: 'john@example.com',
+      attemptCount: 10,
+      isLocked: true,
+      lockedUntil: '15 minutes',
+      resetUrl: `${process.env.NEXT_PUBLIC_APP_URL}/auth/forgot-password`,
+      ipAddress: '192.168.1.1',
+    },
   };
 
   const context = contextMap[templateType];

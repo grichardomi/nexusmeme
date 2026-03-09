@@ -34,3 +34,8 @@ cmd = "node scripts/run-cron.mjs billing-monthly"
 name = "billing-dunning"
 schedule = "0 9 * * *"
 cmd = "node scripts/run-cron.mjs billing-dunning"
+
+[[crons]]
+name = "trial-notifications"
+schedule = "0 */6 * * *"
+cmd = "node scripts/run-cron.mjs trial-notifications"

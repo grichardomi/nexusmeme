@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import bcrypt from 'bcryptjs';
 import { getEnv } from '@/config/environment';
 import { logger } from '@/lib/logger';
 
@@ -126,18 +127,17 @@ export function decrypt(ciphertext: string): string {
 }
 
 /**
- * Hash string (one-way, for verification only)
+ * Hash a password using bcrypt (salted, cost-factor 12)
  */
-export function hash(plaintext: string): string {
-  const crypto = require('crypto');
-  return crypto.createHash('sha256').update(plaintext).digest('hex');
+export async function hash(plaintext: string): Promise<string> {
+  return bcrypt.hash(plaintext, 12);
 }
 
 /**
- * Verify plaintext matches hash
+ * Verify plaintext matches bcrypt hash
  */
-export function verifyHash(plaintext: string, hashValue: string): boolean {
-  return hash(plaintext) === hashValue;
+export async function verifyHash(plaintext: string, hashValue: string): Promise<boolean> {
+  return bcrypt.compare(plaintext, hashValue);
 }
 
 /**

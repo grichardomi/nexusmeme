@@ -2173,4 +2173,17 @@ class TradeSignalOrchestrator {
   }
 }
 
-export const tradeSignalOrchestrator = new TradeSignalOrchestrator();
+// Persist singleton across Next.js HMR reloads in development.
+// Without this, every file save creates a new instance and stacks a new setInterval
+// on top of existing ones — causing multiple orchestrator cycles to run simultaneously,
+// multiplying Binance API calls and triggering rate limit exhaustion.
+declare global {
+  // eslint-disable-next-line no-var
+  var __tradeSignalOrchestrator: TradeSignalOrchestrator | undefined;
+}
+
+if (!globalThis.__tradeSignalOrchestrator) {
+  globalThis.__tradeSignalOrchestrator = new TradeSignalOrchestrator();
+}
+
+export const tradeSignalOrchestrator = globalThis.__tradeSignalOrchestrator;

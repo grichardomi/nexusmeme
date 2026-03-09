@@ -10,11 +10,12 @@ import { getEnvironmentConfig } from '@/config/environment';
 import { logger } from '@/lib/logger';
 
 const JOB_URLS: Record<string, string> = {
-  'billing-monthly':  '/api/cron/billing-monthly',
-  'billing-upcoming': '/api/cron/billing-upcoming',
-  'billing-dunning':  '/api/cron/billing-dunning',
-  'email-processor':  '/api/cron/email-processor',
-  'billing-retry':    '/api/cron/billing-retry',
+  'billing-monthly':     '/api/cron/billing-monthly',
+  'billing-upcoming':    '/api/cron/billing-upcoming',
+  'billing-dunning':     '/api/cron/billing-dunning',
+  'email-processor':     '/api/cron/email-processor',
+  'billing-retry':       '/api/cron/billing-retry',
+  'trial-notifications': '/api/cron/trial-notifications',
 };
 
 export async function POST(req: NextRequest) {

@@ -1,12 +1,12 @@
 /**
  * Cron runner — called by Railway cron service
  * Usage: node scripts/run-cron.mjs <job>
- *   job: billing-monthly | billing-upcoming | billing-dunning
+ *   job: billing-monthly | billing-upcoming | billing-dunning | trial-notifications
  */
 
 const job = process.argv[2];
 
-if (!['billing-monthly', 'billing-upcoming', 'billing-dunning'].includes(job)) {
+if (!['billing-monthly', 'billing-upcoming', 'billing-dunning', 'trial-notifications'].includes(job)) {
   console.error(`Unknown job: ${job}`);
   process.exit(1);
 }

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Providers } from './providers';
 import { Header } from '@/components/layouts/Header';
 import { AppInitializer } from '@/components/AppInitializer';
+import { PWARegister } from '@/components/PWARegister';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -58,7 +59,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
+  // Do NOT set maximumScale — blocking pinch-zoom harms accessibility
 };
 
 export default function RootLayout({
@@ -76,14 +77,12 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="NexusMeme" />
         <meta name="theme-color" content="#1f2937" />
 
-        {/* Disable zoom on iOS for better app-like experience */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-
         {/* PWA Color Scheme */}
         <meta name="color-scheme" content="light dark" />
       </head>
       <body className="antialiased bg-white dark:bg-slate-950 text-slate-900 dark:text-white transition-colors">
         <AppInitializer />
+        <PWARegister />
         <Providers>
           <Header />
           {children}

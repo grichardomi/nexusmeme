@@ -14,7 +14,12 @@ import { z } from 'zod';
 const signupSchema = z.object({
   name: z.string().min(1, 'Name is required'),
   email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain an uppercase letter')
+    .regex(/[a-z]/, 'Password must contain a lowercase letter')
+    .regex(/\d/, 'Password must contain a number'),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
@@ -70,8 +75,8 @@ export function SignUpForm() {
         return;
       }
 
-      // Redirect to verify email page
-      router.push(`/auth/verify-email/success?email=${encodeURIComponent(formData.email)}`);
+      // Redirect to "check your inbox" page — verification is pending
+      router.push(`/auth/check-email?email=${encodeURIComponent(formData.email)}`);
     } catch (err) {
       setError('An error occurred. Please try again.');
     } finally {

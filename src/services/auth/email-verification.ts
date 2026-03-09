@@ -1,6 +1,11 @@
 import { query, transaction } from '@/lib/db';
 import { generateToken } from '@/lib/crypto';
+import { createHash } from 'crypto';
 import { logger } from '@/lib/logger';
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
 import { jobQueueManager } from '@/services/job-queue/singleton';
 
 /**
@@ -19,16 +24,14 @@ export class EmailVerificationService {
       const token = generateToken(32);
       const expiresAt = new Date(Date.now() + this.tokenExpiryMs);
 
-      // Store token
+      // Store hashed token — raw token goes only into the email link
+      const tokenHash = sha256Hex(token);
       await transaction(async client => {
-        // Delete any existing tokens for this user
         await client.query(`DELETE FROM email_verification_tokens WHERE user_id = $1`, [userId]);
-
-        // Create new token
         await client.query(
           `INSERT INTO email_verification_tokens (user_id, token, expires_at)
            VALUES ($1, $2, $3)`,
-          [userId, token, expiresAt]
+          [userId, tokenHash, expiresAt]
         );
       });
 
@@ -38,10 +41,10 @@ export class EmailVerificationService {
         {
           to: email,
           subject: 'Verify your NexusMeme account',
-          template: 'email-verification',
+          template: 'welcome',
           variables: {
+            name: email.split('@')[0],
             verificationUrl: `${process.env.NEXT_PUBLIC_APP_URL}/auth/verify-email?token=${token}`,
-            expiresIn: '24 hours',
           },
         },
         { priority: 8, maxRetries: 3 }
@@ -61,14 +64,15 @@ export class EmailVerificationService {
    */
   async verifyEmail(token: string): Promise<{ userId: string; email: string } | null> {
     try {
-      // Find valid token
+      // Hash the submitted token before DB lookup
+      const tokenHash = sha256Hex(token);
       const result = await query<{
         user_id: string;
         expires_at: string;
       }>(
         `SELECT user_id, expires_at FROM email_verification_tokens
          WHERE token = $1 AND expires_at > NOW()`,
-        [token]
+        [tokenHash]
       );
 
       if (result.length === 0) {
@@ -87,8 +91,8 @@ export class EmailVerificationService {
           [user_id]
         );
 
-        // Delete token
-        await client.query(`DELETE FROM email_verification_tokens WHERE token = $1`, [token]);
+        // Delete token (compare against stored hash)
+        await client.query(`DELETE FROM email_verification_tokens WHERE token = $1`, [tokenHash]);
       });
 
       // Get user email

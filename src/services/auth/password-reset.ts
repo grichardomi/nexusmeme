@@ -1,6 +1,11 @@
 import { query, transaction } from '@/lib/db';
 import { generateToken, hash } from '@/lib/crypto';
+import { createHash } from 'crypto';
 import { logger } from '@/lib/logger';
+
+function sha256Hex(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
 import { jobQueueManager } from '@/services/job-queue/singleton';
 
 /**
@@ -8,7 +13,7 @@ import { jobQueueManager } from '@/services/job-queue/singleton';
  * Handles password reset flow with secure tokens
  */
 export class PasswordResetService {
-  private tokenExpiryMs = 60 * 60 * 1000; // 1 hour
+  private tokenExpiryMs = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
    * Request password reset
@@ -33,20 +38,18 @@ export class PasswordResetService {
       const token = generateToken(32);
       const expiresAt = new Date(Date.now() + this.tokenExpiryMs);
 
-      // Store token
+      // Store hashed token (never store the raw token — prevents DB-leak attacks)
+      const tokenHash = sha256Hex(token);
       await transaction(async client => {
-        // Delete any existing unused tokens
         await client.query(
           `DELETE FROM password_reset_tokens
            WHERE user_id = $1 AND used_at IS NULL`,
           [userId]
         );
-
-        // Create new token
         await client.query(
           `INSERT INTO password_reset_tokens (user_id, token, expires_at)
            VALUES ($1, $2, $3)`,
-          [userId, token, expiresAt]
+          [userId, tokenHash, expiresAt]
         );
       });
 
@@ -59,7 +62,7 @@ export class PasswordResetService {
           template: 'password-reset',
           variables: {
             resetUrl: `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password?token=${token}`,
-            expiresIn: '1 hour',
+            expiresIn: '24 hours',
           },
         },
         { priority: 7, maxRetries: 3 }
@@ -79,11 +82,12 @@ export class PasswordResetService {
    */
   async resetPassword(token: string, newPassword: string): Promise<{ userId: string } | null> {
     try {
-      // Validate token and get user
+      // Hash the submitted token to compare against the stored hash
+      const tokenHash = sha256Hex(token);
       const result = await query<{ user_id: string; expires_at: string }>(
         `SELECT user_id, expires_at FROM password_reset_tokens
          WHERE token = $1 AND expires_at > NOW() AND used_at IS NULL`,
-        [token]
+        [tokenHash]
       );
 
       if (result.length === 0) {
@@ -99,20 +103,19 @@ export class PasswordResetService {
       }
 
       // Hash new password
-      const passwordHash = hash(newPassword);
+      const passwordHash = await hash(newPassword);
 
-      // Update password in transaction
+      // Update password in transaction — also bump password_changed_at to invalidate all existing sessions
       await transaction(async client => {
-        // Update user password
-        await client.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [
-          passwordHash,
-          userId,
-        ]);
+        await client.query(
+          `UPDATE users SET password_hash = $1, password_changed_at = NOW() WHERE id = $2`,
+          [passwordHash, userId]
+        );
 
-        // Mark token as used
+        // Mark token as used (compare against stored hash)
         await client.query(
           `UPDATE password_reset_tokens SET used_at = NOW() WHERE token = $1`,
-          [token]
+          [tokenHash]
         );
       });
 

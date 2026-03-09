@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -10,19 +10,43 @@ import { useRouter } from 'next/navigation';
  * Handles email/password and OAuth sign in
  */
 
+function useCountdown(targetIso: string | null): string | null {
+  const [display, setDisplay] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!targetIso) { setDisplay(null); return; }
+    const update = () => {
+      const secs = Math.max(0, Math.floor((new Date(targetIso).getTime() - Date.now()) / 1000));
+      if (secs === 0) { setDisplay(null); return; }
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      setDisplay(m > 0 ? `${m}m ${s}s` : `${s}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [targetIso]);
+
+  return display;
+}
+
 export function SignInForm() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
+  const [lockedUntil, setLockedUntil] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
+  const countdown = useCountdown(lockedUntil);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     setError(null);
+    setAttemptsRemaining(null);
   };
 
   const handleCredentialsSubmit = async (e: React.FormEvent) => {
@@ -31,6 +55,29 @@ export function SignInForm() {
     setIsLoading(true);
 
     try {
+      // Pre-check via our own endpoint to get specific error messages.
+      // NextAuth swallows custom errors from authorize() and returns "CredentialsSignin" for all failures.
+      const preCheck = await fetch('/api/auth/check-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email, password: formData.password }),
+      });
+
+      if (!preCheck.ok) {
+        const data = await preCheck.json();
+        if (data.error === 'locked') {
+          setLockedUntil(data.lockedUntil);
+          setError(null);
+        } else {
+          setLockedUntil(null);
+          setError(data.error || 'Sign in failed');
+          setAttemptsRemaining(data.attemptsRemaining ?? null);
+        }
+        return;
+      }
+      setLockedUntil(null);
+
+      // Pre-check passed — proceed with NextAuth session creation
       const result = await signIn('credentials', {
         email: formData.email,
         password: formData.password,
@@ -38,7 +85,7 @@ export function SignInForm() {
       });
 
       if (!result?.ok) {
-        setError(result?.error || 'Sign in failed');
+        setError('Sign in failed. Please try again.');
         return;
       }
 
@@ -72,9 +119,35 @@ export function SignInForm() {
 
   return (
     <form onSubmit={handleCredentialsSubmit} className="space-y-4">
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-600 dark:text-red-200 px-4 py-3 rounded">
-          {error}
+      {/* Account lockout banner */}
+      {lockedUntil && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-600 text-orange-800 dark:text-orange-200 px-4 py-3 rounded space-y-2">
+          <p className="font-semibold">Account temporarily locked</p>
+          <p className="text-sm">
+            Too many failed attempts.{' '}
+            {countdown
+              ? <>Try again in <span className="font-mono font-bold">{countdown}</span>.</>
+              : 'You can try again now.'}
+          </p>
+          <p className="text-sm">
+            Or{' '}
+            <Link href="/auth/forgot-password" className="underline font-medium hover:text-orange-900 dark:hover:text-orange-100">
+              reset your password
+            </Link>
+            {' '}to unlock immediately.
+          </p>
+        </div>
+      )}
+
+      {/* Regular error */}
+      {error && !lockedUntil && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-600 dark:text-red-200 px-4 py-3 rounded space-y-1">
+          <p>{error}</p>
+          {attemptsRemaining !== null && attemptsRemaining <= 3 && (
+            <p className="text-xs opacity-80">
+              {attemptsRemaining} attempt{attemptsRemaining !== 1 ? 's' : ''} remaining before lockout.
+            </p>
+          )}
         </div>
       )}
 
@@ -116,7 +189,7 @@ export function SignInForm() {
       {/* Sign In Button */}
       <button
         type="submit"
-        disabled={isLoading}
+        disabled={isLoading || (!!lockedUntil && !!countdown)}
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white font-medium py-2 rounded transition"
       >
         {isLoading ? 'Signing In...' : 'Sign In'}

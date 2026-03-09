@@ -14,7 +14,12 @@ import { z } from 'zod';
 
 const signupSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain an uppercase letter')
+    .regex(/[a-z]/, 'Password must contain a lowercase letter')
+    .regex(/\d/, 'Password must contain a number'),
   name: z.string().min(1, 'Name is required'),
 });
 
@@ -49,16 +54,20 @@ export async function POST(request: NextRequest) {
     );
 
     if (existing.length > 0) {
+      // Return identical response to prevent email enumeration.
+      // A real user will receive no email; an attacker learns nothing.
       return NextResponse.json(
-        { error: 'Email already registered' },
-        { status: 409 }
+        {
+          message: 'Account created successfully. Check your email to verify.',
+          requiresEmailVerification: true,
+        },
+        { status: 201 }
       );
     }
 
     // Create user in transaction
+    const passwordHash = await hash(password);
     const userId = await transaction(async client => {
-      // Hash password
-      const passwordHash = hash(password);
 
       // Create user
       const result = await client.query(

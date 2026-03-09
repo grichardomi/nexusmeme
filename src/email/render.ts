@@ -7,6 +7,7 @@ import type {
   EmailTemplate,
   EmailTemplateType,
   EmailContext,
+  LoginAlertContext,
   FeeRateChangedContext,
   WelcomeEmailContext,
   PasswordResetEmailContext,
@@ -68,6 +69,7 @@ import {
   BotSuspendedEmailTemplate,
   BotResumedEmailTemplate,
 } from './templates/bot-lifecycle';
+import { LoginAlertEmailTemplate } from './templates/login-alert';
 
 /**
  * Render email template based on type
@@ -418,6 +420,18 @@ export function renderEmailTemplate(
           </div></body></html>`,
         text: `Performance Fee Rate Updated\n\nHi ${ctx.name || 'Trader'},\n\nYour performance fee rate has been ${direction} from ${ctx.prevRatePct.toFixed(1)}% to ${ctx.newRatePct.toFixed(1)}%.\n\n${ctx.reason || ''}\n\nThe NexusMeme Team`,
       };
+    }
+
+    case 'login_alert': {
+      const ctx = context as LoginAlertContext;
+      return LoginAlertEmailTemplate({
+        name: ctx.name,
+        attemptCount: ctx.attemptCount,
+        isLocked: ctx.isLocked,
+        lockedUntil: ctx.lockedUntil,
+        resetUrl: ctx.resetUrl ?? `${process.env.NEXT_PUBLIC_APP_URL}/auth/forgot-password`,
+        ipAddress: ctx.ipAddress,
+      });
     }
 
     default:

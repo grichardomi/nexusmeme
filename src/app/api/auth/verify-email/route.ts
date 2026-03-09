@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { emailVerificationService } from '@/services/auth/email-verification';
+import { apiRateLimits } from '@/middleware/rate-limit';
 
 /**
  * POST /api/auth/verify-email
@@ -8,6 +9,9 @@ import { emailVerificationService } from '@/services/auth/email-verification';
  */
 
 export async function POST(request: NextRequest) {
+  const rateLimitResponse = await apiRateLimits.auth(request);
+  if (rateLimitResponse.status === 429) return rateLimitResponse;
+
   try {
     const body = await request.json();
     const { token } = body;
@@ -52,6 +56,11 @@ export async function POST(request: NextRequest) {
  */
 
 export async function GET(request: NextRequest) {
+  const rateLimitResponse = await apiRateLimits.auth(request);
+  if (rateLimitResponse.status === 429) {
+    return NextResponse.redirect(new URL('/auth/verify-email/error?reason=rate_limited', request.url), { status: 302 });
+  }
+
   try {
     const token = request.nextUrl.searchParams.get('token');
 
@@ -73,9 +82,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Redirect to success page
-    return NextResponse.redirect(new URL('/auth/verify-success', request.url), { status: 302 });
+    return NextResponse.redirect(new URL('/auth/verify-email/success', request.url), { status: 302 });
   } catch (error) {
     logger.error('Email verification failed', error instanceof Error ? error : null);
-    return NextResponse.redirect(new URL('/auth/verify-error', request.url), { status: 302 });
+    return NextResponse.redirect(new URL('/auth/verify-email/error', request.url), { status: 302 });
   }
 }

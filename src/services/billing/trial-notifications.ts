@@ -160,7 +160,7 @@ async function transitionExpiredTrial(subscriptionId: string, userId: string, ha
     await client.query(
       `UPDATE subscriptions
        SET
-         plan = $1,
+         plan_tier = $1,
          trial_ends_at = NULL,
          trial_capital_used = 0,
          trial_notification_sent_at = NULL,
@@ -375,7 +375,7 @@ export async function getTrialInfo(userId: string) {
         trial_capital_used,
         current_period_end
        FROM subscriptions
-       WHERE user_id = $1 AND status = 'active'
+       WHERE user_id = $1 AND status IN ('active', 'trialing')
        ORDER BY created_at DESC
        LIMIT 1`,
       [userId],

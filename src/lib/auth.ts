@@ -42,21 +42,56 @@ export const authOptions: NextAuthOptions = {
             password_hash: string | null;
             name: string | null;
             role: string;
+            email_verified: boolean;
+            failed_login_attempts: number;
+            locked_until: string | null;
           }>(
-            `SELECT id, email, password_hash, name, role FROM users WHERE email = $1`,
+            `SELECT id, email, password_hash, name, role, email_verified,
+                    failed_login_attempts, locked_until
+             FROM users WHERE email = $1`,
             [credentials.email.toLowerCase()]
           );
 
+          // Use a single generic error to avoid email enumeration
+          const invalidCredentials = new Error('Invalid email or password');
+
           if (result.length === 0) {
-            throw new Error('User not found');
+            throw invalidCredentials;
           }
 
           const user = result[0];
 
-          // Verify password
-          if (!user.password_hash || !verifyHash(credentials.password, user.password_hash)) {
-            throw new Error('Invalid password');
+          // Account lockout check
+          if (user.locked_until && new Date(user.locked_until) > new Date()) {
+            throw new Error('Account temporarily locked due to too many failed attempts. Try again later.');
           }
+
+          // Verify password
+          const passwordValid = user.password_hash && await verifyHash(credentials.password, user.password_hash);
+          if (!passwordValid) {
+            // Increment failure counter; lock after 10 failures for 15 minutes
+            await query(
+              `UPDATE users
+               SET failed_login_attempts = failed_login_attempts + 1,
+                   locked_until = CASE WHEN failed_login_attempts + 1 >= 10
+                                       THEN NOW() + INTERVAL '15 minutes'
+                                       ELSE locked_until END
+               WHERE id = $1`,
+              [user.id]
+            );
+            throw invalidCredentials;
+          }
+
+          // Enforce email verification for credentials users
+          if (!user.email_verified) {
+            throw new Error('Please verify your email before signing in. Check your inbox for a verification link.');
+          }
+
+          // Successful login — reset failure counter
+          await query(
+            `UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1`,
+            [user.id]
+          );
 
           logger.info('User authenticated with credentials', { userId: user.id });
 
@@ -83,6 +118,28 @@ export const authOptions: NextAuthOptions = {
       const isUuid = (value: unknown) =>
         typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
+      // On session refresh (not initial sign-in), validate that password hasn't changed since this JWT was issued.
+      // This invalidates sessions after a password reset.
+      if (!account && !user && token.id && isUuid(token.id)) {
+        try {
+          const rows = await query<{ password_changed_at: string | null }>(
+            `SELECT password_changed_at FROM users WHERE id = $1`,
+            [token.id]
+          );
+          if (rows.length > 0 && rows[0].password_changed_at) {
+            const changedAt = new Date(rows[0].password_changed_at).getTime();
+            const issuedAt = (token.iat as number ?? 0) * 1000;
+            if (changedAt > issuedAt) {
+              // Password changed after this token was issued — force re-login
+              throw new Error('Session invalidated: password changed');
+            }
+          }
+        } catch (err) {
+          if (err instanceof Error && err.message.startsWith('Session invalidated')) throw err;
+          logger.error('Failed to check password_changed_at', err instanceof Error ? err : null);
+        }
+      }
+
       // OAuth (Google, Discord)
       if ((account?.provider === 'google' || account?.provider === 'discord') && user) {
         if (!user.email) {
@@ -90,10 +147,19 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const existing = await query<{ id: string; role: string }>(
-            `SELECT id, role FROM users WHERE email = $1`,
+          const existing = await query<{ id: string; role: string; password_hash: string | null }>(
+            `SELECT id, role, password_hash FROM users WHERE email = $1`,
             [user.email.toLowerCase()]
           );
+
+          // Block OAuth sign-in for accounts that were registered with email+password.
+          // Prevents an attacker from using OAuth to silently take over a credentials account.
+          // The user must sign in with their password; they can link OAuth afterwards.
+          if (existing.length > 0 && existing[0].password_hash) {
+            throw new Error(
+              'This email is registered with a password. Please sign in with your email and password.'
+            );
+          }
 
           const userId = existing[0]?.id
             ?? await createOAuthUser({
@@ -166,12 +232,13 @@ export const authOptions: NextAuthOptions = {
 
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 30 * 24 * 60 * 60,   // 30-day absolute session lifetime
+    updateAge: 24 * 60 * 60,      // Rotate token every 24h of activity — stolen tokens expire within a day
   },
 
   jwt: {
     secret: process.env.NEXTAUTH_SECRET,
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 30 * 24 * 60 * 60,
   },
 
   events: {
