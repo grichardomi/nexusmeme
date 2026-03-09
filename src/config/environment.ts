@@ -250,6 +250,12 @@ const envSchema = z.object({
   PYRAMID_L1_MIN_ADX: z.string().transform(Number).default('35'), // L1: Moderate trend minimum
   PYRAMID_L2_MIN_ADX: z.string().transform(Number).default('40'), // L2: Strong trend minimum
 
+  /* Pyramid Profit Triggers & Sizing - Universal (exchange-independent trading strategy) */
+  PYRAMID_L1_TRIGGER_PCT: z.string().transform(Number).default('0.045'), // 4.5% profit to trigger L1
+  PYRAMID_L2_TRIGGER_PCT: z.string().transform(Number).default('0.080'), // 8.0% profit to trigger L2
+  PYRAMID_ADD_SIZE_PCT_L1: z.string().transform(Number).default('0.35'),  // Add 35% of base position at L1
+  PYRAMID_ADD_SIZE_PCT_L2: z.string().transform(Number).default('0.50'),  // Add 50% of base position at L2
+
   /* ADX Slope - Regime Transition Detection (zero API cost, pure math) */
   /* Detects regime changes ~45min faster than ADX value alone */
   ADX_SLOPE_RISING_THRESHOLD: z.string().transform(Number).default('2.0'), // +2/candle = trend forming (allow entry in transition zone)
@@ -307,7 +313,7 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 
   /* Performance Fees */
-  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.05'), // 5% of profits
+  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.06'), // 6% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
   BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Days after invoice before dunning starts
   BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Days after invoice before bots suspended
@@ -513,6 +519,10 @@ function getDefaultEnvironment(): Environment {
     MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
+    PYRAMID_L1_TRIGGER_PCT: 0.045,
+    PYRAMID_L2_TRIGGER_PCT: 0.080,
+    PYRAMID_ADD_SIZE_PCT_L1: 0.35,
+    PYRAMID_ADD_SIZE_PCT_L2: 0.50,
     PROFIT_TARGET_CHOPPY: 0.015,    // 1.5% - fast exit
     PROFIT_TARGET_TRANSITIONING: 0.025, // 2.5% - early trend
     PROFIT_TARGET_WEAK: 0.025,      // 2.5% - weak trends
@@ -538,7 +548,7 @@ function getDefaultEnvironment(): Environment {
     BTC_DUMP_MOM1H_THRESHOLD: -0.5,
     BTC_DUMP_VOLUME_MIN: 2.5,
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
-    PERFORMANCE_FEE_RATE: 0.05,
+    PERFORMANCE_FEE_RATE: 0.06,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
     BILLING_SUSPENSION_DAYS: 14,
@@ -651,7 +661,7 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
       BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
-      PERFORMANCE_FEE_RATE: 0.05,
+      PERFORMANCE_FEE_RATE: 0.06,
       PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
       AI_CONFIDENCE_BOOST_ENABLED: false,
       AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,

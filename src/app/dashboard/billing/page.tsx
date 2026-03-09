@@ -20,6 +20,7 @@ import { USDCPayButton } from '@/components/billing/USDCPayButton';
 interface UserPlan {
   plan: 'free' | 'live_trial' | 'performance_fees';
   subscriptionStatus: string;
+  trialEndsAt: string | null;
   tradingMode: 'paper' | 'live';
   botsPerUser: number;
   tradingPairsPerBot: number;
@@ -47,6 +48,7 @@ export default function BillingPage() {
         setUserPlan({
           plan: (planUsage?.plan || 'live_trial') as 'live_trial' | 'performance_fees',
           subscriptionStatus: data.subscription?.status || 'trialing',
+          trialEndsAt: data.subscription?.trial_ends_at || null,
           tradingMode: planUsage?.limits?.tradingMode || 'live',
           botsPerUser: planUsage?.limits?.botsPerUser || 1,
           tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 2,
@@ -65,7 +67,7 @@ export default function BillingPage() {
       fetch('/api/billing/fee-rate')
         .then(r => r.json())
         .then(d => setFeePercent(d.feePercent ?? null))
-        .catch(() => setFeePercent(5));
+        .catch(() => setFeePercent(null)); // Don't hardcode — show loading state until API responds
     }
   }, [status]);
 
@@ -79,7 +81,15 @@ export default function BillingPage() {
     );
   }
 
-  const isTrialExpired = userPlan?.subscriptionStatus === 'payment_required' || userPlan?.subscriptionStatus === 'expired';
+  // Trial is expired if: status is payment_required/expired OR trial_ends_at has passed
+  // (subscription status may lag behind if cron hasn't run yet)
+  const trialEndedByDate = userPlan?.trialEndsAt
+    ? new Date(userPlan.trialEndsAt) < new Date()
+    : false;
+  const isTrialExpired =
+    userPlan?.subscriptionStatus === 'payment_required' ||
+    userPlan?.subscriptionStatus === 'expired' ||
+    (userPlan?.plan === 'live_trial' && trialEndedByDate);
 
   const getPlanColor = () => {
     if (isTrialExpired) {
@@ -127,11 +137,13 @@ export default function BillingPage() {
       case 'live_trial':
         return 'You are on a free trial with paper trading. Add a payment method to upgrade to live trading with real money.';
       case 'performance_fees':
-        return `${feePercent ?? 5}% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.`;
+        return `${feeDisplay}% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.`;
       default:
         return 'You are on a free trial. Upgrade to live trading when ready.';
     }
   };
+
+  const feeDisplay = feePercent !== null ? `${feePercent}%` : '…';
 
   const colors = getPlanColor();
 
@@ -192,14 +204,34 @@ export default function BillingPage() {
                 <li>✓ 10 days to test live trading</li>
                 <li>✓ No capital limits</li>
                 <li>✓ No payment required</li>
-                <li>✓ After trial: {feePercent ?? 5}% on profits</li>
+                <li>✓ After trial: {feeDisplay}% on profits</li>
               </ul>
             </details>
           )}
         </section>
 
+        {/* Trial Expired CTA */}
+        {isTrialExpired && (
+          <section className="bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-300 dark:border-red-700 p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-red-800 dark:text-red-200">Your trial has ended — bots are paused</h3>
+                <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                  Upgrade to continue. You pay {feeDisplay}% only on profitable trades — no monthly fee.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowGoLiveWizard(true)}
+                className="inline-flex items-center justify-center px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition whitespace-nowrap"
+              >
+                Resume Trading →
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* Info Banner - Compact */}
-        {userPlan?.tradingMode === 'paper' ? (
+        {!isTrialExpired && userPlan?.tradingMode === 'paper' ? (
           <section className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl border border-green-200 dark:border-green-800 p-4 sm:p-5">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
@@ -207,7 +239,7 @@ export default function BillingPage() {
                   Ready to trade with real money?
                 </h3>
                 <p className="text-sm text-green-600 dark:text-green-400 mt-1">
-                  {feePercent ?? 5}% on profits only — paid monthly via crypto
+                  {feeDisplay}% on profits only — paid monthly via crypto
                 </p>
               </div>
               <button
@@ -218,14 +250,14 @@ export default function BillingPage() {
               </button>
             </div>
           </section>
-        ) : (
+        ) : !isTrialExpired ? (
           <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              💡 <strong>No subscriptions.</strong> {feePercent ?? 5}% on profits — we only earn when you do.{' '}
+              💡 <strong>No subscriptions.</strong> {feeDisplay}% on profits — we only earn when you do.{' '}
               <a href="/help/performance-fees" className="underline">Learn more →</a>
             </p>
           </section>
-        )}
+        ) : null}
 
         {/* Performance Fees - Full width on mobile, priority position */}
         <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} feePercent={feePercent} />

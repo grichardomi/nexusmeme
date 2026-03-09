@@ -84,8 +84,11 @@ export async function POST(request: NextRequest) {
         const entryFee = entryPrice * quantity * feeRate;
         const exitFee = exitPrice * quantity * feeRate;
         const netProfitLoss = grossProfitLoss - entryFee - exitFee;
-        const profitLossPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
+        const profitLossPercent = entryPrice > 0 && quantity > 0
+          ? (netProfitLoss / (entryPrice * quantity)) * 100
+          : 0;
 
+        const totalFee = entryFee + exitFee;
         await client.query(
           `UPDATE trades
            SET status = 'closed',
@@ -93,10 +96,11 @@ export async function POST(request: NextRequest) {
                exit_time = NOW(),
                profit_loss = $2,
                profit_loss_percent = $3,
-               exit_fee = $4,
+               fee = $4,
+               exit_fee = $5,
                exit_reason = 'manual_close_all'
-           WHERE id = $5`,
-          [exitPrice, netProfitLoss, profitLossPercent, exitFee, trade.id]
+           WHERE id = $6`,
+          [exitPrice, netProfitLoss, profitLossPercent, totalFee, exitFee, trade.id]
         );
 
         count++;

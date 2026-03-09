@@ -1816,20 +1816,21 @@ class TradeSignalOrchestrator {
 
           // Only add pyramids if trade hasn't reached profit target yet
           // (trades reaching target will be closed in profit target pass)
-          const profitTargetAggressive = 12; // 12% from /nexusmeme config
-          if (currentProfitPct >= profitTargetAggressive) {
+          const profitTargetStrong = env.PROFIT_TARGET_STRONG * 100; // e.g. 0.20 → 20%
+          if (currentProfitPct >= profitTargetStrong) {
             logger.debug('Trade approaching profit target - skip pyramid add', {
               pair: trade.pair,
               profitPct: currentProfitPct.toFixed(2),
-              targetPct: profitTargetAggressive,
+              targetPct: profitTargetStrong,
             });
             continue;
           }
 
-          // CHECK L1: Add at 4.5% profit (requires ADX > PYRAMID_L1_MIN_ADX)
+          // CHECK L1: Add at L1 trigger % profit (requires ADX > PYRAMID_L1_MIN_ADX)
           // Confidence inferred from ADX: ADX >= 35 = strong trend = high confidence
           // (Using stale bot-config confidence caused perpetual rejection — ADX IS the confidence signal)
-          if (!hasL1 && currentProfitPct >= 4.5) {
+          const l1TriggerPct = env.PYRAMID_L1_TRIGGER_PCT * 100;
+          if (!hasL1 && currentProfitPct >= l1TriggerPct) {
             // Check ADX for trend strength first — ADX IS the confidence gate
             let adx = 0;
             try {
@@ -1866,13 +1867,13 @@ class TradeSignalOrchestrator {
                   note: 'Need strong trend (ADX 35+) for safe pyramiding',
                 });
               } else {
-                const l1Quantity = parseFloat(String(trade.quantity)) * 0.35; // 35% add (from /nexus)
+                const l1Quantity = parseFloat(String(trade.quantity)) * env.PYRAMID_ADD_SIZE_PCT_L1;
                 const l1Entry = {
                   level: 1,
                   entryPrice: currentPrice,
                   quantity: l1Quantity,
                   entryTime: new Date().toISOString(),
-                  triggerProfitPct: 0.045,
+                  triggerProfitPct: l1TriggerPct / 100,
                   status: 'pending_execution',
                   aiConfidence: inferredConfidence,
                 };
@@ -1898,7 +1899,7 @@ class TradeSignalOrchestrator {
                     level: 1,
                     quantity: l1Quantity,
                     currentPrice,
-                    triggerProfitPct: 0.045,
+                    triggerProfitPct: l1TriggerPct / 100,
                   }, { priority: 8, maxRetries: 2 }); // High priority, 2 retries
 
                   logger.info('Pyramid L1 job enqueued', {
@@ -1920,9 +1921,10 @@ class TradeSignalOrchestrator {
             }
           }
 
-          // CHECK L2: Add at 8% profit (only if L1 exists, requires ADX > PYRAMID_L2_MIN_ADX)
+          // CHECK L2: Add at L2 trigger % profit (only if L1 exists, requires ADX > PYRAMID_L2_MIN_ADX)
           // Confidence inferred from ADX (same fix as L1 — stale bot-config caused perpetual rejection)
-          if (!hasL2 && hasL1 && currentProfitPct >= 8) {
+          const l2TriggerPct = env.PYRAMID_L2_TRIGGER_PCT * 100;
+          if (!hasL2 && hasL1 && currentProfitPct >= l2TriggerPct) {
             let adxL2 = 0;
             try {
               const indicatorsL2 = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
@@ -1951,13 +1953,13 @@ class TradeSignalOrchestrator {
               });
             } else {
               {
-                const l2Quantity = parseFloat(String(trade.quantity)) * 0.50; // 50% add (from /nexus)
+                const l2Quantity = parseFloat(String(trade.quantity)) * env.PYRAMID_ADD_SIZE_PCT_L2;
                 const l2Entry = {
                   level: 2,
                   entryPrice: currentPrice,
                   quantity: l2Quantity,
                   entryTime: new Date().toISOString(),
-                  triggerProfitPct: 0.08,
+                  triggerProfitPct: l2TriggerPct / 100,
                   status: 'pending_execution',
                   aiConfidence: inferredConfidenceL2,
                 };
@@ -1983,7 +1985,7 @@ class TradeSignalOrchestrator {
                     level: 2,
                     quantity: l2Quantity,
                     currentPrice,
-                    triggerProfitPct: 0.08,
+                    triggerProfitPct: l2TriggerPct / 100,
                   }, { priority: 8, maxRetries: 2 }); // High priority, 2 retries
 
                   logger.info('Pyramid L2 job enqueued', {

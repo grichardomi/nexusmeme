@@ -31,5 +31,5 @@ export async function getEffectiveFeeRate(userId: string): Promise<number> {
 
   // 3. Env fallback
   const env = getEnvironmentConfig();
-  return env.PERFORMANCE_FEE_RATE ?? 0.05;
+  return env.PERFORMANCE_FEE_RATE;
 }

@@ -30,7 +30,7 @@ interface PerformanceFeesSummaryProps {
  * Best practice: Clear fee status progression and actionable next steps
  */
 export function PerformanceFeesSummary({ tradingMode, onGoLive, feePercent }: PerformanceFeesSummaryProps) {
-  const displayFeePercent = feePercent ?? 5;
+  const displayFeePercent = feePercent !== null && feePercent !== undefined ? `${feePercent}%` : '…';
   const [data, setData] = useState<PerformanceFeesData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +155,7 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive, feePercent }: Pe
           <p className="text-xs text-slate-500 dark:text-slate-400">Showing last 2 years</p>
         </div>
         <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded w-fit">
-          {displayFeePercent}% on profits
+          {displayFeePercent} on profits
         </span>
       </div>
 
@@ -328,7 +328,7 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive, feePercent }: Pe
           </svg>
         </summary>
         <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg text-sm text-slate-600 dark:text-slate-400 space-y-2">
-          <p>1. Trade → {displayFeePercent}% of profits added to pending</p>
+          <p>1. Trade → {displayFeePercent} of profits added to pending</p>
           <p>2. Monthly → Pending fees charged on 1st</p>
           <p>3. Losing trades → No fee</p>
         </div>

@@ -320,10 +320,35 @@ export async function POST(req: NextRequest) {
           profitLoss: actualProfitLoss,
         });
       } else {
-        logger.warn('No API keys configured - trade will be closed in database only', {
+        // Paper trading: no real order, but still deduct estimated fees so closed P&L is
+        // consistent with how open trades are displayed (open = gross - entryFee; closed must match).
+        logger.warn('No API keys configured - trade will be closed in database only (paper mode)', {
           exchange,
           pair: data.pair,
         });
+        try {
+          const entryInfo = (await query(
+            `SELECT price, fee, amount FROM trades WHERE id = $1`,
+            [data.tradeId]
+          ))[0];
+          if (entryInfo) {
+            const ep = parseFloat(String(entryInfo.price));
+            const qty = parseFloat(String(entryInfo.amount)) || quantity;
+            const feeRate = exchange.toLowerCase() === 'kraken'
+              ? exchangeFeesConfig.krakenTakerFeeDefault
+              : exchange.toLowerCase() === 'binance'
+              ? exchangeFeesConfig.binanceTakerFeeDefault
+              : 0.001;
+            const storedEntryFee = entryInfo.fee ? parseFloat(String(entryInfo.fee)) : ep * qty * feeRate;
+            exitFeeAmount = data.exitPrice * qty * feeRate;
+            totalFees = storedEntryFee + exitFeeAmount;
+            const grossPL = (data.exitPrice - ep) * qty;
+            actualProfitLoss = grossPL - totalFees;
+            actualProfitLossPercent = (actualProfitLoss / (ep * qty)) * 100;
+          }
+        } catch (paperFeeErr) {
+          logger.debug('Paper trade fee estimation failed, using gross P&L', { tradeId: data.tradeId, error: String(paperFeeErr) });
+        }
       }
     } catch (exchangeError) {
       logger.error('Failed to place sell order on exchange', exchangeError instanceof Error ? exchangeError : null, {
