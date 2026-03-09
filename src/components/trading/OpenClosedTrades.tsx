@@ -18,6 +18,7 @@ interface Trade {
   profitLossNet: number | null;
   profitLossPercentNet: number | null;
   fee: number | null;
+  exitFee: number | null;
   status: string;
   exitReason?: string | null;
   botId?: string;
@@ -140,6 +141,29 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       }, 100);
     }
   }, [trades.length, isLoadingMore, hasMore, fetchTrades]);
+
+  // Parse timestamp safely — DB stores timestamps without timezone (UTC values).
+  // Append 'Z' if no timezone offset present to force UTC interpretation.
+  function parseTimestampUTC(ts: string): number {
+    if (!ts) return Date.now();
+    const hasOffset = ts.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(ts);
+    return new Date(hasOffset ? ts : ts.replace(' ', 'T') + 'Z').getTime();
+  }
+
+  // Format hold duration as human-readable string
+  function formatHoldTime(entryTime: string, exitTime: string | null): string {
+    const start = parseTimestampUTC(entryTime);
+    const end = exitTime ? parseTimestampUTC(exitTime) : Date.now();
+    const mins = Math.floor((end - start) / 60000);
+    if (mins < 0) return '—';
+    if (mins < 60) return `${mins}m`;
+    const hrs = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    if (hrs < 24) return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    const remHrs = hrs % 24;
+    return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+  }
 
   // Map backend exit reasons to user-friendly labels
   function formatExitReason(reason: any): string {
@@ -265,6 +289,31 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
   const archivedTrades = trades.filter(t => t.status === 'archived');
+
+  // Position concentration: flag pairs more than 2x their equal-weight share,
+  // only meaningful when there are 3+ distinct pairs open.
+  const concentrationWarnings: { pair: string; pct: number }[] = (() => {
+    const uniquePairs = Array.from(new Set(openTrades.map(t => t.pair)));
+    if (uniquePairs.length < 3) return []; // 2 pairs = 50% each by definition, not a real warning
+    const positionValues = openTrades.map(t => {
+      const price = currentPrices[t.pair] || t.entryPrice;
+      return { pair: t.pair, value: price * t.quantity };
+    });
+    const totalValue = positionValues.reduce((s, p) => s + p.value, 0);
+    if (totalValue <= 0) return [];
+    const pairTotals = new Map<string, number>();
+    for (const p of positionValues) {
+      pairTotals.set(p.pair, (pairTotals.get(p.pair) ?? 0) + p.value);
+    }
+    const equalWeight = 100 / uniquePairs.length;
+    const threshold = equalWeight * 2; // flag when > 2x equal share
+    const warnings: { pair: string; pct: number }[] = [];
+    for (const [pair, value] of pairTotals) {
+      const pct = (value / totalValue) * 100;
+      if (pct > threshold) warnings.push({ pair, pct });
+    }
+    return warnings.sort((a, b) => b.pct - a.pct);
+  })();
 
   // CSV Export Handler
   const handleCSVExport = useCallback(() => {
@@ -476,14 +525,22 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             <p className="text-xs text-slate-500 dark:text-slate-400">Quantity</p>
             <p className="font-medium text-slate-900 dark:text-white">{trade.quantity.toFixed(4)}</p>
           </div>
+          {/* Hold time */}
+          <div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Hold Time</p>
+            <p className="font-medium text-slate-900 dark:text-white">{formatHoldTime(trade.entryTime, trade.exitTime)}</p>
+          </div>
+          {/* Fee breakdown: entry fee + exit fee separately */}
           {trade.fee !== null && trade.fee > 0 && (
             <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {isOpen ? 'Entry Fee' : 'Total Fees'}
-              </p>
-              <p className="font-medium text-amber-600 dark:text-amber-400 text-sm">
-                ${trade.fee.toFixed(2)}
-              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Entry Fee</p>
+              <p className="font-medium text-amber-600 dark:text-amber-400 text-sm">${parseFloat(String(trade.fee)).toFixed(4)}</p>
+            </div>
+          )}
+          {!isOpen && trade.exitFee !== null && trade.exitFee > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Exit Fee</p>
+              <p className="font-medium text-amber-600 dark:text-amber-400 text-sm">${parseFloat(String(trade.exitFee)).toFixed(4)}</p>
             </div>
           )}
           {!isOpen && trade.exitReason && (
@@ -535,10 +592,14 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
             </div>
             <div>
               <div className="flex items-center justify-between text-xs mb-1">
-                <span className="text-slate-500 dark:text-slate-400">
+                <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
                   Erosion {health.erosionCapDollars > 0 && (
                     <span className="opacity-60">(cap ${health.erosionCapDollars.toFixed(2)})</span>
                   )}
+                  <span
+                    className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-200 cursor-help text-[9px] font-bold leading-none"
+                    title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ 1%. Example: peak +${(health.erosionCap > 0 ? (1 / health.erosionCap).toFixed(0) : '?')}% → exits if profit drops back to ~0%.`}
+                  >?</span>
                 </span>
                 <span className="font-semibold text-slate-900 dark:text-white">
                   {health.peakProfitPct > 0 && health.peakProfitPct <= 0.1
@@ -642,6 +703,36 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
           📥 Export CSV
         </button>
       </div>
+
+      {/* Position concentration warning */}
+      {concentrationWarnings.length > 0 && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-600 rounded-lg px-4 py-3">
+          <div className="flex items-start gap-2">
+            <span className="text-orange-800 dark:text-orange-200 text-sm font-semibold">⚠️ Concentration risk</span>
+            <span
+              className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-300 dark:bg-orange-700 text-orange-900 dark:text-orange-100 cursor-help text-[10px] font-bold leading-none flex-shrink-0 mt-0.5"
+              title={
+                `Concentration risk means one pair is holding an outsized share of your total open position value.\n\n` +
+                `With ${Array.from(new Set(openTrades.map(t => t.pair))).length} pairs open, equal weight would be ${(100 / Array.from(new Set(openTrades.map(t => t.pair))).length).toFixed(0)}% each. ` +
+                `A pair is flagged when it exceeds 2× its equal share.\n\n` +
+                `Why it matters: if that pair moves sharply against you, a large fraction of your total capital is exposed. ` +
+                `Consider reducing position size on the overweight pair or letting other pairs catch up before adding more.`
+              }
+            >?</span>
+          </div>
+          {concentrationWarnings.map(w => {
+            const uniquePairCount = Array.from(new Set(openTrades.map(t => t.pair))).length;
+            const equalWeight = (100 / uniquePairCount).toFixed(0);
+            return (
+              <p key={w.pair} className="text-xs text-orange-700 dark:text-orange-300 mt-1">
+                <strong>{w.pair}</strong> is {w.pct.toFixed(0)}% of open position value
+                — equal weight would be ~{equalWeight}% across {uniquePairCount} pairs.
+                Consider reducing this position before the next entry signal.
+              </p>
+            );
+          })}
+        </div>
+      )}
 
       {/* Open Positions */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">

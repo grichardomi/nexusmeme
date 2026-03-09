@@ -219,6 +219,7 @@ export async function GET(request: NextRequest) {
           t.exit_reason,
           t.pyramid_levels,
           t.fee,
+          t.exit_fee,
           b.config ->> 'initialCapital' AS initial_capital,
           b.exchange
         FROM trades t
@@ -236,7 +237,8 @@ export async function GET(request: NextRequest) {
       if (
         (queryError as any)?.message?.includes('exit_price') ||
         (queryError as any)?.message?.includes('exit_reason') ||
-        (queryError as any)?.message?.includes('pyramid_levels')
+        (queryError as any)?.message?.includes('pyramid_levels') ||
+        (queryError as any)?.message?.includes('exit_fee')
       ) {
         logger.debug('Some columns not found, using fallback selection');
         trades = await query(
@@ -255,6 +257,7 @@ export async function GET(request: NextRequest) {
             NULL::text AS exit_reason,
             '[]'::jsonb AS pyramid_levels,
             NULL::numeric AS fee,
+            NULL::numeric AS exit_fee,
             b.config ->> 'initialCapital' AS initial_capital,
             b.exchange
           FROM trades t
@@ -421,7 +424,27 @@ export async function GET(request: NextRequest) {
           : exchangeFeesConfig.krakenTakerFeeDefault;
 
         const storedEntryFee = t.fee ? parseFloat(String(t.fee)) : null;
-        const entryFeeOnly = storedEntryFee ?? (entryPrice * quantity * feeRate);
+        // For pyramided trades the simple entryPrice * quantity estimate is wrong
+        // (entry_price = first leg, but quantity = total across legs).
+        // If pyramid_levels data is present, sum actual fees from each leg instead.
+        let estimatedEntryFee = entryPrice * quantity * feeRate;
+        if (!storedEntryFee && t.pyramid_levels) {
+          try {
+            const levels: any[] = typeof t.pyramid_levels === 'string'
+              ? JSON.parse(t.pyramid_levels)
+              : t.pyramid_levels;
+            if (Array.isArray(levels) && levels.length > 0) {
+              estimatedEntryFee = levels.reduce((sum: number, leg: any) => {
+                const legPrice = parseFloat(String(leg.price || 0));
+                const legQty = parseFloat(String(leg.amount || 0));
+                return sum + legPrice * legQty * feeRate;
+              }, 0);
+            }
+          } catch {
+            // fallback stays as entryPrice * quantity * feeRate
+          }
+        }
+        const entryFeeOnly = storedEntryFee ?? estimatedEntryFee;
 
         if (profitLoss !== null) {
           profitLossNet = Number((profitLoss - entryFeeOnly).toFixed(2));
@@ -442,10 +465,16 @@ export async function GET(request: NextRequest) {
         : exchangeFeesConfig.krakenTakerFeeDefault;
       const storedFee = t.fee ? parseFloat(String(t.fee)) : null;
 
+      // Entry fee: for closed trades, back-calculate from total by subtracting exit fee.
+      // For open trades, fee column = entry fee only.
+      const storedExitFee = t.exit_fee ? parseFloat(String(t.exit_fee)) : null;
       let feeDisplay: number;
       if (t.status === 'closed') {
-        // Closed trades: total fees (entry + exit) stored in fee column by close endpoint
-        feeDisplay = storedFee ?? (entryPrice * quantity * feeRate * 2);
+        const totalFeeStored = storedFee ?? (entryPrice * quantity * feeRate * 2);
+        // Entry fee = total − exit fee (if exit_fee available), else half of total
+        feeDisplay = storedExitFee != null
+          ? totalFeeStored - storedExitFee
+          : totalFeeStored / 2;
       } else {
         // Open trades: entry fee only (already paid)
         feeDisplay = storedFee ?? (entryPrice * quantity * feeRate);
@@ -458,13 +487,29 @@ export async function GET(request: NextRequest) {
         entryPrice,
         exitPrice,
         quantity,
-        entryTime: t.entry_time,
-        exitTime: t.exit_time,
+        // Normalize timestamps: pg returns 'timestamp without time zone' as a JS Date
+        // using the server's local timezone, so we must extract local components and
+        // rebuild as UTC to preserve the original DB value.
+        entryTime: t.entry_time instanceof Date
+          ? new Date(Date.UTC(
+              t.entry_time.getFullYear(), t.entry_time.getMonth(), t.entry_time.getDate(),
+              t.entry_time.getHours(), t.entry_time.getMinutes(), t.entry_time.getSeconds(),
+              t.entry_time.getMilliseconds()
+            )).toISOString()
+          : t.entry_time,
+        exitTime: t.exit_time instanceof Date
+          ? new Date(Date.UTC(
+              t.exit_time.getFullYear(), t.exit_time.getMonth(), t.exit_time.getDate(),
+              t.exit_time.getHours(), t.exit_time.getMinutes(), t.exit_time.getSeconds(),
+              t.exit_time.getMilliseconds()
+            )).toISOString()
+          : t.exit_time,
         profitLoss,
         profitLossPercent,
         profitLossNet,
         profitLossPercentNet,
-        fee: Number(feeDisplay.toFixed(2)),
+        fee: Number(feeDisplay.toFixed(4)),
+        exitFee: t.exit_fee ? parseFloat(String(t.exit_fee)) : null,
         status: t.status,
         exitReason: t.exit_reason || null,
         pyramidLevels: t.pyramid_levels || null,

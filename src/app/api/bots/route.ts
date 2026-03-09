@@ -92,6 +92,7 @@ export async function GET(_request: NextRequest) {
         name: (config.name as string) || `${bot.exchange} Trading Bot`,
         tradingMode: (config.tradingMode as 'paper' | 'live' | undefined) || 'paper',
         isActive: bot.status === 'running',
+        botStatus: bot.status,
         createdAt: bot.createdAt,
         totalTrades: tradeCounts[bot.id] || 0,
         profitLoss: botProfitLoss[bot.id] ?? 0,

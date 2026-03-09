@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 
 /**
  * POST /api/bots/trades/close-all
@@ -67,6 +68,9 @@ export async function POST(request: NextRequest) {
       // Fall back to using entry prices if market data unavailable
     }
 
+    const env = getEnvironmentConfig();
+    const feeRate = env.BINANCE_TAKER_FEE_DEFAULT;
+
     // Close all trades atomically
     const closedTrades: string[] = [];
     const closedCount = await transaction(async (client) => {
@@ -76,7 +80,10 @@ export async function POST(request: NextRequest) {
         const entryPrice = parseFloat(trade.entry_price);
         const quantity = parseFloat(trade.amount);
 
-        const profitLoss = (exitPrice - entryPrice) * quantity;
+        const grossProfitLoss = (exitPrice - entryPrice) * quantity;
+        const entryFee = entryPrice * quantity * feeRate;
+        const exitFee = exitPrice * quantity * feeRate;
+        const netProfitLoss = grossProfitLoss - entryFee - exitFee;
         const profitLossPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
 
         await client.query(
@@ -86,9 +93,10 @@ export async function POST(request: NextRequest) {
                exit_time = NOW(),
                profit_loss = $2,
                profit_loss_percent = $3,
+               exit_fee = $4,
                exit_reason = 'manual_close_all'
-           WHERE id = $4`,
-          [exitPrice, profitLoss, profitLossPercent, trade.id]
+           WHERE id = $5`,
+          [exitPrice, netProfitLoss, profitLossPercent, exitFee, trade.id]
         );
 
         count++;
@@ -98,7 +106,10 @@ export async function POST(request: NextRequest) {
           tradeId: trade.id,
           pair: trade.pair,
           exitPrice,
-          profitLoss,
+          grossProfitLoss,
+          entryFee,
+          exitFee,
+          netProfitLoss,
         });
       }
       return count;

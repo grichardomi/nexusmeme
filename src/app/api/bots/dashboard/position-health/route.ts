@@ -57,6 +57,7 @@ interface PositionHealth {
   erosionRatioPct: number;
   erosionAbsolutePct: number;
   regime: string;
+  priceStale: boolean;
 }
 
 export async function GET(req: NextRequest) {
@@ -133,8 +134,9 @@ export async function GET(req: NextRequest) {
       const quantity = parseFloat(String(trade.quantity || 0));
       const tradeExchange = trade.exchange || 'kraken';
 
-      // Use live price if available, otherwise fall back to entry price (which means 0% P&L)
-      const currentPrice = marketPrices.get(trade.pair) || entryPrice;
+      // Use live price if available, otherwise fall back to entry price (which means 0% P&L shown)
+      const hasLivePrice = marketPrices.has(trade.pair);
+      const currentPrice = hasLivePrice ? marketPrices.get(trade.pair)! : entryPrice;
 
       // Calculate NET P&L (gross - entry fee ONLY)
       // Exit fee is NOT deducted until trade actually closes — best practice per exchange standards
@@ -300,6 +302,7 @@ export async function GET(req: NextRequest) {
         erosionRatioPct,
         erosionAbsolutePct,
         regime,
+        priceStale: !hasLivePrice,
       };
 
       positions.push(position);
@@ -312,10 +315,16 @@ export async function GET(req: NextRequest) {
       else if (status === 'critical') summary.critical++;
     }
 
+    const stalePriceCount = positions.filter(p => p.priceStale).length;
+
     return NextResponse.json({
       success: true,
       timestamp: new Date().toISOString(),
       pricesLive: marketPrices.size > 0,
+      stalePriceCount,
+      stalePriceWarning: stalePriceCount > 0
+        ? `Live price unavailable for ${stalePriceCount} position(s) — showing 0% P&L as fallback`
+        : null,
       summary,
       positions,
     });

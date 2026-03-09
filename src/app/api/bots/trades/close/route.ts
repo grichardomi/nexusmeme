@@ -157,6 +157,7 @@ export async function POST(req: NextRequest) {
     let actualProfitLoss = data.profitLoss;
     let actualProfitLossPercent = data.profitLossPercent;
     let totalFees = 0; // Track total fees (entry + exit)
+    let exitFeeAmount = 0; // Exit fee separately for exit_fee column
 
     // STEP 1: Place SELL order on exchange (if API keys available)
     try {
@@ -292,6 +293,7 @@ export async function POST(req: NextRequest) {
           const grossProfitLoss = (actualExitPrice - entryPrice) * quantity;
 
           // Deduct total fees (entry + exit)
+          exitFeeAmount = exitFee;
           totalFees = entryFee + exitFee;
           actualProfitLoss = grossProfitLoss - totalFees;
           actualProfitLossPercent = (actualProfitLoss / (entryPrice * quantity)) * 100;
@@ -402,10 +404,11 @@ export async function POST(req: NextRequest) {
              profit_loss_percent = $4,
              exit_reason = $5,
              fee = $6,
+             exit_fee = $7,
              status = 'closed'
-         WHERE id = $7 AND bot_instance_id = $8 AND status = 'open'
+         WHERE id = $8 AND bot_instance_id = $9 AND status = 'open'
          RETURNING id`,
-        [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, totalFees || null, data.tradeId, data.botInstanceId]
+        [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, totalFees || null, exitFeeAmount || null, data.tradeId, data.botInstanceId]
       );
     } catch (updateError) {
       // If fee column doesn't exist, try without it

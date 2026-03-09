@@ -21,6 +21,7 @@ import Link from 'next/link';
 interface Bot {
   id: string;
   isActive: boolean;
+  botStatus: 'running' | 'paused' | 'stopped';
   enabledPairs: string[];
   exchange: string;
   tradingMode: 'paper' | 'live';
@@ -39,6 +40,9 @@ export default function TradingPage() {
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [liveBalances, setLiveBalances] = useState<Record<string, number>>({});
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+  const [isClosingAll, setIsClosingAll] = useState(false);
+  const [showCloseAllConfirm, setShowCloseAllConfirm] = useState(false);
+  const [isTogglingBot, setIsTogglingBot] = useState(false);
   const selectedBotIdRef = useRef<string | null>(null);
 
   // Fetch bots and refresh periodically
@@ -157,6 +161,49 @@ export default function TradingPage() {
     { pollIntervalMs: 4000, staleThresholdMs: 15000 }
   );
 
+  const handleToggleBot = async (botId: string, currentlyActive: boolean) => {
+    setIsTogglingBot(true);
+    try {
+      const newStatus = currentlyActive ? 'paused' : 'running';
+      const response = await fetch('/api/bots', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId, status: newStatus }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update bot');
+      // Refresh bots list to reflect new status
+      const refreshed = await fetch('/api/bots');
+      if (refreshed.ok) setBots(await refreshed.json());
+    } catch (err) {
+      console.error('Toggle bot failed:', err);
+      alert('Failed to update bot status. Please try again.');
+    } finally {
+      setIsTogglingBot(false);
+    }
+  };
+
+  const handleCloseAll = async () => {
+    if (!selectedBotId) return;
+    setIsClosingAll(true);
+    setShowCloseAllConfirm(false);
+    try {
+      const response = await fetch('/api/bots/trades/close-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botId: selectedBotId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to close trades');
+      alert(`${data.message}`);
+    } catch (err) {
+      console.error('Close all failed:', err);
+      alert('Failed to close trades. Please try again.');
+    } finally {
+      setIsClosingAll(false);
+    }
+  };
+
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
   }
@@ -214,7 +261,7 @@ export default function TradingPage() {
             >
               {bots.map((bot) => (
                 <option key={bot.id} value={bot.id}>
-                  {bot.name} • {bot.exchange.toUpperCase()} • {bot.tradingMode === 'paper' ? '📄 PAPER' : '💰 LIVE'} {bot.isActive ? '🟢' : '⚫'}
+                  {bot.name} • {bot.exchange.toUpperCase()} • {bot.tradingMode === 'paper' ? '📄 PAPER' : '💰 LIVE'} {bot.botStatus === 'running' ? '🟢' : bot.botStatus === 'paused' ? '⏸' : '⚫'}
                 </option>
               ))}
             </select>
@@ -245,6 +292,15 @@ export default function TradingPage() {
               isStale={isStale}
               stalePairs={stalePairs}
             >
+              {/* Stale price warning */}
+              {isStale && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-600 rounded-lg px-4 py-2 flex items-center gap-2">
+                  <span className="text-yellow-600 dark:text-yellow-300 font-semibold text-sm">⚠️ Prices may be stale (15+ seconds old)</span>
+                  {stalePairs.length > 0 && (
+                    <span className="text-yellow-500 dark:text-yellow-400 text-xs">— affected: {stalePairs.join(', ')}</span>
+                  )}
+                </div>
+              )}
               {/* Bot Status Badge */}
               <div className="flex items-center gap-4">
                 <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
@@ -257,15 +313,63 @@ export default function TradingPage() {
                 }`}>
                   {selectedBot.tradingMode === 'paper' ? '📄 PAPER' : '💰 LIVE'}
                 </span>
-                {selectedBot.isActive && (
+                {selectedBot.botStatus === 'running' && (
                   <span className="px-3 py-1 rounded-full text-sm font-semibold bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
                     🟢 Running
                   </span>
                 )}
-                {!selectedBot.isActive && (
+                {selectedBot.botStatus === 'paused' && (
+                  <span className="px-3 py-1 rounded-full text-sm font-semibold bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200">
+                    ⏸ Paused
+                  </span>
+                )}
+                {selectedBot.botStatus === 'stopped' && (
                   <span className="px-3 py-1 rounded-full text-sm font-semibold bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200">
                     🔴 Stopped
                   </span>
+                )}
+                {/* Pause / Resume button */}
+                <button
+                  onClick={() => handleToggleBot(selectedBot.id, selectedBot.botStatus === 'running')}
+                  disabled={isTogglingBot}
+                  className={`px-3 py-1 rounded text-sm font-semibold transition disabled:opacity-50 ${
+                    selectedBot.botStatus === 'running'
+                      ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60'
+                      : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/60'
+                  }`}
+                >
+                  {isTogglingBot ? '⟳' : selectedBot.botStatus === 'running' ? '⏸ Pause' : '▶ Resume'}
+                </button>
+              </div>
+
+              {/* Close All Button */}
+              <div className="flex justify-end mt-2">
+                {showCloseAllConfirm ? (
+                  <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-600 rounded-lg px-4 py-2">
+                    <span className="text-sm font-medium text-red-800 dark:text-red-200">
+                      Close all open trades at market price?
+                    </span>
+                    <button
+                      onClick={handleCloseAll}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded transition"
+                    >
+                      Yes, Close All
+                    </button>
+                    <button
+                      onClick={() => setShowCloseAllConfirm(false)}
+                      className="px-3 py-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white text-sm font-semibold rounded transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCloseAllConfirm(true)}
+                    disabled={isClosingAll}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold rounded transition"
+                  >
+                    {isClosingAll ? '⟳ Closing...' : '🚨 Close All Trades'}
+                  </button>
                 )}
               </div>
 
