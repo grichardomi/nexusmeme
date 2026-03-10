@@ -1393,10 +1393,24 @@ class TradeSignalOrchestrator {
             ageMinutes: tradeAgeMinutes.toFixed(1),
           });
 
-          // Parse bot config for regime (used for regime-based profit targets)
+          // Parse bot config for emergency loss limit
           const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
           const emergencyLossLimit = parseFloat(botConfig?.emergencyLossLimit || '-0.06'); // -6% emergency exit
-          const regime = botConfig?.regime || 'moderate';
+
+          // Determine regime LIVE from current ADX — never use stale bot config value
+          // Stale regime causes wrong profit targets (e.g. null → 'moderate' → 2% when market is choppy)
+          let regime = 'moderate'; // safe fallback
+          try {
+            const regimeIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+            const liveAdx = regimeIndicators?.adx ?? 0;
+            if (liveAdx >= 40) regime = 'strong';
+            else if (liveAdx >= 25) regime = 'moderate';
+            else if (liveAdx >= 15) regime = 'weak';
+            else regime = 'choppy';
+          } catch {
+            // fallback to stored config regime if live fetch fails
+            regime = botConfig?.regime || 'moderate';
+          }
 
           // ============================================
           // PEAK PROFIT TRACKING (for erosion cap)
@@ -1642,6 +1656,49 @@ class TradeSignalOrchestrator {
                 ageMinutes: tradeAgeMinutes.toFixed(1),
                 staleThresholdMinutes: staleMinutes,
                 minLossThreshold: staleMinLoss.toFixed(2) + '%',
+              });
+            }
+          }
+
+          // CHECK 2.7: MAX HOLD TIME — agile trading, not investing
+          // Each regime gets a max hold window. After that: take profit if green, exit if flat/red.
+          if (!shouldClose) {
+            const maxHoldByRegime: Record<string, number> = {
+              choppy: env.MAX_HOLD_MINUTES_CHOPPY,
+              transitioning: env.MAX_HOLD_MINUTES_WEAK,
+              weak: env.MAX_HOLD_MINUTES_WEAK,
+              moderate: env.MAX_HOLD_MINUTES_MODERATE,
+              strong: env.MAX_HOLD_MINUTES_STRONG,
+            };
+            const maxHoldMinutes = maxHoldByRegime[regime.toLowerCase()] ?? env.MAX_HOLD_MINUTES_MODERATE;
+            if (tradeAgeMinutes >= maxHoldMinutes) {
+              shouldClose = true;
+              exitReason = currentProfitPct > 0 ? 'max_hold_profit' : 'max_hold_exit';
+              logger.info('⏰ MAX HOLD TIME - agile exit', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                regime,
+                ageMinutes: tradeAgeMinutes.toFixed(1),
+                maxHoldMinutes,
+                profitPct: currentProfitPct.toFixed(2) + '%',
+                exitReason,
+              });
+            }
+          }
+
+          // CHECK 2.8: STALE FLAT — trade hovering at zero = dead capital, free it
+          if (!shouldClose) {
+            const flatBand = env.STALE_FLAT_BAND_PCT * 100; // convert to pct
+            const isFlat = Math.abs(grossProfitPct) <= flatBand;
+            if (isFlat && tradeAgeMinutes >= env.STALE_FLAT_MINUTES) {
+              shouldClose = true;
+              exitReason = 'stale_flat';
+              logger.info('😴 STALE FLAT - dead capital, freeing for next opportunity', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                grossProfitPct: grossProfitPct.toFixed(3) + '%',
+                ageMinutes: tradeAgeMinutes.toFixed(1),
+                flatBand: flatBand.toFixed(2) + '%',
               });
             }
           }

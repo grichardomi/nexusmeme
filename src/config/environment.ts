@@ -177,8 +177,11 @@ const envSchema = z.object({
   UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
   /* Peak-Relative Erosion (/nexus parity - 30% of peak eroded = exit) */
-  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.35'), // 35% - standard trailing protection; exits at 65% of peak
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.10'), // 10% - tight trailing, minimal giveback
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
+  /* Profit Ratchet: tighten erosion threshold once peak reaches high-profit zone */
+  EROSION_RATCHET_ACTIVATION_PCT: z.string().transform(Number).default('8.0'), // 8% of cost → ratchet arms
+  EROSION_RATCHET_THRESHOLD: z.string().transform(Number).default('0.20'),     // 20% erosion when ratchet active (vs 35% standard)
 
   /* Regime-based Erosion Caps (VERY AGGRESSIVE - lock profits quickly) */
   /* Lower = keep more profit, close faster on pullback */
@@ -264,12 +267,22 @@ const envSchema = z.object({
   ADX_TRANSITION_SIZE_MULTIPLIER: z.string().transform(Number).default('0.5'), // 50% position size for transitioning regime entries
   MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
 
-  /* Regime-Based Profit Targets (/nexus port) - ADX-driven dynamic targets */
-  PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.015'), // 1.5% - fast exit in choppy markets
-  PROFIT_TARGET_TRANSITIONING: z.string().transform(Number).default('0.025'), // 2.5% - early trend (conservative target)
-  PROFIT_TARGET_WEAK: z.string().transform(Number).default('0.025'), // 2.5% - realistic for weak trends
-  PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.05'), // 5% - developing trends
-  PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.20'), // 20% - MAXIMIZE strong trends!
+  /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
+  PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.005'),       // 0.5% - scalp and move on
+  PROFIT_TARGET_TRANSITIONING: z.string().transform(Number).default('0.008'), // 0.8% - early trend, conservative
+  PROFIT_TARGET_WEAK: z.string().transform(Number).default('0.008'),          // 0.8% - weak trend, book quickly
+  PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.02'),       // 2% - developing trend
+  PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.08'),         // 8% - strong trend (not 20% - that's investing)
+
+  /* Max Hold Time Per Regime - agile trading, no overnight drift */
+  MAX_HOLD_MINUTES_CHOPPY: z.string().transform(Number).default('45'),        // 45 min max in choppy
+  MAX_HOLD_MINUTES_WEAK: z.string().transform(Number).default('90'),          // 1.5 hours
+  MAX_HOLD_MINUTES_MODERATE: z.string().transform(Number).default('180'),     // 3 hours
+  MAX_HOLD_MINUTES_STRONG: z.string().transform(Number).default('360'),       // 6 hours
+
+  /* Stale Flat Exit - hovering at zero is dead capital, free it */
+  STALE_FLAT_MINUTES: z.string().transform(Number).default('45'),             // 45 min flat = exit
+  STALE_FLAT_BAND_PCT: z.string().transform(Number).default('0.001'),         // ±0.1% counts as flat
 
   /* Early Loss Time-Based Thresholds - REGIME-AWARE */
   /* Philosophy: Adapt to market conditions - tight in chop, loose in trends */
@@ -474,8 +487,10 @@ function getDefaultEnvironment(): Environment {
     EROSION_MIN_PEAK_PCT: 0.008, // 0.8% - meaningful peak, not noise
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
-    EROSION_PEAK_RELATIVE_THRESHOLD: 0.35, // 35% - standard trailing protection; exits at 65% of peak
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.10, // 10% - tight trailing, minimal giveback
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
+    EROSION_RATCHET_ACTIVATION_PCT: 0.8,   // arms at 0.8% peak (every real trade)
+    EROSION_RATCHET_THRESHOLD: 0.10,       // 10% erosion - locks 90% of peak
     EROSION_CAP_CHOPPY: 0.05, // 5% - exit fast in chop (keep 95% of peak)
     EROSION_CAP_WEAK: 0.05, // 5% - exit fast in weak trends
     EROSION_CAP_MODERATE: 0.08, // 8% - balanced for moderate trends
@@ -523,11 +538,17 @@ function getDefaultEnvironment(): Environment {
     PYRAMID_L2_TRIGGER_PCT: 0.080,
     PYRAMID_ADD_SIZE_PCT_L1: 0.35,
     PYRAMID_ADD_SIZE_PCT_L2: 0.50,
-    PROFIT_TARGET_CHOPPY: 0.015,    // 1.5% - fast exit
-    PROFIT_TARGET_TRANSITIONING: 0.025, // 2.5% - early trend
-    PROFIT_TARGET_WEAK: 0.025,      // 2.5% - weak trends
-    PROFIT_TARGET_MODERATE: 0.05,   // 5% - developing trends
-    PROFIT_TARGET_STRONG: 0.20,     // 20% - MAXIMIZE strong trends!
+    PROFIT_TARGET_CHOPPY: 0.005,        // 0.5% - scalp and move on
+    PROFIT_TARGET_TRANSITIONING: 0.008, // 0.8% - early trend
+    PROFIT_TARGET_WEAK: 0.008,          // 0.8% - weak trend
+    PROFIT_TARGET_MODERATE: 0.02,       // 2% - developing trend
+    PROFIT_TARGET_STRONG: 0.08,         // 8% - strong trend
+    MAX_HOLD_MINUTES_CHOPPY: 45,
+    MAX_HOLD_MINUTES_WEAK: 90,
+    MAX_HOLD_MINUTES_MODERATE: 180,
+    MAX_HOLD_MINUTES_STRONG: 360,
+    STALE_FLAT_MINUTES: 45,
+    STALE_FLAT_BAND_PCT: 0.001,
     EARLY_LOSS_CHOPPY_MINUTE_1_5: -0.01,
     EARLY_LOSS_CHOPPY_MINUTE_15_30: -0.008,
     EARLY_LOSS_CHOPPY_HOUR_1_3: -0.006,

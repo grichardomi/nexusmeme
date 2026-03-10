@@ -582,15 +582,24 @@ class PositionTracker {
     const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
     const erosionPeakMinPct = env.EROSION_PEAK_MIN_PCT; // default 1.0%
 
+    // Ratchet: tighten erosion threshold once peak is in high-profit territory
+    // Prevents giving back large gains while not affecting normal-size trades
+    const ratchetActivation = env.EROSION_RATCHET_ACTIVATION_PCT; // default 8% of cost
+    const ratchetThreshold = env.EROSION_RATCHET_THRESHOLD;        // default 20%
+    const effectiveThreshold = (ratchetActivation > 0 && peakPctOfCost >= ratchetActivation)
+      ? ratchetThreshold
+      : peakRelativeThreshold;
+
     // Immediate exit when peak-relative erosion reaches threshold (no time gate)
-    if (peakPctOfCost >= erosionPeakMinPct && erosionPct >= peakRelativeThreshold) {
+    if (peakPctOfCost >= erosionPeakMinPct && erosionPct >= effectiveThreshold) {
       logger.info('⏱️ PEAK-RELATIVE EROSION - locking profit (immediate exit)', {
         tradeId,
         pair,
         peakProfit: '$' + existing.peakProfit.toFixed(2),
         currentProfit: '$' + currentProfitDollars.toFixed(2),
         erosionPct: (erosionPct * 100).toFixed(1) + '%',
-        threshold: (peakRelativeThreshold * 100).toFixed(1) + '%',
+        threshold: (effectiveThreshold * 100).toFixed(1) + '%',
+        ratchetActive: peakPctOfCost >= ratchetActivation,
       });
       result.shouldExit = true;
       result.reason = 'erosion_cap_exceeded';
