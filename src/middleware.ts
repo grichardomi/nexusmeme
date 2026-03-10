@@ -6,12 +6,22 @@ import { NextResponse } from 'next/server';
  * Unauthenticated requests are redirected to /auth/signin before any
  * client-side code runs, closing the window where useSession() alone
  * guarded private pages.
+ *
+ * Internal server-to-server calls (orchestrator → trade close, cron jobs) are
+ * allowed through via x-internal-secret header to avoid blocking trade execution.
  */
 export default withAuth(
   function middleware(req) {
     const { pathname } = req.nextUrl;
     const token = req.nextauth.token;
     const isApiRoute = pathname.startsWith('/api/');
+
+    // Allow internal server-to-server calls (orchestrator trade closes, cron triggers)
+    // These run on the server and cannot carry a user JWT session
+    const internalSecret = req.headers.get('x-internal-secret');
+    if (internalSecret && internalSecret === process.env.CRON_SECRET) {
+      return NextResponse.next();
+    }
 
     // Unauthenticated — API routes get 401 JSON, page routes redirect to signin
     if (!token) {

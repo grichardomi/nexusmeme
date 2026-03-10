@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
           `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/bots/trades/close`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.CRON_SECRET ?? '' },
             body: JSON.stringify({
               botInstanceId: trade.bot_instance_id,
               tradeId: trade.id,

@@ -334,7 +334,7 @@ class TradeWorkerService {
       // Call the close API endpoint
       const response = await fetch(`http://localhost:3000/api/bots/trades/close`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': process.env.CRON_SECRET ?? '' },
         body: JSON.stringify({
           tradeId,
           botInstanceId,
