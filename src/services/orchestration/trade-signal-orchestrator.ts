@@ -800,8 +800,8 @@ class TradeSignalOrchestrator {
 
             // Rec #2: Log regime classification + profit target so ADX detection is verifiable
             const adxVal = indicators.adx ?? 0;
-            const regimeClass = adxVal >= 40 ? 'STRONG' : adxVal >= 25 ? 'MODERATE' : 'WEAK';
-            const expectedTarget = adxVal >= 40 ? '12%' : adxVal >= 25 ? '5%' : '2%';
+            const regimeClass = adxVal >= 35 ? 'STRONG' : adxVal >= 30 ? 'MODERATE' : adxVal >= 20 ? 'WEAK' : adxVal >= 12 ? 'TRANSITIONING' : 'CHOPPY';
+            const expectedTarget = adxVal >= 35 ? '12%' : adxVal >= 30 ? '5%' : adxVal >= 20 ? '2.5%' : adxVal >= 12 ? '2%' : '1.5%';
             console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, {
               confidence: analysis.signal.confidence,
               minThreshold: minConfidenceThreshold,
