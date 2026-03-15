@@ -224,11 +224,11 @@ export default function SettingsPage() {
           {/* Exchange Connections */}
           <div className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700">
             <div className="flex items-start justify-between mb-2">
-              <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Binance Connection</h2>
+              <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Exchange Connections</h2>
               <a
                 href="/help#getting-started"
                 className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap mt-1"
-                title="Step-by-step guide to get your Binance API key"
+                title="Step-by-step guide to get your API keys"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
@@ -237,14 +237,10 @@ export default function SettingsPage() {
               </a>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Connect your Binance API keys to enable live trading. A{' '}
-              <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-                Binance account
-              </a>
-              {' '}is required. API keys are encrypted and stored securely.
+              Connect your exchange API keys to enable live trading. API keys are encrypted and stored securely.
             </p>
 
-            {/* API Key Management Notice */}
+            {/* Security notice */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500 text-blue-700 dark:text-blue-200 px-4 py-3 rounded mb-6">
               <p className="text-sm font-medium">🔐 Security & Best Practices</p>
               <ul className="text-xs mt-2 space-y-1 ml-4">
@@ -253,21 +249,33 @@ export default function SettingsPage() {
                 <li>• Set IP access restrictions if possible for extra security</li>
                 <li>• Your API secret is encrypted on our servers — we cannot read it</li>
               </ul>
-              <p className="text-xs mt-3">
-                <a
-                  href="/help#getting-started"
-                  className="font-medium hover:underline"
-                >
-                  Need help? View our step-by-step Binance API key guide →
-                </a>
-              </p>
             </div>
 
             <div className="space-y-4">
+              {/* Binance International */}
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-900 dark:text-white mb-2">🔗 Binance</h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">Connect your Binance trading account</p>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Binance International</h3>
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  Available in 180+ countries. Not available to US residents.{' '}
+                  <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">binance.com</a>
+                </p>
                 <ExchangeKeyForm exchange="binance" />
+              </div>
+
+              {/* Kraken */}
+              <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Kraken</h3>
+                  <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">Global + US</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  Available globally including US residents.{' '}
+                  <a href="https://www.kraken.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">kraken.com</a>
+                </p>
+                <ExchangeKeyForm exchange="kraken" />
               </div>
             </div>
           </div>

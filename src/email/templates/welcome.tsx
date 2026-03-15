@@ -67,8 +67,8 @@ export function WelcomeEmailTemplate({ name, verificationUrl, feePercent }: Welc
             <h2>What's Next?</h2>
             <ol>
               <li>Verify your email address (link above)</li>
-              <li>Create a <a href="https://www.binance.com" style="color: #667eea;">Binance account</a> if you don't have one — $1,000 USDT minimum for live trading</li>
-              <li>Connect your Binance API keys in Settings → API Keys</li>
+              <li>Create an exchange account — <a href="https://www.binance.com" style="color: #667eea;">Binance International</a> (global, not US) or <a href="https://www.kraken.com" style="color: #667eea;">Kraken</a> (global + US) — $1,000 USDT minimum for live trading</li>
+              <li>Connect your API keys in Settings → Exchange Connections</li>
               <li>Create your first bot — starts in paper mode (simulated, zero risk)</li>
               <li>Switch to live trading when ready to trade with real capital</li>
             </ol>
@@ -93,14 +93,14 @@ Welcome to NexusMeme!
 Hi ${name || 'Trader'},
 
 Your 10-day free trial has started. Your bot begins in paper mode (simulated trades, zero risk).
-You can switch to live trading during or after your trial — connect your Binance API keys first.
+You can switch to live trading during or after your trial — connect your exchange API keys first.
 
 After your trial: pay only ${feeDisplay} on profits — nothing on losses.
 
 WHAT'S NEXT:
 1. Verify your email (link below)
-2. Create a Binance account at binance.com — $1,000 USDT minimum for live trading
-3. Connect your Binance API keys in Settings → API Keys
+2. Create an exchange account — Binance International (binance.com, global/not US) or Kraken (kraken.com, global+US) — $1,000 USDT minimum for live trading
+3. Connect your API keys in Settings → Exchange Connections
 4. Create your first bot (starts in paper mode)
 5. Switch to live trading when ready
 

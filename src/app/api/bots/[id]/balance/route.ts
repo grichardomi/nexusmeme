@@ -139,9 +139,9 @@ export async function GET(
       let btcPrice = 0;
       let ethPrice = 0;
       try {
-        const priceMap = await marketDataAggregator.getMarketData(['BTC/USD', 'ETH/USD']);
-        btcPrice = priceMap.get('BTC/USD')?.price ?? 0;
-        ethPrice = priceMap.get('ETH/USD')?.price ?? 0;
+        const priceMap = await marketDataAggregator.getMarketData(['BTC/USDT', 'ETH/USDT']);
+        btcPrice = priceMap.get('BTC/USDT')?.price ?? 0;
+        ethPrice = priceMap.get('ETH/USDT')?.price ?? 0;
       } catch {
         // Market data not yet warm — totalAccountValue will show USDT/USD only
       }

@@ -27,7 +27,6 @@ import { sendTradeAlertEmail } from '@/services/email/triggers';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { withRetry } from '@/lib/resilience';
-import { exchangeFeesConfig } from '@/config/environment';
 import { getAccountFeeRates, computeMinExitPrice } from '@/services/exchanges/fee-schedule';
 import { z } from 'zod';
 
@@ -203,11 +202,15 @@ export async function POST(req: NextRequest) {
             } catch {}
             if (!takerRate) {
               const { taker } = await getAccountFeeRates(userId, exchange);
-              takerRate = taker || (
-                exchange.toLowerCase() === 'kraken' ? exchangeFeesConfig.krakenTakerFeeDefault
-                : exchange.toLowerCase() === 'binance' ? exchangeFeesConfig.binanceTakerFeeDefault
-                : 0.001
-              );
+              if (taker) {
+                takerRate = taker;
+              } else {
+                // Use admin-managed exchange fee rates from billing_settings (negotiated rates)
+                const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
+                const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+                const dbRates = await getExchangeFeeRates(exchangeKey);
+                takerRate = dbRates.taker_fee;
+              }
             }
             minExitPrice = Math.max(data.exitPrice, computeMinExitPrice(entryPrice, entryFeeQuote, qty, takerRate));
           }
@@ -265,12 +268,11 @@ export async function POST(req: NextRequest) {
           exitFee = orderResult.fee;
           logger.debug('Captured exit fee from order (assumed quote)', { orderId: orderResult.orderId, exitFee });
         } else {
-          // Fallback: Use configured exchange fee rate
-          const feeRate = exchange.toLowerCase() === 'kraken'
-            ? exchangeFeesConfig.krakenTakerFeeDefault
-            : exchange.toLowerCase() === 'binance'
-            ? exchangeFeesConfig.binanceTakerFeeDefault
-            : 0.001; // Default 0.1% if exchange not recognized
+          // Fallback: Use admin-managed exchange fee rates from billing_settings
+          const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
+          const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+          const dbRates = await getExchangeFeeRates(exchangeKey);
+          const feeRate = dbRates.taker_fee;
 
           exitFee = (actualExitPrice * quantity) * feeRate;
           logger.debug('Using configured exchange taker fee for exit', {
@@ -334,11 +336,10 @@ export async function POST(req: NextRequest) {
           if (entryInfo) {
             const ep = parseFloat(String(entryInfo.price));
             const qty = parseFloat(String(entryInfo.amount)) || quantity;
-            const feeRate = exchange.toLowerCase() === 'kraken'
-              ? exchangeFeesConfig.krakenTakerFeeDefault
-              : exchange.toLowerCase() === 'binance'
-              ? exchangeFeesConfig.binanceTakerFeeDefault
-              : 0.001;
+            const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
+            const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+            const dbRates = await getExchangeFeeRates(exchangeKey);
+            const feeRate = dbRates.taker_fee;
             const storedEntryFee = entryInfo.fee ? parseFloat(String(entryInfo.fee)) : ep * qty * feeRate;
             exitFeeAmount = data.exitPrice * qty * feeRate;
             totalFees = storedEntryFee + exitFeeAmount;

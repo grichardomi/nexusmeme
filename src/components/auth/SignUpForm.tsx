@@ -37,7 +37,6 @@ export function SignUpForm() {
     confirmPassword: '',
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [notUSPerson, setNotUSPerson] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -95,7 +94,6 @@ export function SignUpForm() {
   const isPasswordValid = Object.values(passwordStrength).every(v => v);
 
   const handleGoogleSignUp = async () => {
-    if (!notUSPerson) { setError('Please confirm you are not a US person before signing up.'); return; }
     setIsLoading(true);
     try {
       await signIn('google', { callbackUrl: '/dashboard' });
@@ -106,7 +104,6 @@ export function SignUpForm() {
   };
 
   const handleDiscordSignUp = async () => {
-    if (!notUSPerson) { setError('Please confirm you are not a US person before signing up.'); return; }
     setIsLoading(true);
     try {
       await signIn('discord', { callbackUrl: '/dashboard' });
@@ -208,26 +205,10 @@ export function SignUpForm() {
         />
       </div>
 
-      {/* US Person Declaration */}
-      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-3">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={notUSPerson}
-            onChange={e => setNotUSPerson(e.target.checked)}
-            className="mt-0.5 w-4 h-4 rounded border-amber-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
-            disabled={isLoading}
-          />
-          <span className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
-            I confirm I am <strong>not a US person</strong> (US citizen, resident, or entity). NexusMeme uses Binance International which is not available to US residents.
-          </span>
-        </label>
-      </div>
-
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={isLoading || !isPasswordValid || !notUSPerson}
+        disabled={isLoading || !isPasswordValid}
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white font-medium py-2 rounded transition"
       >
         {isLoading ? 'Creating Account...' : 'Sign Up'}

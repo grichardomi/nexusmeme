@@ -72,15 +72,15 @@ export default function PerformanceFeesPage() {
             <p className="text-sm text-slate-400 mb-6">Here&apos;s what a typical month looks like:</p>
             <div className="space-y-3 mb-6">
               <div className="flex justify-between pb-3 border-b border-slate-700">
-                <span className="text-slate-300">Trade 1: BTC/USD profit</span>
+                <span className="text-slate-300">Trade 1: BTC/USDT profit</span>
                 <span className="font-mono">+$500</span>
               </div>
               <div className="flex justify-between pb-3 border-b border-slate-700">
-                <span className="text-slate-300">Trade 2: ETH/USD profit</span>
+                <span className="text-slate-300">Trade 2: ETH/USDT profit</span>
                 <span className="font-mono">+$300</span>
               </div>
               <div className="flex justify-between pb-3 border-b border-slate-700">
-                <span className="text-slate-300">Trade 3: BTC/USD loss (no fee)</span>
+                <span className="text-slate-300">Trade 3: BTC/USDT loss (no fee)</span>
                 <span className="font-mono text-red-400">-$200</span>
               </div>
               <div className="pt-3 space-y-2">

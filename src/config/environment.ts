@@ -334,7 +334,7 @@ const envSchema = z.object({
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
   BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Day 7: first dunning reminder
   DUNNING_WARNING_DAYS: z.string().transform(Number).default('10'),        // Day 10: final warning email
-  BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Day 14: bots suspended
+  BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('21'),    // Day 21: bots suspended (extended for global users)
   CRON_SECRET: z.string().min(1).default('build-phase-placeholder'),       // Shared secret to authenticate cron calls
 
   /* USDC Invoice & Payment Configuration */
@@ -574,7 +574,7 @@ function getDefaultEnvironment(): Environment {
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
     DUNNING_WARNING_DAYS: 10,
-    BILLING_SUSPENSION_DAYS: 14,
+    BILLING_SUSPENSION_DAYS: 21,
     CRON_SECRET: 'build-phase-placeholder',
     USDC_INVOICE_EXPIRY_DAYS: 30,
     USDC_PAYMENT_REF_LENGTH: 8,

@@ -93,30 +93,31 @@ class BackgroundMarketDataFetcher {
   }
 
   /**
-   * Get unique trading pairs from all active bots (dynamic, not hardcoded)
+  /**
+   * Get per-exchange pair lists for running bots.
+   * Returns a Map of exchange → unique pairs.
    */
-  private async getActiveBotPairs(): Promise<string[]> {
+  private async getActiveBotPairsByExchange(): Promise<Map<string, string[]>> {
     try {
-      const result = await query<{ enabled_pairs: string[] }>(
-        `SELECT DISTINCT enabled_pairs FROM bot_instances WHERE status = 'running'`
+      const result = await query<{ exchange: string; enabled_pairs: string[] }>(
+        `SELECT exchange, enabled_pairs FROM bot_instances WHERE status = 'running'`
       );
 
-      // Flatten and deduplicate all pairs from active bots
-      const allPairs = new Set<string>();
+      const byExchange = new Map<string, Set<string>>();
       for (const row of result) {
+        const ex = (row.exchange || 'binance').toLowerCase();
+        if (!byExchange.has(ex)) byExchange.set(ex, new Set());
         if (Array.isArray(row.enabled_pairs)) {
-          for (const pair of row.enabled_pairs) {
-            allPairs.add(pair);
-          }
+          for (const pair of row.enabled_pairs) byExchange.get(ex)!.add(pair);
         }
       }
 
-      return Array.from(allPairs);
+      return new Map(Array.from(byExchange.entries()).map(([ex, pairs]) => [ex, Array.from(pairs)]));
     } catch (error) {
-      logger.debug('Failed to get active bot pairs, will skip fetch', {
+      logger.debug('Failed to get active bot pairs by exchange', {
         error: error instanceof Error ? error.message : String(error),
       });
-      return [];
+      return new Map();
     }
   }
 
@@ -132,17 +133,22 @@ class BackgroundMarketDataFetcher {
     this.stats.nextScheduledFetch = startTime + 4000; // Approximate next fetch
 
     try {
-      // Get pairs dynamically from active bots (not hardcoded config)
-      const pairs = await this.getActiveBotPairs();
+      // Get pairs per exchange from active bots
+      const pairsByExchange = await this.getActiveBotPairsByExchange();
 
-      if (pairs.length === 0) {
+      if (pairsByExchange.size === 0) {
         // No active bots - skip silently (not an error)
         return;
       }
 
-      // Always fetch fresh data (bypass aggregator cache for background fetcher)
-      // This ensures Redis is updated every 4 seconds with latest prices
-      const data = await marketDataAggregator.fetchFresh(pairs);
+      // Fetch fresh prices for each exchange independently
+      let totalPairs = 0;
+      let totalRetrieved = 0;
+      for (const [exchange, pairs] of pairsByExchange.entries()) {
+        const data = await marketDataAggregator.fetchFresh(pairs, exchange);
+        totalPairs += pairs.length;
+        totalRetrieved += data.size;
+      }
 
       const duration = Date.now() - startTime;
       this.stats.lastFetchTime = startTime;
@@ -153,8 +159,9 @@ class BackgroundMarketDataFetcher {
       // Rate-limited logging: only log every N successful fetches to reduce spam
       if (this.stats.fetchSuccesses % this.LOG_EVERY_N_FETCHES === 0) {
         logger.info('Background fetcher: cache refreshed', {
-          pairs: pairs.length,
-          retrieved: data.size,
+          exchanges: Array.from(pairsByExchange.keys()),
+          pairs: totalPairs,
+          retrieved: totalRetrieved,
           durationMs: duration,
           successCount: this.stats.fetchSuccesses,
         });

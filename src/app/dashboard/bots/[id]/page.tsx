@@ -34,7 +34,7 @@ interface Bot {
   name?: string;
 }
 
-const SUPPORTED_PAIRS = ['BTC/USD', 'BTC/USDT', 'ETH/USD', 'ETH/USDT'];
+const SUPPORTED_PAIRS = ['BTC/USDT', 'ETH/USDT'];
 
 export default function BotDetailPage() {
   const params = useParams();
@@ -57,6 +57,7 @@ export default function BotDetailPage() {
   const [isEditingSettings, setIsEditingSettings] = useState(false);
   const [editBotName, setEditBotName] = useState('');
   const [editExchange, setEditExchange] = useState('');
+  const [connectedExchanges, setConnectedExchanges] = useState<string[]>([]);
   const [editInitialCapital, setEditInitialCapital] = useState('');
   const [editCapitalMode, setEditCapitalMode] = useState<'fixed' | 'unlimited'>('fixed');
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
@@ -114,6 +115,11 @@ export default function BotDetailPage() {
   const handleEditSettingsClick = () => {
     setEditBotName(bot?.name || `${bot?.exchange} Trading Bot` || '');
     setEditExchange(bot?.exchange || 'binance');
+    // Load user's connected exchanges when opening settings
+    fetch('/api/exchanges/connected')
+      .then(r => r.json())
+      .then(d => setConnectedExchanges(Array.isArray(d.exchanges) ? d.exchanges : []))
+      .catch(() => setConnectedExchanges(['binance', 'kraken']));
 
     const initialCapital = bot?.initialCapital;
     // Check if unlimited (0 = unlimited, uses real exchange balance)
@@ -901,12 +907,14 @@ export default function BotDetailPage() {
                   disabled={isUpdatingSettings}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="binance">Binance</option>
-                  <option value="kraken">Kraken</option>
-                  <option value="coinbase">Coinbase</option>
+                  {(connectedExchanges.length > 0 ? connectedExchanges : [editExchange]).map(ex => (
+                    <option key={ex} value={ex}>
+                      {ex === 'binance' ? 'Binance International (Global)' : ex === 'kraken' ? 'Kraken (Global + US)' : ex}
+                    </option>
+                  ))}
                 </select>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Requires API keys connected in Settings
+                  Only exchanges with API keys connected in Settings are shown.
                 </p>
               </div>
 

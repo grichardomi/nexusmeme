@@ -29,7 +29,7 @@ export function CreateBotForm() {
   const [exchangesLoading, setExchangesLoading] = useState(true);
   const [formData, setFormData] = useState({
     exchange: '',
-    enabledPairs: ['BTC/USD'],
+    enabledPairs: ['BTC/USDT'],
     initialCapital: 1000,
     tradingMode: 'paper' as 'paper' | 'live',
   });
@@ -105,7 +105,7 @@ export function CreateBotForm() {
   };
 
   // PROFITABILITY: BTC/ETH only - matches /nexus proven profitable pairs
-  const supportedPairs = ['BTC/USD', 'BTC/USDT', 'ETH/USD', 'ETH/USDT'];
+  const supportedPairs = ['BTC/USDT', 'ETH/USDT'];
   const hasConnectedExchanges = connectedExchanges.length > 0;
 
   return (

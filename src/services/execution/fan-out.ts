@@ -496,7 +496,7 @@ class ExecutionFanOut {
     let executionPrice = plan.price; // Fallback to signal price
 
     try {
-      const liveMarketData = await marketDataAggregator.getMarketData([pair]);
+      const liveMarketData = await marketDataAggregator.getMarketData([pair], exchange);
       const liveData = liveMarketData.get(pair);
       if (liveData && liveData.price > 0) {
         const priceDiff = Math.abs(liveData.price - plan.price) / plan.price * 100;

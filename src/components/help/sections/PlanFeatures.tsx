@@ -97,7 +97,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
         <ol className="space-y-3 text-slate-700 dark:text-slate-300">
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 1:</span>
-            <span>Create your trading bot and connect your Binance account</span>
+            <span>Create your trading bot and connect your exchange account (Binance International or Kraken)</span>
           </li>
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 2:</span>

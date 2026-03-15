@@ -28,18 +28,18 @@ class RegimeDetector {
    * Get cached 1h OHLC or fetch fresh if stale/missing
    * Uses Binance public API via fetchOHLC (no rate limiter, correct pair mapping)
    */
-  private async getCached1hOHLC(pair: string, _exchange: string, limit: number): Promise<OHLCCandle[]> {
-    const cacheKey = `${pair}:1h:${limit}`;
+  private async getCached1hOHLC(pair: string, exchange: string, limit: number): Promise<OHLCCandle[]> {
+    const cacheKey = `${exchange}:${pair}:1h:${limit}`;
     const cached = this.ohlcCache1h.get(cacheKey);
     const now = Date.now();
 
     if (cached && (now - cached.timestamp) < this.OHLC_1H_CACHE_TTL_MS) {
-      logger.debug('1h OHLC cache HIT', { pair, age: now - cached.timestamp });
+      logger.debug('1h OHLC cache HIT', { pair, exchange, age: now - cached.timestamp });
       return cached.data;
     }
 
-    logger.debug('1h OHLC cache MISS - fetching fresh', { pair, limit });
-    const candles = await fetchOHLC(pair, limit, '1h');
+    logger.debug('1h OHLC cache MISS - fetching fresh', { pair, exchange, limit });
+    const candles = await fetchOHLC(pair, limit, '1h', exchange);
 
     if (candles && candles.length >= 26) {
       this.ohlcCache1h.set(cacheKey, { data: candles, timestamp: now });
@@ -51,32 +51,33 @@ class RegimeDetector {
   /**
    * Get cached regime result or return null if stale/missing
    */
-  private getCachedRegime(pair: string): { type: RegimeType; confidence: number; reason: string; timestamp: Date } | null {
-    const cached = this.regimeCache.get(pair);
+  private getCachedRegime(pair: string, exchange: string): { type: RegimeType; confidence: number; reason: string; timestamp: Date } | null {
+    const key = `${exchange}:${pair}`;
+    const cached = this.regimeCache.get(key);
     if (!cached) return null;
 
     const age = Date.now() - cached.timestamp.getTime();
     if (age < this.REGIME_CACHE_TTL_MS) {
-      logger.debug('Regime cache HIT', { pair, age });
+      logger.debug('Regime cache HIT', { pair, exchange, age });
       return cached;
     }
 
-    logger.debug('Regime cache MISS - expired', { pair, age });
-    this.regimeCache.delete(pair);
+    logger.debug('Regime cache MISS - expired', { pair, exchange, age });
+    this.regimeCache.delete(key);
     return null;
   }
 
   /**
    * Detect and store market regime for a pair
-   * @param pair Trading pair (e.g., BTC/USD)
-   * @param exchange Exchange to use for market data (e.g., 'kraken', 'binance')
+   * @param pair Trading pair (e.g., BTC/USDT)
+   * @param exchange Exchange to use for market data ('binance' or 'kraken')
    */
   async detectAndStoreRegime(pair: string, exchange: string = 'binance'): Promise<{ type: RegimeType; confidence: number; reason: string; timestamp: Date } | null> {
     try {
-      // OPTIMIZATION: Check regime cache first (5 minute TTL)
-      const cachedRegime = this.getCachedRegime(pair);
+      // OPTIMIZATION: Check regime cache first (5 minute TTL, keyed per exchange)
+      const cachedRegime = this.getCachedRegime(pair, exchange);
       if (cachedRegime) {
-        return cachedRegime; // Return cached result, skip detection
+        return cachedRegime;
       }
 
       logger.debug('Detecting market regime for pair', { pair, exchange });
@@ -125,8 +126,8 @@ class RegimeDetector {
         timestamp: new Date(),
       };
 
-      // OPTIMIZATION: Cache regime result (5 minute TTL)
-      this.regimeCache.set(pair, result);
+      // OPTIMIZATION: Cache regime result (5 minute TTL, keyed per exchange)
+      this.regimeCache.set(`${exchange}:${pair}`, result);
 
       return result;
     } catch (error) {

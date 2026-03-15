@@ -83,7 +83,7 @@ class TradeWorkerService {
    * Subscribe to PostgreSQL NOTIFY channels for all trading pairs
    */
   private async subscribeToChannels(): Promise<void> {
-    const commonPairs = ['BTC/USD', 'ETH/USD', 'SOL/USD', 'AVAX/USD', 'MATIC/USD'];
+    const commonPairs = ['BTC/USDT', 'ETH/USDT'];
 
     for (const pair of commonPairs) {
       // Sanitize pair name for PostgreSQL channel (no special chars)
@@ -400,7 +400,7 @@ class TradeWorkerService {
     }
 
     // Fetch OHLC data for technical indicators
-    const candles = await fetchOHLC(pair, 100, '15m');
+    const candles = await fetchOHLC(pair, 100, '15m', bot.exchange || 'binance');
     if (!candles || candles.length === 0) {
       logger.warn('TradeWorker: No OHLC data available', { pair });
       return;
@@ -424,7 +424,7 @@ class TradeWorkerService {
     riskManager.initializeFromBotConfig(bot.config, bot.exchange);
 
     // Update BTC momentum (for drop protection)
-    riskManager.updateBTCMomentum(pair === 'BTC/USD' ? (indicators.momentum1h || 0) : 0);
+    riskManager.updateBTCMomentum(pair === 'BTC/USDT' ? (indicators.momentum1h || 0) : 0);
 
     // Run 5-stage risk filter (pass adxSlope for transition zone detection)
     const healthGate = riskManager.checkHealthGate(indicators.adx || 0, indicators.adxSlope, indicators.momentum1h);

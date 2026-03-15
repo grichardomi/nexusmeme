@@ -80,6 +80,13 @@ export default function AdminFeesPage() {
   const [trialDaysInput, setTrialDaysInput] = useState('');
   const [trialDaysSaving, setTrialDaysSaving] = useState(false);
 
+  // Exchange fee rates state
+  interface ExchangeFeeRates { taker_fee: number; maker_fee: number; min_profit_weak: number; min_profit_moderate: number; min_profit_strong: number; }
+  const [exchangeFees, setExchangeFees] = useState<{ binance: ExchangeFeeRates; kraken: ExchangeFeeRates } | null>(null);
+  const [editingExchangeFee, setEditingExchangeFee] = useState<string | null>(null);
+  const [exchangeFeeInput, setExchangeFeeInput] = useState('');
+  const [exchangeFeeSaving, setExchangeFeeSaving] = useState(false);
+
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
   }
@@ -97,13 +104,50 @@ export default function AdminFeesPage() {
     }
   }, []);
 
+  const fetchExchangeFees = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/exchange-fees');
+      if (!res.ok) return;
+      setExchangeFees(await res.json());
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
+  const saveExchangeFee = async (key: string) => {
+    const val = parseFloat(exchangeFeeInput);
+    if (isNaN(val) || val < 0 || val > 1) {
+      setRateSettingsError('Enter a decimal between 0 and 1 (e.g. 0.001 for 0.1%)');
+      return;
+    }
+    setExchangeFeeSaving(true);
+    setRateSettingsError(null);
+    try {
+      const res = await fetch('/api/admin/exchange-fees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: val }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setEditingExchangeFee(null);
+      await fetchExchangeFees();
+    } catch (err) {
+      setRateSettingsError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setExchangeFeeSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchFees();
   }, [page, filterStatus, searchQuery]);
 
   useEffect(() => {
-    if (status === 'authenticated') fetchBillingSettings();
-  }, [status, fetchBillingSettings]);
+    if (status === 'authenticated') {
+      fetchBillingSettings();
+      fetchExchangeFees();
+    }
+  }, [status, fetchBillingSettings, fetchExchangeFees]);
 
   const handleSearch = () => {
     setSearchQuery(searchInput);
@@ -407,6 +451,66 @@ export default function AdminFeesPage() {
           </div>
         </div>
 
+        {/* Exchange Fee Rates — moved to own card below */}
+        <div className="pt-4 border-t border-slate-200 dark:border-slate-700 hidden">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Exchange Trading Fee Rates</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+            Update when negotiated fees change. Used to set minimum profit targets per exchange. No deploy needed.
+          </p>
+          {exchangeFees && (['binance', 'kraken'] as const).map(exchange => {
+            const fees = exchangeFees[exchange];
+            const rows: { key: string; label: string; value: number; format: (v: number) => string }[] = [
+              { key: `${exchange}_taker_fee`,           label: 'Taker Fee',          value: fees.taker_fee,           format: v => `${(v*100).toFixed(3)}%` },
+              { key: `${exchange}_maker_fee`,           label: 'Maker Fee',          value: fees.maker_fee,           format: v => `${(v*100).toFixed(3)}%` },
+              { key: `${exchange}_min_profit_weak`,     label: 'Min Profit (Weak)',   value: fees.min_profit_weak,     format: v => `${(v*100).toFixed(1)}%` },
+              { key: `${exchange}_min_profit_moderate`, label: 'Min Profit (Moderate)',value: fees.min_profit_moderate, format: v => `${(v*100).toFixed(1)}%` },
+              { key: `${exchange}_min_profit_strong`,   label: 'Min Profit (Strong)', value: fees.min_profit_strong,   format: v => `${(v*100).toFixed(1)}%` },
+            ];
+            return (
+              <div key={exchange} className="mb-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
+                  {exchange === 'binance' ? 'Binance International' : 'Kraken'}
+                  {exchange === 'kraken' && <span className="ml-2 text-blue-500">US accessible</span>}
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {rows.map(row => (
+                    <div key={row.key} className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">{row.label}</p>
+                      {editingExchangeFee === row.key ? (
+                        <div className="space-y-1">
+                          <input
+                            type="number" step="0.0001" min="0" max="1"
+                            value={exchangeFeeInput}
+                            onChange={e => setExchangeFeeInput(e.target.value)}
+                            className="w-full px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                            autoFocus
+                          />
+                          <div className="flex gap-1">
+                            <button onClick={() => saveExchangeFee(row.key)} disabled={exchangeFeeSaving}
+                              className="flex-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded disabled:opacity-50">
+                              {exchangeFeeSaving ? '…' : 'Save'}
+                            </button>
+                            <button onClick={() => setEditingExchangeFee(null)}
+                              className="px-2 py-0.5 bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs rounded">
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-bold text-slate-900 dark:text-white">{row.format(row.value)}</span>
+                          <button onClick={() => { setExchangeFeeInput(String(row.value)); setEditingExchangeFee(row.key); setRateSettingsError(null); }}
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-1">Edit</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* Per-User Overrides */}
         <div>
           <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-3">Per-User Overrides</p>
@@ -461,6 +565,76 @@ export default function AdminFeesPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Exchange Trading Fee Rates */}
+      <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Exchange Trading Fee Rates</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+          Global rates charged by each exchange per trade. Update when negotiated fees change — affects bot profit targets immediately. No deploy needed.
+        </p>
+        {rateSettingsError && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 px-4 py-3 rounded text-sm mb-4">
+            {rateSettingsError}
+          </div>
+        )}
+        {exchangeFees && (['binance', 'kraken'] as const).map(exchange => {
+          const fees = exchangeFees[exchange];
+          const rows: { key: string; label: string; value: number; format: (v: number) => string }[] = [
+            { key: `${exchange}_taker_fee`,            label: 'Taker Fee',           value: fees.taker_fee,            format: v => `${(v*100).toFixed(3)}%` },
+            { key: `${exchange}_maker_fee`,            label: 'Maker Fee',           value: fees.maker_fee,            format: v => `${(v*100).toFixed(3)}%` },
+            { key: `${exchange}_min_profit_weak`,      label: 'Min Profit (Weak)',   value: fees.min_profit_weak,      format: v => `${(v*100).toFixed(1)}%` },
+            { key: `${exchange}_min_profit_moderate`,  label: 'Min Profit (Moderate)', value: fees.min_profit_moderate, format: v => `${(v*100).toFixed(1)}%` },
+            { key: `${exchange}_min_profit_strong`,    label: 'Min Profit (Strong)', value: fees.min_profit_strong,    format: v => `${(v*100).toFixed(1)}%` },
+          ];
+          return (
+            <div key={exchange} className="mb-6">
+              <div className="flex items-center gap-2 mb-3">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  {exchange === 'binance' ? 'Binance International' : 'Kraken'}
+                </p>
+                {exchange === 'binance'
+                  ? <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global · 180+ countries</span>
+                  : <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">Global + US</span>
+                }
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {rows.map(row => (
+                  <div key={row.key} className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">{row.label}</p>
+                    {editingExchangeFee === row.key ? (
+                      <div className="space-y-1">
+                        <input
+                          type="number" step="0.0001" min="0" max="1"
+                          value={exchangeFeeInput}
+                          onChange={e => setExchangeFeeInput(e.target.value)}
+                          className="w-full px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                          autoFocus
+                        />
+                        <div className="flex gap-1">
+                          <button onClick={() => saveExchangeFee(row.key)} disabled={exchangeFeeSaving}
+                            className="flex-1 px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded disabled:opacity-50">
+                            {exchangeFeeSaving ? '…' : 'Save'}
+                          </button>
+                          <button onClick={() => setEditingExchangeFee(null)}
+                            className="px-2 py-0.5 bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs rounded">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold text-slate-900 dark:text-white">{row.format(row.value)}</span>
+                        <button onClick={() => { setExchangeFeeInput(String(row.value)); setEditingExchangeFee(row.key); setRateSettingsError(null); }}
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-1">Edit</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Stats */}

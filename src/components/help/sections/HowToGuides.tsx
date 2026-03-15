@@ -24,11 +24,11 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I add or change trading pairs?',
-      answer: `To add or modify trading pairs on your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Edit Trading Pairs"\n3. Select from BTC and ETH pairs (e.g., BTC/USD, ETH/USD)\n4. Click "Save Changes"\n5. Changes take effect immediately\n\nNexusMeme is focused on BTC & ETH — the most established crypto markets.\n\nNote: Paper trading bots can be modified anytime. Live trading bots may have brief interruptions when updating pairs.`,
+      answer: `To add or modify trading pairs on your bot:\n\n1. Go to Dashboard and select your bot\n2. Click "Edit Trading Pairs"\n3. Select from BTC/USDT and ETH/USDT pairs\n4. Click "Save Changes"\n5. Changes take effect immediately\n\nNexusMeme is focused on BTC & ETH — the most established crypto markets.\n\nNote: Paper trading bots can be modified anytime. Live trading bots may have brief interruptions when updating pairs.`,
     },
     {
-      question: 'How do I connect my Binance account?',
-      answer: `NexusMeme requires a Binance account. Here's how to connect it:\n\n**Step 1: Create your Binance API key**\n1. Log in to binance.com\n2. Hover over your profile icon (top right) → click "API Management"\n3. Click "Create API" → select "System generated"\n4. Enter a label: "NexusMeme Trading Bot"\n5. Complete security verification (email + authenticator code)\n\n**Step 2: Set API permissions**\n6. Enable "Enable Reading" (required)\n7. Enable "Enable Spot & Margin Trading" (required)\n8. Do NOT enable "Enable Withdrawals" (NexusMeme never needs this)\n9. Set IP access to "Unrestricted" (or add NexusMeme's server IP if provided)\n10. Click "Save" and complete verification again\n\n**Step 3: Connect to NexusMeme**\n11. Copy your API Key and Secret Key (Secret Key is only shown once!)\n12. In NexusMeme, go to Account > Connected Exchanges\n13. Select Binance\n14. Paste your API Key and Secret Key\n15. Click "Connect Exchange"\n16. You'll see a confirmation when successful\n\n**IMPORTANT:**\n- Never enable Withdrawals — keeps your funds safe\n- Save your Secret Key — Binance only shows it once\n- You can revoke access anytime by deleting the API key on Binance`,
+      question: 'How do I connect my exchange account?',
+      answer: `NexusMeme supports two exchanges. Choose the one available in your country:\n\n**Binance International (binance.com)** — Global, not available to US residents\n**Kraken (kraken.com)** — Global including US residents\n\nGo to Settings → Exchange Connections and follow the guide for your exchange. See the Getting Started section for full API key setup instructions for both exchanges.\n\n**IMPORTANT for both exchanges:**\n- Never enable Withdrawals — NexusMeme never needs withdrawal access\n- Save your Secret/Private Key — it's only shown once\n- You can revoke access anytime by deleting the API key on your exchange`,
     },
     {
       question: 'How do I switch from paper trading to live trading?',
@@ -52,7 +52,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I manage my plan?',
-      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading on Binance\n- Full analytics and trade history\n- ${fee} on profits only — $0 on losses`,
+      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading (Binance International or Kraken)\n- Full analytics and trade history\n- ${fee} on profits only — $0 on losses`,
     },
     {
       question: 'How do I enable trade alerts?',

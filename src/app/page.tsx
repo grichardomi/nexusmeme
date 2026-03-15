@@ -56,9 +56,9 @@ export default function Home() {
                   🚀 AI-Powered Crypto Trading Bots
                 </span>
               </div>
-              <div className="inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 px-4 py-1.5 rounded-full border border-amber-200 dark:border-amber-800">
-                <span className="text-xs text-amber-700 dark:text-amber-300">
-                  🌍 Available globally via Binance International — not available to US residents
+              <div className="inline-flex items-center gap-2 bg-green-50 dark:bg-green-900/20 px-4 py-1.5 rounded-full border border-green-200 dark:border-green-800">
+                <span className="text-xs text-green-700 dark:text-green-300">
+                  🌍 Available worldwide — Binance International &amp; Kraken (US residents welcome)
                 </span>
               </div>
             </div>

@@ -176,17 +176,29 @@ class TradeSignalOrchestrator {
         return; // No trades to track
       }
 
-      // Get unique pairs for price fetch
-      const pairs = [...new Set(openTrades.map(t => t.pair))];
+      // Group pairs by exchange for accurate pricing
+      const pairsByExchange = new Map<string, Set<string>>();
+      for (const trade of openTrades) {
+        const ex = (trade.exchange || 'binance').toLowerCase();
+        if (!pairsByExchange.has(ex)) pairsByExchange.set(ex, new Set());
+        pairsByExchange.get(ex)!.add(trade.pair);
+      }
 
-      // Fetch current prices for all pairs in one call
-      const marketData = await marketDataAggregator.getMarketData(pairs);
+      // Fetch prices per exchange and merge into one map keyed by exchange:pair
+      const pricesByExchangePair = new Map<string, any>();
+      for (const [ex, pairs] of pairsByExchange.entries()) {
+        const data = await marketDataAggregator.getMarketData(Array.from(pairs), ex);
+        for (const [pair, priceData] of data.entries()) {
+          pricesByExchangePair.set(`${ex}:${pair}`, priceData);
+        }
+      }
 
       let updatedCount = 0;
       let exitCount = 0;
 
       for (const trade of openTrades) {
-        const priceData = marketData.get(trade.pair);
+        const ex = (trade.exchange || 'binance').toLowerCase();
+        const priceData = pricesByExchangePair.get(`${ex}:${trade.pair}`);
         if (!priceData) {
           continue; // No price data for this pair
         }
@@ -416,6 +428,16 @@ class TradeSignalOrchestrator {
         new Set(activeBots.flatMap(bot => bot.enabled_pairs || []))
       );
 
+      // Build pair → exchange map (first bot wins if pair appears on multiple exchanges)
+      const pairExchangeMap = new Map<string, string>();
+      for (const bot of activeBots) {
+        for (const pair of (bot.enabled_pairs || [])) {
+          if (!pairExchangeMap.has(pair)) {
+            pairExchangeMap.set(pair, (bot.exchange || 'binance').toLowerCase());
+          }
+        }
+      }
+
       if (allPairs.length === 0) {
         logger.debug('Orchestrator: no pairs configured on active bots');
         return; // No pairs configured
@@ -426,29 +448,35 @@ class TradeSignalOrchestrator {
 
       logger.debug('Orchestrator: analyzing pairs', { pairs: allPairs, pairCount: allPairs.length });
 
-      // Fetch market data once for all pairs
-      await marketDataAggregator.getMarketData(allPairs);
+      // Fetch market data once per exchange for all their pairs (warm cache)
+      const pairsByExchangeWarm = new Map<string, string[]>();
+      for (const [pair, ex] of pairExchangeMap.entries()) {
+        if (!pairsByExchangeWarm.has(ex)) pairsByExchangeWarm.set(ex, []);
+        pairsByExchangeWarm.get(ex)!.push(pair);
+      }
+      for (const [ex, pairs] of pairsByExchangeWarm.entries()) {
+        await marketDataAggregator.getMarketData(pairs, ex);
+      }
 
       // BTC 1h momentum — used for ETH position size reduction (Rec #3)
       let btcMomentum1h = 0;
 
       // ZERO PASS A: Fetch BTC momentum for drop protection (needed by risk manager)
-      // Determine BTC pair based on exchange (Kraken uses USD, Binance uses USDT)
       try {
-        const primaryExchange = activeBots[0]?.exchange || 'kraken';
-        const btcPair = primaryExchange === 'binance' ? 'BTC/USDT' : 'BTC/USD';
+        const btcPair = 'BTC/USDT';
+        const btcExchange = pairExchangeMap.get(btcPair) || 'binance';
 
-        const btcData = await marketDataAggregator.getMarketData([btcPair]);
+        const btcData = await marketDataAggregator.getMarketData([btcPair], btcExchange);
         const btcMarketData = btcData.get(btcPair);
         if (btcMarketData) {
           // Calculate BTC 1h momentum (needs minimum 26 candles for indicator calculation)
-          const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '15m', 100);
+          const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '15m', 100, btcExchange);
           if (btcCandles.momentum1h !== undefined) {
             btcMomentum1h = btcCandles.momentum1h; // store for per-pair ETH size reduction
             riskManager.updateBTCMomentum(btcCandles.momentum1h / 100); // Convert percent to decimal
             logger.debug('Orchestrator: BTC momentum updated for risk management', {
               btcPair,
-              exchange: primaryExchange,
+              exchange: 'binance',
               btcMomentum1h: (btcCandles.momentum1h / 100).toFixed(4),
             });
           }
@@ -527,6 +555,7 @@ class TradeSignalOrchestrator {
       logger.debug('Orchestrator cycle: momentum failure → profit targets → pyramiding → 5-stage risk filter → new signals');
 
       for (const pair of allPairs) {
+        const pairExchange = pairExchangeMap.get(pair) || 'binance';
         try {
           // NOTE: Position duplicate prevention is handled PER-BOT in:
           // 1. fan-out.ts createExecutionPlan() - lines 122-138
@@ -542,7 +571,7 @@ class TradeSignalOrchestrator {
           let indicators;
           let candles;
           try {
-            const result = await this.fetchAndCalculateIndicatorsWithCandles(pair, '15m', 100);
+            const result = await this.fetchAndCalculateIndicatorsWithCandles(pair, '15m', 100, pairExchange);
             indicators = result.indicators;
             candles = result.candles;
           } catch (indicatorError) {
@@ -553,8 +582,8 @@ class TradeSignalOrchestrator {
             continue; // Skip pair if we can't get indicators
           }
 
-          // Get current price for risk filter
-          const marketData = await marketDataAggregator.getMarketData([pair]);
+          // Get current price for risk filter (exchange-specific for accurate spread)
+          const marketData = await marketDataAggregator.getMarketData([pair], pairExchange);
           const currentPriceData = marketData.get(pair);
           if (!currentPriceData) {
             logger.warn('No market data for pre-entry risk check', { pair });
@@ -939,25 +968,25 @@ class TradeSignalOrchestrator {
    * Get cached OHLC data or fetch fresh if needed (OPTIMIZATION: Priority #1)
    * Reduces Kraken API calls from N per cycle to 1 per pair per 30 seconds
    */
-  private async getCachedOHLC(pair: string, timeframe: string, limit: number): Promise<any[]> {
-    const cacheKey = `${pair}:${timeframe}:${limit}`;
+  private async getCachedOHLC(pair: string, timeframe: string, limit: number, exchange: string = 'binance'): Promise<any[]> {
+    const cacheKey = `${exchange}:${pair}:${timeframe}:${limit}`;
     const cached = this.ohlcCache.get(cacheKey);
     const now = Date.now();
 
     if (cached && (now - cached.timestamp) < this.OHLC_CACHE_TTL_MS) {
-      logger.debug('OHLC cache HIT', { pair, timeframe, ageMs: now - cached.timestamp });
+      logger.debug('OHLC cache HIT', { pair, timeframe, exchange, ageMs: now - cached.timestamp });
       return cached.data;
     }
 
-    logger.debug('OHLC cache MISS - fetching fresh', { pair, timeframe, limit });
-    const candles = await fetchOHLC(pair, limit, timeframe);
+    logger.debug('OHLC cache MISS - fetching fresh', { pair, timeframe, exchange, limit });
+    const candles = await fetchOHLC(pair, limit, timeframe, exchange);
     this.ohlcCache.set(cacheKey, { data: candles, timestamp: now });
     return candles;
   }
 
-  private async fetchAndCalculateIndicators(pair: string, timeframe: string = '15m', limit: number = 100) {
+  private async fetchAndCalculateIndicators(pair: string, timeframe: string = '15m', limit: number = 100, exchange: string = 'binance') {
     // Use cached OHLC data to avoid redundant API calls (OPTIMIZATION)
-    const candles = await this.getCachedOHLC(pair, timeframe, limit);
+    const candles = await this.getCachedOHLC(pair, timeframe, limit, exchange);
 
     if (candles.length < 26) {
       throw new Error(
@@ -972,9 +1001,9 @@ class TradeSignalOrchestrator {
   /**
    * Fetch OHLC candles and calculate indicators (returns both for intrabar momentum calc)
    */
-  private async fetchAndCalculateIndicatorsWithCandles(pair: string, timeframe: string = '15m', limit: number = 100) {
+  private async fetchAndCalculateIndicatorsWithCandles(pair: string, timeframe: string = '15m', limit: number = 100, exchange: string = 'binance') {
     // Use cached OHLC data to avoid redundant API calls (OPTIMIZATION)
-    const candles = await this.getCachedOHLC(pair, timeframe, limit);
+    const candles = await this.getCachedOHLC(pair, timeframe, limit, exchange);
 
     if (candles.length < 26) {
       throw new Error(
@@ -1078,8 +1107,9 @@ class TradeSignalOrchestrator {
       let exitCount = 0;
       for (const trade of openTrades) {
         try {
-          // Get current market price from aggregator
-          const marketData = await marketDataAggregator.getMarketData([trade.pair]);
+          // Get current market price from aggregator (exchange-specific for accurate bid/ask)
+          const momExchangeForPrice = trade.exchange || 'binance';
+          const marketData = await marketDataAggregator.getMarketData([trade.pair], momExchangeForPrice);
           const currentPriceData = marketData.get(trade.pair);
           if (!currentPriceData) {
             logger.warn('No market data for pair', { pair: trade.pair });
@@ -1143,7 +1173,7 @@ class TradeSignalOrchestrator {
           }
 
           // Fetch and calculate real technical indicators
-          const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+          const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
 
           // Run momentum failure detector
           const momentumResult = momentumFailureDetector.detectMomentumFailure(
@@ -1296,8 +1326,10 @@ class TradeSignalOrchestrator {
       let isBtcDumping = false;
       let btcDumpMom1h = 0;
       let btcDumpVolumeRatio = 0;
+      // Use exchange from the first trade as the reference (BTC dump is correlated across exchanges)
+      const btcDumpExchange = (openTrades[0]?.exchange || 'binance').toLowerCase();
       try {
-        const btcIndicators = await this.fetchAndCalculateIndicators('BTC/USD', '15m', 100);
+        const btcIndicators = await this.fetchAndCalculateIndicators('BTC/USDT', '15m', 100, btcDumpExchange);
         btcDumpMom1h = btcIndicators.momentum1h || 0;
         btcDumpVolumeRatio = btcIndicators.volumeRatio || 1;
         isBtcDumping = btcDumpMom1h < env.BTC_DUMP_MOM1H_THRESHOLD && btcDumpVolumeRatio > env.BTC_DUMP_VOLUME_MIN;
@@ -1318,8 +1350,9 @@ class TradeSignalOrchestrator {
       let exitCount = 0;
       for (const trade of openTrades) {
         try {
-          // Get current market price
-          const marketData = await marketDataAggregator.getMarketData([trade.pair]);
+          // Get current market price (exchange-specific for accurate bid/ask/spread)
+          const tradeExchange = trade.exchange || 'binance';
+          const marketData = await marketDataAggregator.getMarketData([trade.pair], tradeExchange);
           const currentPriceData = marketData.get(trade.pair);
           if (!currentPriceData) {
             logger.warn('No market data for pair - skipping trade', { pair: trade.pair, tradeId: trade.id });
@@ -1329,7 +1362,6 @@ class TradeSignalOrchestrator {
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
           const quantity = parseFloat(String(trade.quantity));
-          const tradeExchange = trade.exchange || 'kraken';
 
           // Calculate NET profit (gross - entry fee ONLY)
           // Exit fee deducted at close time, not during open monitoring
@@ -1401,7 +1433,7 @@ class TradeSignalOrchestrator {
           // Stale regime causes wrong profit targets (e.g. null → 'moderate' → 2% when market is choppy)
           let regime = 'moderate'; // safe fallback
           try {
-            const regimeIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+            const regimeIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
             const liveAdx = regimeIndicators?.adx ?? 0;
             if (liveAdx >= 40) regime = 'strong';
             else if (liveAdx >= 25) regime = 'moderate';
@@ -1463,7 +1495,7 @@ class TradeSignalOrchestrator {
           // Fetch current ADX slope for dynamic profit target adjustment
           let adxSlope = 0;
           try {
-            const exitIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+            const exitIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
             adxSlope = exitIndicators?.adxSlope ?? 0;
           } catch {
             // Safe fallback: slope=0 means no adjustment (uses static regime targets)
@@ -1870,15 +1902,15 @@ class TradeSignalOrchestrator {
       let pyramidCount = 0;
       for (const trade of openTrades) {
         try {
-          // Get current market price
-          const marketData = await marketDataAggregator.getMarketData([trade.pair]);
+          // Get current market price (exchange-specific for accurate pricing)
+          const pyramidExchange = trade.exchange || 'binance';
+          const marketData = await marketDataAggregator.getMarketData([trade.pair], pyramidExchange);
           const currentPriceData = marketData.get(trade.pair);
           if (!currentPriceData) continue;
 
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
           const quantity = parseFloat(String(trade.quantity));
-          const pyramidExchange = trade.exchange || 'kraken';
 
           // Calculate NET profit (gross - entry fee - estimated exit fee)
           const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
@@ -1919,7 +1951,7 @@ class TradeSignalOrchestrator {
             // Check ADX for trend strength first — ADX IS the confidence gate
             let adx = 0;
             try {
-              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+              const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
               adx = indicators.adx || 0;
             } catch (indicatorError) {
               logger.warn('Failed to fetch ADX for pyramid check', {
@@ -2012,7 +2044,7 @@ class TradeSignalOrchestrator {
           if (!hasL2 && hasL1 && currentProfitPct >= l2TriggerPct) {
             let adxL2 = 0;
             try {
-              const indicatorsL2 = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100);
+              const indicatorsL2 = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
               adxL2 = indicatorsL2.adx || 0;
             } catch (indicatorError) {
               logger.warn('Failed to fetch ADX for L2 pyramid check', {

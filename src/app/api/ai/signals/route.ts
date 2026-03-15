@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
       timeframe: searchParams.get('timeframe'),
     });
 
-    const pairs = (query.pairs || 'BTC/USD,ETH/USD').split(',');
+    const pairs = (query.pairs || 'BTC/USDT,ETH/USDT').split(',');
     const timeframe = (query.timeframe || '1h') as '1h' | '4h' | '1d';
 
     const signals = await Promise.all(
