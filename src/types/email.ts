@@ -44,6 +44,7 @@ export interface EmailTemplate {
 export interface WelcomeEmailContext {
   name?: string;
   verificationUrl: string;
+  feePercent?: number;
 }
 
 export interface PasswordResetEmailContext {
@@ -78,6 +79,7 @@ export interface TrialEndingContext {
   trialEndsDate: string;
   daysRemaining: number;
   upgradePath: string;
+  feePercent?: number;
 }
 
 export interface TrialEndingPerformanceFeesContext {
@@ -200,6 +202,7 @@ export interface UpcomingBillingContext {
   tradeCount: number;
   billingDate: string;
   billingUrl: string;
+  feePercent?: number;
 }
 
 export interface BotSuspensionContext {

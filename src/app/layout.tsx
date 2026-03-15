@@ -6,8 +6,8 @@ import { PWARegister } from '@/components/PWARegister';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'NexusMeme - AI Trading Bot Platform | 15% Performance Fees',
-  description: 'AI-powered crypto trading bots focused on BTC & ETH. 15% performance fees on profits only — $0 on losses. No subscription fees.',
+  title: 'NexusMeme - AI Trading Bot Platform | Performance-Based Fees',
+  description: 'AI-powered crypto trading bots focused on BTC & ETH. Performance fees on profits only — $0 on losses. No subscription fees.',
   keywords: 'trading bot, crypto trading, automated trading, AI trading strategies, performance fee model, algorithmic trading',
   authors: [{ name: 'NexusMeme' }],
   creator: 'NexusMeme',
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     url: 'https://nexusmeme.com',
     siteName: 'NexusMeme',
     title: 'NexusMeme - Scale Your Trading Bot',
-    description: 'AI-powered trading platform with 15% performance fees on profits. We only earn when you earn.',
+    description: 'AI-powered trading platform with performance-based fees on profits. We only earn when you earn.',
     images: [
       {
         url: 'https://nexusmeme.com/og-image.png',
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'NexusMeme - AI Trading Bot Platform',
-    description: 'AI-powered crypto trading focused on BTC & ETH. 15% on profits, $0 on losses.',
+    description: 'AI-powered crypto trading focused on BTC & ETH. Performance fee on profits only, $0 on losses.',
     images: ['https://nexusmeme.com/og-image.png'],
   },
   robots: {

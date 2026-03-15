@@ -142,8 +142,8 @@ export default function BotDetailPage() {
       capital = 0; // 0 represents unlimited
     } else {
       const capitalNum = parseFloat(editInitialCapital);
-      if (isNaN(capitalNum) || capitalNum < 100) {
-        setError('Initial capital must be at least 100 (or 0 for unlimited)');
+      if (isNaN(capitalNum) || capitalNum <= 0) {
+        setError('Initial capital must be a positive amount (or switch to Unlimited)');
         return;
       }
       capital = capitalNum;

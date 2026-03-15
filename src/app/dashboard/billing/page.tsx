@@ -135,7 +135,7 @@ export default function BillingPage() {
 
     switch (userPlan?.plan) {
       case 'live_trial':
-        return 'You are on a free trial with paper trading. Add a payment method to upgrade to live trading with real money.';
+        return 'You are on a free trial with paper trading. Switch to live trading to trade with real money.';
       case 'performance_fees':
         return `${feeDisplay}% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.`;
       default:
@@ -275,15 +275,15 @@ export default function BillingPage() {
         <section className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">How Payments Work</h2>
           <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
-            <p>Performance fees are billed monthly on the 1st. Pay with crypto:</p>
+            <p>Performance fees are billed monthly on the 1st. Pay directly with USDC on Base:</p>
             <div className="flex flex-wrap gap-2 mt-2">
-              <span className="px-2 py-1 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 rounded text-xs font-medium">BTC</span>
-              <span className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">ETH</span>
-              <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded text-xs font-medium">USDC</span>
-              <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-xs font-medium">+ more</span>
+              <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded text-xs font-medium">USDC on Base</span>
+              <span className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">MetaMask</span>
+              <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-xs font-medium">WalletConnect</span>
+              <span className="px-2 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded text-xs font-medium">Any wallet via QR</span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-              No stored payment methods needed. Pay each invoice directly via Coinbase Commerce.
+              No stored payment methods. Pay each invoice directly on-chain — confirmed automatically within seconds.
             </p>
           </div>
         </section>

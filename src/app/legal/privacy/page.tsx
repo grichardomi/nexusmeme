@@ -63,11 +63,10 @@ export default function PrivacyPage() {
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Payment Information</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            Payment details are handled by Stripe, a PCI DSS Level 1 compliant processor. We do not store full credit card information on our servers. We only receive and store:
+            Payments are made via USDC on the Base network. We do not store credit card information. We store:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
-            <li>• Last 4 digits of payment method</li>
-            <li>• Billing address</li>
+            <li>• USDC wallet address used for payments</li>
             <li>• Charge history and invoice records</li>
           </ul>
 
@@ -134,7 +133,7 @@ export default function PrivacyPage() {
             We do not sell or rent your personal information to third parties. We may share information with:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
-            <li>• <strong>Payment Processors:</strong> Stripe for billing and payment processing</li>
+            <li>• <strong>Blockchain Networks:</strong> USDC transactions on the Base network are publicly visible on-chain</li>
             <li>• <strong>Exchanges:</strong> Only API credentials you provide to connect your exchange account</li>
             <li>• <strong>Legal Authorities:</strong> When required by law or court order</li>
             <li>• <strong>Service Providers:</strong> Only as needed to operate the platform</li>

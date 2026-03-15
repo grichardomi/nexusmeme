@@ -29,8 +29,7 @@ async function handleCSVExport(userId: string): Promise<Response> {
          pf.fee_rate,
          pf.status,
          pf.paid_at,
-         pf.coinbase_charge_id,
-         pf.stripe_invoice_id
+         pf.payment_reference
        FROM performance_fees pf
        WHERE pf.user_id = $1
          AND pf.created_at >= $2
@@ -48,7 +47,7 @@ async function handleCSVExport(userId: string): Promise<Response> {
       `$${parseFloat(f.fee_amount || 0).toFixed(2)}`,
       f.status,
       f.paid_at ? new Date(f.paid_at).toLocaleDateString('en-US') : 'N/A',
-      f.coinbase_charge_id || f.stripe_invoice_id || 'N/A'
+      f.payment_reference || 'N/A'
     ]);
 
     const csv = [
@@ -88,8 +87,7 @@ async function handleChargesCSVExport(userId: string): Promise<Response> {
          total_fees_amount,
          total_fees_count,
          status,
-         coinbase_charge_id,
-         stripe_invoice_id,
+         payment_reference,
          paid_at,
          created_at
        FROM fee_charge_history
@@ -107,7 +105,7 @@ async function handleChargesCSVExport(userId: string): Promise<Response> {
       `$${parseFloat(c.total_fees_amount || 0).toFixed(2)}`,
       c.total_fees_count,
       c.status,
-      c.coinbase_charge_id || c.stripe_invoice_id || 'N/A',
+      c.payment_reference || 'N/A',
       c.paid_at ? new Date(c.paid_at).toLocaleDateString('en-US') : 'N/A'
     ]);
 
@@ -230,7 +228,6 @@ export async function GET(request: Request) {
             pf.created_at,
             pf.paid_at,
             pf.billed_at,
-            pf.stripe_invoice_id,
             pf.pair,
             COALESCE(bi.config->>'name', 'Bot ' || LEFT(pf.bot_instance_id::text, 8)) as bot_name,
             bi.trading_mode as bot_trading_mode
@@ -268,7 +265,6 @@ export async function GET(request: Request) {
           exit_time: t.created_at || null, // created_at is set at trade close time
           paid_at: t.paid_at,
           billed_at: t.billed_at,
-          stripe_invoice_id: t.stripe_invoice_id,
           pair: t.pair,
         }));
       } catch (err) {
@@ -335,9 +331,7 @@ export async function GET(request: Request) {
              billing_period_end,
              total_fees_amount,
              total_fees_count,
-             stripe_invoice_id,
-             stripe_charge_id,
-             coinbase_charge_id,
+             payment_reference,
              status,
              paid_at,
              created_at
@@ -352,10 +346,8 @@ export async function GET(request: Request) {
 
         chargeHistory = historyResult.map((h: any) => ({
           id: h.id,
-          invoice_id: h.coinbase_charge_id || h.stripe_invoice_id || `charge-${h.id}`,
-          stripe_invoice_id: h.stripe_invoice_id,
-          stripe_charge_id: h.stripe_charge_id,
-          coinbase_charge_id: h.coinbase_charge_id,
+          invoice_id: h.payment_reference || `charge-${h.id}`,
+          payment_reference: h.payment_reference,
           billing_period_start: h.billing_period_start,
           billing_period_end: h.billing_period_end,
           total_fees: parseFloat(h.total_fees_amount || 0),

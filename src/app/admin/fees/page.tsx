@@ -26,8 +26,7 @@ interface FeeRecord {
   created_at: string;
   billed_at?: string;
   paid_at?: string;
-  stripe_invoice_id?: string;
-  coinbase_charge_id?: string;
+  payment_reference?: string;
 }
 
 interface PaginationData {

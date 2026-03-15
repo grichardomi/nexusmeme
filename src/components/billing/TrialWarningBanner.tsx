@@ -18,6 +18,14 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
   const [trialInfo, setTrialInfo] = useState<TrialInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
 
   useEffect(() => {
     const fetchTrialInfo = async () => {
@@ -69,17 +77,17 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
             ? 'text-red-600 dark:text-red-400'
             : 'text-yellow-600 dark:text-yellow-400'
         }`}>
-          Add payment method to continue trading
+          Upgrade to live trading to continue with real money
         </p>
         <Link
-          href="/dashboard/billing#payment-methods"
+          href="/dashboard/billing"
           className={`text-xs font-semibold mt-2 inline-block ${
             isEndingTomorrow
               ? 'text-red-700 dark:text-red-300 hover:underline'
               : 'text-yellow-700 dark:text-yellow-300 hover:underline'
           }`}
         >
-          Add Payment →
+          Go Live →
         </Link>
       </div>
     );
@@ -141,15 +149,15 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
               ? 'text-yellow-600 dark:text-yellow-400'
               : 'text-blue-600 dark:text-blue-400'
           }`}>
-            <li>✅ Trade with your own capital (no minimum)</li>
-            <li>✅ Pay only 15% on profitable trades</li>
+            <li>✅ Trade with your own capital ($1,000 USDT minimum)</li>
+            <li>✅ Pay only {fee} on profitable trades</li>
             <li>✅ No subscription fees, no setup costs</li>
             <li>✅ Cancel anytime</li>
           </ul>
         </div>
 
         <Link
-          href="/dashboard/billing?tab=payment-methods"
+          href="/dashboard/billing"
           className={`px-4 py-2 rounded-lg font-semibold text-white whitespace-nowrap transition ${
             isEndingTomorrow
               ? 'bg-red-600 hover:bg-red-700'
@@ -158,7 +166,7 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {isEndingTomorrow ? 'Add Payment Now' : 'Add Payment Method'}
+          {isEndingTomorrow ? 'Switch to Live Trading Now' : 'Switch to Live Trading'}
         </Link>
       </div>
     </div>

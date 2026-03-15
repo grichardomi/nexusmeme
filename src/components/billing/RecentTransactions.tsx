@@ -18,7 +18,7 @@ interface Transaction {
   created_at?: string;
   exit_time?: string;
   billed_at?: string;
-  stripe_invoice_id?: string;
+  payment_reference?: string;
 }
 
 type StatusFilter = 'all' | 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived';

@@ -3,7 +3,7 @@
  * Schedule: "0 10 * * 3" — every Wednesday at 10 AM UTC
  *
  * Retries billing for users whose fees are still pending_billing
- * after the monthly billing run (e.g., due to transient USDC/Coinbase errors).
+ * after the monthly billing run (e.g., due to transient USDC errors).
  *
  * Only targets fees that are at least 2 days old (gave the monthly job a chance to run)
  * and not yet covered by an active pending invoice.

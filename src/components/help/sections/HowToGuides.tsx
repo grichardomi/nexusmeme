@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { CollapsibleQA } from '../CollapsibleQA';
 
 interface HowToGuidesProps {
@@ -8,6 +8,15 @@ interface HowToGuidesProps {
 }
 
 export function HowToGuides({ searchQuery }: HowToGuidesProps) {
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
+
   const questions = [
     {
       question: 'How do I create my first trading bot?',
@@ -43,7 +52,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I manage my plan?',
-      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading on Binance\n- Full analytics and trade history\n- 15% on profits only — $0 on losses`,
+      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading on Binance\n- Full analytics and trade history\n- ${fee} on profits only — $0 on losses`,
     },
     {
       question: 'How do I enable trade alerts?',

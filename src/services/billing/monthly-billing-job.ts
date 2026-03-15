@@ -1,7 +1,7 @@
 /**
  * Monthly Billing Job
  * Runs on 1st of each month at 2 AM UTC
- * Aggregates pending fees and creates Coinbase Commerce charges
+ * Aggregates pending fees and creates USDC invoices
  */
 
 import { query, transaction } from '@/lib/db';
@@ -12,8 +12,8 @@ import {
   sendPerformanceFeeFailedEmail,
   sendUpcomingBillingEmail,
 } from '@/services/email/triggers';
-import { createPerformanceFeeCharge, isCoinbaseBusinessEnabled } from './coinbase-business';
 import { createUSDCInvoice, isUSDCPaymentEnabled } from './usdc-payment';
+import { markFeesAsBilled } from './performance-fee';
 
 interface PendingUserFees {
   user_id: string;
@@ -38,16 +38,16 @@ export async function runMonthlyBillingJob(): Promise<{
 }> {
   logger.info('Starting monthly billing job');
 
-  // At least one payment method must be enabled
-  if (!isUSDCPaymentEnabled() && !isCoinbaseBusinessEnabled()) {
-    logger.error('Monthly billing job failed: no payment method enabled');
+  // USDC is the only payment method
+  if (!isUSDCPaymentEnabled()) {
+    logger.error('Monthly billing job failed: USDC payment is not enabled');
     return {
       success: false,
       billingRunId: '',
       successCount: 0,
       failureCount: 0,
       totalBilled: 0,
-      errors: ['No payment method enabled (USDC or Coinbase Business)'],
+      errors: ['USDC payment is not enabled (set USDC_PAYMENT_ENABLED=true)'],
     };
   }
 
@@ -213,7 +213,7 @@ async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
 
 /**
  * Process billing for a single user
- * Creates a Coinbase Commerce charge for the user to pay
+ * Creates a USDC invoice for the user to pay
  * @param userFees - Fees to bill for this user
  * @param billingRunId - ID of the current billing run (for metrics scoping, optional for admin functions)
  */
@@ -225,38 +225,22 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
     let chargeReference = '';
     let chargeUrl = billingUrl;
 
-    if (isUSDCPaymentEnabled()) {
-      // Primary: create a direct USDC invoice
-      const invoice = await createUSDCInvoice(
-        userFees.user_id,
-        userFees.fee_ids,
-        userFees.total_fees
-      );
-      chargeReference = invoice.payment_reference;
-      chargeUrl = billingUrl;
+    // Create a USDC invoice (only payment method)
+    const invoice = await createUSDCInvoice(
+      userFees.user_id,
+      userFees.fee_ids,
+      userFees.total_fees
+    );
+    chargeReference = invoice.payment_reference;
+    chargeUrl = billingUrl;
 
-      logger.info('USDC invoice created for monthly billing', {
-        userId: userFees.user_id,
-        reference: invoice.payment_reference,
-        amount: userFees.total_fees,
-      });
-    } else {
-      // Fallback: Coinbase Business charge
-      const charge = await createPerformanceFeeCharge({
-        userId: userFees.user_id,
-        amount: userFees.total_fees,
-        description: `Trading Bot Performance Fee - ${userFees.fee_count} profitable trade(s)`,
-        feeIds: userFees.fee_ids,
-      });
-      chargeReference = charge.code;
-      chargeUrl = charge.hosted_url;
+    await markFeesAsBilled(userFees.user_id, invoice.payment_reference, userFees.fee_ids);
 
-      logger.info('Coinbase Business charge created for monthly billing', {
-        userId: userFees.user_id,
-        chargeCode: charge.code,
-        amount: userFees.total_fees,
-      });
-    }
+    logger.info('USDC invoice created for monthly billing', {
+      userId: userFees.user_id,
+      reference: invoice.payment_reference,
+      amount: userFees.total_fees,
+    });
 
     // Mark fees as billed
     if (billingRunId) {
@@ -274,7 +258,7 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
     await query(
       `INSERT INTO fee_charge_history
        (user_id, billing_period_start, billing_period_end, total_fees_amount,
-        total_fees_count, coinbase_charge_id, status)
+        total_fees_count, payment_reference, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
       [
         userFees.user_id,
@@ -356,8 +340,8 @@ function getEndOfLastMonth(): Date {
 export async function runBillingJobForMonth(year: number, month: number): Promise<any> {
   logger.info('Running billing job for specific month', { year, month });
 
-  if (!isCoinbaseBusinessEnabled()) {
-    throw new Error('Coinbase Commerce not enabled');
+  if (!isUSDCPaymentEnabled()) {
+    throw new Error('USDC payment is not enabled (set USDC_PAYMENT_ENABLED=true)');
   }
 
   const startDate = new Date(year, month - 1, 1);

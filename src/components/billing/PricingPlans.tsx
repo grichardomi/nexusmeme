@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PRICING_PLANS } from '@/config/pricing';
 
 /**
@@ -17,6 +17,14 @@ interface PricingPlansProps {
 
 export function PricingPlans({ currentPlan, onSelectPlan, userCanUpgrade = true }: PricingPlansProps) {
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
 
   const plans = Object.values(PRICING_PLANS);
 
@@ -141,19 +149,19 @@ export function PricingPlans({ currentPlan, onSelectPlan, userCanUpgrade = true 
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">What payment methods do you accept?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              We accept all major credit and debit cards through Stripe. Your payment information is always secure and encrypted.
+              We accept USDC on Base. Pay directly from MetaMask, any WalletConnect wallet, or by scanning a QR code. No credit cards needed — payments settle in seconds with near-zero fees.
             </p>
           </div>
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">Is there a free trial?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Yes! Everyone starts with a 10-day live trading trial. No capital limits - trade with your own funds. No payment required. After the trial, pay only 15% on profits.
+              Yes! Everyone starts with a 10-day free trial with paper trading (simulated, zero risk). No payment required. After the trial, upgrade to live trading and pay only {fee} on profits.
             </p>
           </div>
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">What happens after my trial?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Add a payment method and continue trading. You only pay 15% on profitable trades. If you lose money, you pay nothing.
+              Pay your USDC invoice and continue trading. You only pay {fee} on profitable trades. If you lose money, you pay nothing.
             </p>
           </div>
         </div>

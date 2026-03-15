@@ -1,7 +1,7 @@
 /**
  * Performance Fee Service
  * Handles dynamic fee calculation on profitable trades (configurable via admin /admin/fees)
- * Manages fee tracking and Coinbase Commerce billing integration
+ * Manages fee tracking and USDC payment billing integration
  */
 
 import { query, transaction } from '@/lib/db';
@@ -17,7 +17,7 @@ export interface PerformanceFeeRecord {
   profit_amount: number;
   fee_amount: number;
   status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived' | 'disputed';
-  coinbase_charge_id: string | null;
+  payment_reference: string | null;
   created_at: string;
 }
 
@@ -156,7 +156,7 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
          pf.profit_amount,
          pf.fee_amount,
          pf.status,
-         pf.coinbase_charge_id,
+         pf.payment_reference,
          pf.paid_at,
          pf.pair,
          pf.created_at,
@@ -181,7 +181,7 @@ export async function getRecentFeeTransactions(userId: string, limit = 50) {
 /**
  * Adjust a fee (for P&L corrections)
  * Called by admin when profit calculation is corrected
- * Note: With Coinbase Commerce, refunds must be handled manually
+ * Note: USDC refunds must be handled manually via direct wallet transfer
  */
 export async function adjustFee(
   feeId: string,
@@ -269,7 +269,7 @@ export async function waiveFee(
       const fee = feeResult.rows[0];
 
       // Check if already billed
-      if (fee.coinbase_charge_id) {
+      if (fee.payment_reference) {
         throw new Error('Cannot waive already-billed fees. Use refund instead.');
       }
 
@@ -308,9 +308,8 @@ export async function waiveFee(
 }
 
 /**
- * Mark a fee as refunded (manual refund process for crypto payments)
- * Called by admin after manually processing crypto refund
- * Note: Coinbase Commerce crypto refunds must be done manually via wallet transfer
+ * Mark a fee as refunded (manual refund process for USDC payments)
+ * Called by admin after manually processing USDC refund via direct wallet transfer
  */
 export async function markFeeRefunded(
   feeId: string,
@@ -355,20 +354,16 @@ export async function markFeeRefunded(
         [adminUserId, fee.user_id, [feeId], reason, fee.fee_amount]
       );
 
-      // Update charge history if exists
-      if (fee.coinbase_charge_id) {
+      // Update charge history if a payment reference exists
+      // USDC refunds are manual (direct wallet transfer) — just mark the history record
+      if (fee.payment_reference) {
         await client.query(
           `UPDATE fee_charge_history
            SET status = 'refunded',
                refunded_at = NOW(),
                refund_amount = $1
-           WHERE id = (
-             SELECT fch.id FROM fee_charge_history fch
-             JOIN coinbase_charges cc ON fch.coinbase_charge_id = cc.charge_id
-             WHERE cc.charge_id = $2
-             LIMIT 1
-           )`,
-          [fee.fee_amount, fee.coinbase_charge_id]
+           WHERE payment_reference = $2`,
+          [fee.fee_amount, fee.payment_reference]
         );
       }
     });
@@ -423,27 +418,27 @@ export async function getPendingFeesPerUser(): Promise<Array<{
 
 /**
  * Helper: Mark fees as billed in batch
- * Called by monthly billing job when Coinbase charge is created
+ * Called by monthly billing job when USDC invoice is created
  */
 export async function markFeesAsBilled(
   userId: string,
-  coinbaseChargeId: string,
+  paymentReference: string,
   feeIds: string[]
 ): Promise<void> {
   try {
     await query(
       `UPDATE performance_fees
-       SET coinbase_charge_id = $1,
+       SET payment_reference = $1,
            status = 'billed',
            billed_at = NOW(),
            updated_at = NOW()
        WHERE id = ANY($2)`,
-      [coinbaseChargeId, feeIds]
+      [paymentReference, feeIds]
     );
 
     logger.info('Fees marked as billed', {
       userId,
-      coinbaseChargeId,
+      paymentReference,
       feeCount: feeIds.length,
     });
   } catch (error) {
@@ -456,25 +451,25 @@ export async function markFeesAsBilled(
 
 /**
  * Helper: Mark fees as paid
- * Called by Coinbase webhook (charge:confirmed)
+ * Called by USDC webhook (Alchemy transfer confirmed)
  */
-export async function markFeesAsPaid(coinbaseChargeId: string): Promise<void> {
+export async function markFeesAsPaid(paymentReference: string): Promise<void> {
   try {
     await query(
       `UPDATE performance_fees
        SET status = 'paid',
            paid_at = NOW(),
            updated_at = NOW()
-       WHERE coinbase_charge_id = $1`,
-      [coinbaseChargeId]
+       WHERE payment_reference = $1`,
+      [paymentReference]
     );
 
     logger.info('Fees marked as paid', {
-      coinbaseChargeId,
+      paymentReference,
     });
   } catch (error) {
     logger.error('Failed to mark fees as paid', error instanceof Error ? error : null, {
-      coinbaseChargeId,
+      paymentReference,
     });
     throw error;
   }

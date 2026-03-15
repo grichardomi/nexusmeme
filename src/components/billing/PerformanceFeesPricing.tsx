@@ -1,13 +1,24 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 /**
  * Performance Fees Pricing Component
- * Explains the 15% performance fee model
+ * Explains the dynamic performance fee model
  * Replaces traditional subscription tiers
  */
 export function PerformanceFeesPricing() {
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
+  const feeDecimal = feePercent !== null ? feePercent / 100 : null;
+
   return (
     <div className="space-y-12">
       {/* Main Pricing */}
@@ -16,7 +27,7 @@ export function PerformanceFeesPricing() {
           Performance-Based Pricing
         </div>
         <div className="flex items-baseline justify-center gap-2 mb-6">
-          <span className="text-5xl font-bold text-slate-900 dark:text-white">15%</span>
+          <span className="text-5xl font-bold text-slate-900 dark:text-white">{fee}</span>
           <span className="text-xl text-slate-600 dark:text-slate-400">of profits</span>
         </div>
         <p className="text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
@@ -54,7 +65,7 @@ export function PerformanceFeesPricing() {
             </div>
             <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Trade Closes</h4>
             <p className="text-sm text-slate-600 dark:text-slate-400">
-              If profitable, 15% fee is recorded pending
+              If profitable, {fee} fee is recorded pending
             </p>
           </div>
 
@@ -134,7 +145,7 @@ export function PerformanceFeesPricing() {
             <div>
               <h4 className="font-semibold text-slate-900 dark:text-white">Transparent</h4>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Simple 15% model. No hidden fees or surprise charges.
+                Simple {fee} model. No hidden fees or surprise charges.
               </p>
             </div>
           </div>
@@ -165,12 +176,16 @@ export function PerformanceFeesPricing() {
               <span className="font-mono font-semibold">$800</span>
             </div>
             <div className="flex justify-between text-blue-400">
-              <span>Your Fee (15%)</span>
-              <span className="font-mono font-semibold">$120</span>
+              <span>Your Fee ({fee})</span>
+              <span className="font-mono font-semibold">
+                {feeDecimal !== null ? `$${(800 * feeDecimal).toFixed(2)}` : '…'}
+              </span>
             </div>
             <div className="flex justify-between text-green-400 pt-2 border-t border-slate-700">
               <span>You Keep</span>
-              <span className="font-mono font-semibold">$680</span>
+              <span className="font-mono font-semibold">
+                {feeDecimal !== null ? `$${(800 * (1 - feeDecimal)).toFixed(2)}` : '…'}
+              </span>
             </div>
           </div>
         </div>
@@ -208,7 +223,7 @@ export function PerformanceFeesPricing() {
                   <span className="text-xs text-slate-600 dark:text-slate-400">Regardless of profit</span>
                 </td>
                 <td className="py-3 px-4 text-center text-slate-900 dark:text-white">
-                  15% of profits
+                  {fee} of profits
                   <br />
                   <span className="text-xs text-green-600 dark:text-green-400">Only when you profit</span>
                 </td>
@@ -273,7 +288,7 @@ export function PerformanceFeesPricing() {
               <span className="group-open:rotate-180 transition-transform">▼</span>
             </summary>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-4">
-              No. You only pay 15% on profitable trades. If your bot loses money or has no trades, there's no fee.
+              No. You only pay {fee} on profitable trades. If your bot loses money or has no trades, there&apos;s no fee.
             </p>
           </details>
 
@@ -303,7 +318,7 @@ export function PerformanceFeesPricing() {
               <span className="group-open:rotate-180 transition-transform">▼</span>
             </summary>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-4">
-              Yes. We use Stripe for payments, a PCI DSS Level 1 compliant processor. Your card details are never stored on our servers.
+              Yes. Payments are made with USDC on Base — a blockchain-native stablecoin. No credit card details stored. Pay with MetaMask, WalletConnect, or any USDC-compatible wallet.
             </p>
           </details>
 

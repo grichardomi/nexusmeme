@@ -4,7 +4,7 @@
  *
  * Plans:
  * - live_trial: 10-day live trading trial (new users start here)
- * - performance_fees: Unlimited live trading with 15% fee on profits (after trial)
+ * - performance_fees: Unlimited live trading with performance fee on profits (after trial)
  * - free: (legacy, deprecated - no longer used)
  */
 
@@ -24,7 +24,6 @@ export interface PricingPlan {
   description: string;
   monthlyPrice: number;
   yearlyPrice: number;
-  stripePriceId?: string;
   features: string[];
   limits: {
     botsPerUser: number;
@@ -43,8 +42,6 @@ export interface Subscription {
   plan: SubscriptionPlan;
   status: SubscriptionStatus;
   period: BillingPeriod;
-  stripeSubscriptionId: string;
-  stripeCustomerId: string;
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
   cancelledAt: Date | null;
@@ -58,7 +55,6 @@ export interface Invoice {
   id: string;
   subscriptionId: string;
   userId: string;
-  stripeInvoiceId: string;
   amount: number;
   currency: string;
   status: 'draft' | 'open' | 'paid' | 'void' | 'uncollectible';
@@ -83,12 +79,8 @@ export interface Usage {
 export interface PaymentMethod {
   id: string;
   userId: string;
-  stripePaymentMethodId: string;
-  type: string; // 'card', 'bank_account', etc.
-  brand?: string; // 'visa', 'mastercard', etc.
-  last4: string;
-  expMonth?: number;
-  expYear?: number;
+  type: string; // 'usdc', etc.
+  walletAddress?: string;
   isDefault: boolean;
   createdAt: Date;
 }

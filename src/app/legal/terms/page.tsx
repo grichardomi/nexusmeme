@@ -98,7 +98,7 @@ export default function TermsPage() {
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Fee Model</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            NexusMeme charges a <strong>15% performance fee on profits only</strong>. You are charged when your trading bot generates profitable trades. Losing trades incur no fee.
+            NexusMeme charges a <strong>performance fee on profits only</strong>. The current fee rate is displayed in your Billing Dashboard and at <a href="/help/performance-fees" className="text-blue-600 dark:text-blue-400 underline">nexusmeme.com/help/performance-fees</a>. You are charged when your trading bot generates profitable trades. Losing trades incur no fee.
           </p>
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Billing Schedule</h3>
@@ -113,7 +113,7 @@ export default function TermsPage() {
           <p className="text-slate-700 dark:text-slate-300 mb-2">Your billing account has three possible statuses:</p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
             <li>• <strong>Active:</strong> All charges succeeded, account in good standing</li>
-            <li>• <strong>Past Due:</strong> A charge failed; Stripe is automatically retrying</li>
+            <li>• <strong>Past Due:</strong> A USDC invoice is overdue; please pay to continue trading</li>
             <li>• <strong>Suspended:</strong> Multiple charge attempts failed; bot will pause in 24 hours</li>
           </ul>
 
@@ -135,10 +135,10 @@ export default function TermsPage() {
         <section id="payment">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">5. Payment Methods</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            All payments are processed through Stripe, a PCI DSS Level 1 compliant payment processor. By using NexusMeme, you authorize Stripe to charge your payment method for fees incurred.
+            All payments are made via USDC on the Base network. Monthly invoices are generated on the 1st of each month and must be paid by sending USDC to the wallet address shown in your billing dashboard.
           </p>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            You are responsible for maintaining valid payment method information in your account. If a charge fails repeatedly, your account may be suspended.
+            You are responsible for paying invoices on time. If an invoice remains unpaid past its due date, your account may be suspended.
           </p>
         </section>
 

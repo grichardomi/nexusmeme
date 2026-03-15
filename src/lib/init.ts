@@ -27,7 +27,7 @@ export async function initializeApp() {
     initialized = true;
     console.log('🚀 Initializing app...');
 
-    // Validate startup configuration (Stripe, database, auth, etc.)
+    // Validate startup configuration (USDC payment, database, auth, etc.)
     console.log('🔐 Validating startup configuration...');
     try {
       await requireStartupValidation();

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { CollapsibleQA } from '../CollapsibleQA';
 
 interface GettingStartedProps {
@@ -8,6 +8,15 @@ interface GettingStartedProps {
 }
 
 export function GettingStarted({ searchQuery }: GettingStartedProps) {
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
+
   const questions = [
     {
       question: 'What is NexusMeme?',
@@ -28,7 +37,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     {
       question: 'Do I need to pay upfront?',
       answer:
-        'No! All new users get a 10-day free trial with paper trading (simulated trades, zero risk). No credit card required. After the trial, upgrade to live trading and pay only 15% on your profits.',
+        `No! All new users get a 10-day free trial with paper trading (simulated trades, zero risk). No payment required. After the trial, upgrade to live trading and pay only ${fee} on your profits.`,
     },
     {
       question: 'Which exchange do I need?',
@@ -69,16 +78,16 @@ IMPORTANT:
     {
       question: 'What is the trial period?',
       answer:
-        'Every new user gets a 10-day free trial with paper trading (simulated trades, zero risk). This lets you test NexusMeme with real market data without risking real money. No payment required during the trial. After the trial ends, upgrade to live trading and pay only 15% on your profits.',
+        `Every new user gets a 10-day free trial with paper trading (simulated trades, zero risk). Test NexusMeme with real market data without risking real money. No payment required during the trial. After the trial ends, upgrade to live trading and pay only ${fee} on your profits.`,
     },
     {
       question: 'Can I trade with my own capital?',
-      answer: `Yes! During your 10-day trial, you test the bot with paper trading (simulated). After the trial, upgrade to live trading to trade with your own real capital. You'll only pay 15% on your profits. There is no minimum capital requirement - you can trade with any amount you choose.`,
+      answer: `Yes! During your 10-day trial, you test the bot with paper trading (simulated). After the trial, upgrade to live trading to trade with your own real capital. You'll only pay ${fee} on your profits.`,
     },
     {
       question: 'What is the minimum capital required?',
       answer:
-        'During your 10-day trial, you use paper trading (simulated, no real money). After upgrading to live trading, there is no minimum capital requirement - you can trade with any amount you choose. The bot works with your own funds in your Binance account.',
+        'During your 10-day trial, you use paper trading (simulated, no real money required). For live trading, a minimum of $1,000 USDT/USD in your exchange account is required. This ensures your account can absorb normal market volatility and generate meaningful returns.',
     },
     {
       question: 'Can I create multiple bots?',

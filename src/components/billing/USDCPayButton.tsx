@@ -338,7 +338,7 @@ export function USDCPayButton({ tradingMode }: USDCPayButtonProps) {
     }
   };
 
-  if (tradingMode === 'paper' && !mockMode) return null;
+  if (tradingMode === 'paper' && !mockMode && process.env.NEXT_PUBLIC_USDC_SHOW_IN_TRIAL !== 'true') return null;
   if (checking) return <div className="animate-pulse bg-slate-100 dark:bg-slate-800 rounded-lg h-24" />;
   if (!status) return (
     <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-sm text-slate-500 dark:text-slate-400">

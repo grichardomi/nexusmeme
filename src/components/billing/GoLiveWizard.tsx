@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TRIAL_CONFIG } from '@/config/pricing';
 
 type WizardStep = 'confirm' | 'processing' | 'success' | 'error';
 
@@ -10,6 +9,7 @@ interface BotInfo {
   name: string;
   isActive: boolean;
   tradingMode: 'paper' | 'live';
+  exchange: string;
 }
 
 interface BotSwitchResult {
@@ -19,21 +19,29 @@ interface BotSwitchResult {
   error?: string;
 }
 
+interface BalanceInfo {
+  real: number;       // raw USDT/USD
+  minimum: number;    // LIVE_TRADING_MIN_BALANCE_USD
+  sufficient: boolean;
+  exchange: string;
+  error?: string;     // set if balance fetch failed (non-blocking)
+}
+
 interface GoLiveWizardProps {
   onClose: () => void;
   onComplete: () => void;
 }
 
-  /**
-   * Go Live Wizard
-   * 2-click flow: Confirm → Done
-   * Switches ALL user bots from paper to live trading
-   * Handles: stop bot(s) → switch to live → restart bot(s) automatically
-   * Requires fee acknowledgment checkbox before enabling switch
-   */
+/**
+ * Go Live Wizard
+ * Switches ALL user bots from paper to live trading.
+ * Pre-checks:
+ *   1. Fetches dynamic fee from /api/billing/fee-rate/default (no hardcoded %)
+ *   2. Fetches exchange balance via /api/bots/[id]/balance and shows it on
+ *      the confirm screen so the user knows their balance before switching
+ * Requires fee acknowledgment checkbox before enabling switch.
+ */
 export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
-  const feePercentage = TRIAL_CONFIG.PERFORMANCE_FEE_PERCENT;
-
   const [step, setStep] = useState<WizardStep>('confirm');
   const [bots, setBots] = useState<BotInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,8 +50,21 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
   const [feeAcknowledged, setFeeAcknowledged] = useState(false);
   const [switchResults, setSwitchResults] = useState<BotSwitchResult[]>([]);
 
-  // ALWAYS fetch all bots to ensure ALL user bots switch to live
+  // Dynamic fee from DB — never hardcoded
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [minBalance, setMinBalance] = useState<number>(1000);
+
+  // Balance pre-check result
+  const [balance, setBalance] = useState<BalanceInfo | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+
   useEffect(() => {
+    // Fetch dynamic fee and env minimum in parallel with bots
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+
     fetchAllBots();
   }, []);
 
@@ -52,7 +73,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
       const res = await fetch('/api/bots');
       if (!res.ok) throw new Error('Failed to fetch bots');
       const data = await res.json();
-      const allBots = data.bots || data;
+      const allBots: BotInfo[] = data.bots || data;
 
       if (!allBots || allBots.length === 0) {
         setError('No bots found. Create a bot first before switching to live trading.');
@@ -60,9 +81,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
         return;
       }
 
-      // Filter to only paper trading bots
-      const paperBots = allBots.filter((b: BotInfo) => b.tradingMode === 'paper');
-
+      const paperBots = allBots.filter(b => b.tradingMode === 'paper');
       if (paperBots.length === 0) {
         setError('All your bots are already in live trading mode.');
         setStep('error');
@@ -70,11 +89,55 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
       }
 
       setBots(paperBots);
+
+      // Pre-fetch balance for the first bot's exchange (all bots share one exchange per user)
+      fetchBalance(paperBots[0]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load bots');
       setStep('error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBalance = async (bot: BotInfo) => {
+    setBalanceLoading(true);
+    try {
+      const res = await fetch(`/api/bots/${bot.id}/balance`);
+      const data = await res.json();
+
+      // Read minimum from balance response (reflects LIVE_TRADING_MIN_BALANCE_USD env)
+      const minimum: number = data.minimum ?? 1000;
+      setMinBalance(minimum);
+
+      if (!res.ok || data.available === null) {
+        setBalance({
+          real: 0,
+          minimum,
+          sufficient: true, // fail open — server-side check is authoritative
+          exchange: bot.exchange,
+          error: data.error || 'Could not verify balance — the server will check on switch.',
+        });
+        return;
+      }
+
+      const real = data.real ?? data.available ?? 0;
+      setBalance({
+        real,
+        minimum,
+        sufficient: real >= minimum,
+        exchange: bot.exchange,
+      });
+    } catch {
+      setBalance({
+        real: 0,
+        minimum: 1000,
+        sufficient: true, // fail open
+        exchange: bot.exchange,
+        error: 'Could not verify balance — the server will check on switch.',
+      });
+    } finally {
+      setBalanceLoading(false);
     }
   };
 
@@ -88,7 +151,6 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
     try {
       setProgressMessage(`Switching ${bots.length} bot${bots.length > 1 ? 's' : ''} to live trading...`);
 
-      // Process each bot
       for (const bot of bots) {
         try {
           // Step 1: Stop bot if running
@@ -102,11 +164,10 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
               const data = await stopRes.json();
               throw new Error(data.error || 'Failed to stop bot');
             }
-            // Brief pause for clean shutdown
             await new Promise(r => setTimeout(r, 500));
           }
 
-          // Step 2: Switch to live
+          // Step 2: Switch to live — server enforces balance + subscription checks
           const switchRes = await fetch('/api/bots', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -115,10 +176,13 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
 
           if (!switchRes.ok) {
             const data = await switchRes.json();
+            if (data.code === 'INSUFFICIENT_BALANCE') {
+              throw new Error(data.error || `Your account balance is below the $${minBalance.toLocaleString()} minimum required for live trading.`);
+            }
             if (data.code === 'PAYMENT_REQUIRED') {
               throw new Error('Your trial has expired. Please contact support to continue trading.');
             }
-            throw new Error(data.error || 'Failed to switch to live');
+            throw new Error(data.error || 'Failed to switch to live trading.');
           }
 
           // Step 3: Restart bot
@@ -133,11 +197,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
             console.warn(`Bot ${bot.name} switched to live but failed to auto-start:`, data.error);
           }
 
-          results.push({
-            botId: bot.id,
-            botName: bot.name,
-            success: true,
-          });
+          results.push({ botId: bot.id, botName: bot.name, success: true });
         } catch (botError) {
           results.push({
             botId: bot.id,
@@ -150,13 +210,10 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
 
       setSwitchResults(results);
 
-      // Check if any failed
       const failedCount = results.filter(r => !r.success).length;
       if (failedCount === results.length) {
-        // All failed
-        throw new Error(`Failed to switch ${failedCount} bot${failedCount > 1 ? 's' : ''} to live trading.`);
+        throw new Error(results[0]?.error || `Failed to switch ${failedCount} bot${failedCount > 1 ? 's' : ''} to live trading.`);
       } else if (failedCount > 0) {
-        // Partial success
         setProgressMessage(`${results.length - failedCount}/${results.length} bots switched successfully`);
       }
 
@@ -167,7 +224,9 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
     }
   };
 
-  // Loading state
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
+  const balanceSufficient = balance === null || balance.sufficient;
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-2 sm:p-4">
@@ -183,7 +242,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
     <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-2 sm:p-4">
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl max-w-md w-full border border-slate-200 dark:border-slate-700 overflow-hidden max-h-[95vh] sm:max-h-[90vh] flex flex-col">
 
-        {/* Step: Confirm */}
+        {/* Confirm */}
         {step === 'confirm' && bots.length > 0 && (
           <>
             <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 sm:px-6 py-4 sm:py-5 flex-shrink-0">
@@ -194,29 +253,80 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
             </div>
 
             <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
+
+              {/* Balance check */}
+              <div className={`rounded-lg p-3 sm:p-4 border ${
+                balanceLoading
+                  ? 'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-600'
+                  : balance?.error
+                  ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                  : !balanceSufficient
+                  ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                  : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+              }`}>
+                {balanceLoading ? (
+                  <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs sm:text-sm">
+                    <div className="animate-spin w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full flex-shrink-0" />
+                    Checking account balance…
+                  </div>
+                ) : balance?.error ? (
+                  <div>
+                    <p className="text-xs sm:text-sm font-semibold text-yellow-800 dark:text-yellow-200">⚠️ Balance unavailable</p>
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">{balance.error}</p>
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                      Minimum required: <strong>${minBalance.toLocaleString()} USDT/USD</strong>
+                    </p>
+                  </div>
+                ) : !balanceSufficient ? (
+                  <div>
+                    <p className="text-xs sm:text-sm font-semibold text-red-800 dark:text-red-200">❌ Insufficient balance</p>
+                    <p className="text-xs text-red-700 dark:text-red-300 mt-1">
+                      Your {balance!.exchange.toUpperCase()} account has{' '}
+                      <strong>${balance!.real.toFixed(2)} USDT/USD</strong> —
+                      below the <strong>${balance!.minimum.toLocaleString()}</strong> minimum for live trading.
+                    </p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                      Fund your {balance!.exchange.toUpperCase()} account and try again.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xs sm:text-sm font-semibold text-green-800 dark:text-green-200">✅ Balance verified</p>
+                    <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                      {balance!.exchange.toUpperCase()} account:{' '}
+                      <strong>${balance!.real.toFixed(2)} USDT/USD</strong>
+                      {' '}(minimum: ${balance!.minimum.toLocaleString()})
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Irreversible warning */}
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 sm:p-4">
                 <p className="text-xs sm:text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">
                   ⚠️ This cannot be undone
                 </p>
                 <p className="text-xs sm:text-sm text-amber-700 dark:text-amber-300 leading-relaxed">
-                  Once you switch to live, you cannot go back to paper trading. {bots.length === 1 ? 'Your bot' : 'All your bots'} will trade with <strong>real funds</strong>.
+                  Once you switch to live, you cannot go back to paper trading.{' '}
+                  {bots.length === 1 ? 'Your bot' : 'All your bots'} will trade with <strong>real funds</strong>.
                 </p>
               </div>
 
-              {/* Show list of bots if more than 1 */}
+              {/* Bot list if >1 */}
               {bots.length > 1 && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 sm:p-4 max-h-32 overflow-y-auto">
                   <p className="text-xs sm:text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">
                     Bots to be switched ({bots.length}):
                   </p>
                   <ul className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
-                    {bots.map((bot) => (
+                    {bots.map(bot => (
                       <li key={bot.id} className="truncate">• {bot.name} {bot.isActive && '(running)'}</li>
                     ))}
                   </ul>
                 </div>
               )}
 
+              {/* What happens */}
               <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 space-y-2">
                 <p className="font-medium text-slate-800 dark:text-slate-200">What happens next:</p>
                 <div className="flex items-start gap-2">
@@ -225,7 +335,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-green-500 mt-0.5 flex-shrink-0">2.</span>
-                  <p className="leading-relaxed">Trading mode switches from paper to live for {bots.length === 1 ? 'the bot' : 'all bots'}</p>
+                  <p className="leading-relaxed">Trading mode switches from paper to live</p>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="text-green-500 mt-0.5 flex-shrink-0">3.</span>
@@ -233,12 +343,12 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                 </div>
               </div>
 
-              {/* Performance Fee Acknowledgment */}
+              {/* Performance fee acknowledgment — dynamic rate, correct payment copy */}
               <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 sm:p-4 space-y-2 sm:space-y-3">
                 <div className="text-xs sm:text-sm text-slate-700 dark:text-slate-300">
                   <p className="font-medium mb-1">Performance Fees</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    {feePercentage}% on profitable trades only, billed monthly via crypto (BTC, ETH, USDC). No subscription fees.
+                    {fee} on profitable trades only, billed monthly. Pay with USDC on Base — no subscription fees.
                   </p>
                 </div>
 
@@ -246,17 +356,17 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                   <input
                     type="checkbox"
                     checked={feeAcknowledged}
-                    onChange={(e) => setFeeAcknowledged(e.target.checked)}
+                    onChange={e => setFeeAcknowledged(e.target.checked)}
                     className="mt-0.5 w-4 h-4 flex-shrink-0 rounded border-slate-300 dark:border-slate-600 text-green-600 focus:ring-green-500 cursor-pointer"
                   />
                   <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                    I acknowledge that a <strong>{feePercentage}% performance fee</strong> applies to all profitable trades.{' '}
+                    I acknowledge that a <strong>{fee} performance fee</strong> applies to all profitable trades.{' '}
                     <a
                       href="/legal/terms#performance-fees"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-green-600 dark:text-green-400 underline hover:text-green-700 dark:hover:text-green-300 whitespace-nowrap"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
                     >
                       View terms
                     </a>
@@ -274,9 +384,9 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
               </button>
               <button
                 onClick={handleGoLive}
-                disabled={!feeAcknowledged}
+                disabled={!feeAcknowledged || !balanceSufficient || balanceLoading}
                 className={`flex-1 px-4 py-2.5 text-xs sm:text-sm font-bold rounded-lg transition touch-manipulation ${
-                  feeAcknowledged
+                  feeAcknowledged && balanceSufficient && !balanceLoading
                     ? 'text-white bg-green-600 hover:bg-green-700'
                     : 'text-slate-400 bg-slate-200 dark:text-slate-500 dark:bg-slate-700 cursor-not-allowed'
                 }`}
@@ -288,7 +398,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
           </>
         )}
 
-        {/* Step: Processing */}
+        {/* Processing */}
         {step === 'processing' && (
           <div className="px-4 sm:px-6 py-8 sm:py-10 text-center">
             <div className="animate-spin w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full mx-auto" />
@@ -301,7 +411,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
           </div>
         )}
 
-        {/* Step: Success */}
+        {/* Success */}
         {step === 'success' && (
           <>
             <div className="px-4 sm:px-6 py-8 sm:py-10 overflow-y-auto flex-1">
@@ -310,19 +420,21 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                 You&apos;re Live!
               </h3>
               <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm text-center mb-4 leading-relaxed px-2">
-                {switchResults.length === 1 ? 'Your bot is' : 'Your bots are'} now trading with real funds. Profits will appear in your trading dashboard.
+                {switchResults.length === 1 ? 'Your bot is' : 'Your bots are'} now trading with real funds.
+                Profits will appear in your trading dashboard.
+              </p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs text-center px-2">
+                Performance fees of {fee} on profits are billed monthly on the 1st.
+                Pay with USDC on Base via your Billing Dashboard.
               </p>
 
-              {/* Show results if multiple bots */}
               {switchResults.length > 1 && (
                 <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 sm:p-4 mt-4 max-h-40 overflow-y-auto">
-                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-                    Switch Results:
-                  </p>
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">Switch Results:</p>
                   <ul className="text-xs space-y-1">
-                    {switchResults.map((result) => (
+                    {switchResults.map(result => (
                       <li key={result.botId} className={`${result.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'} truncate`}>
-                        {result.success ? '✓' : '✗'} {result.botName} {result.error && `- ${result.error}`}
+                        {result.success ? '✓' : '✗'} {result.botName} {result.error && `— ${result.error}`}
                       </li>
                     ))}
                   </ul>
@@ -332,10 +444,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
 
             <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0">
               <button
-                onClick={() => {
-                  onComplete();
-                  onClose();
-                }}
+                onClick={() => { onComplete(); onClose(); }}
                 className="w-full px-4 py-2.5 text-sm font-bold text-white bg-green-600 hover:bg-green-700 rounded-lg transition touch-manipulation"
               >
                 Done
@@ -344,7 +453,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
           </>
         )}
 
-        {/* Step: Error */}
+        {/* Error */}
         {step === 'error' && (
           <>
             <div className="px-4 sm:px-6 py-6 sm:py-8 text-center overflow-y-auto flex-1">

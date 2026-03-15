@@ -2,6 +2,7 @@ import { getPool, query } from '@/lib/db';
 import { PRICING_PLANS } from '@/config/pricing';
 import { logger } from '@/lib/logger';
 import { Subscription, SubscriptionPlan, BillingPeriod } from '@/types/billing';
+import { checkMinimumBalance } from './balance-guard';
 
 /**
  * Subscription Management Service
@@ -186,8 +187,8 @@ export async function cancelUserSubscription(
 export async function checkActionAllowed(
   userId: string,
   action: 'createBot' | 'addPair' | 'makeApiCall' | 'startBot',
-  options?: { tradingMode?: 'paper' | 'live' }
-): Promise<{ allowed: boolean; reason?: string; limit?: number; requiresPaymentMethod?: boolean; isPaperTrading?: boolean }> {
+  options?: { tradingMode?: 'paper' | 'live'; exchange?: string }
+): Promise<{ allowed: boolean; reason?: string; limit?: number; requiresPaymentMethod?: boolean; isPaperTrading?: boolean; insufficientBalance?: boolean }> {
   // For bot creation and startup, check if user can trade first
   if (action === 'createBot' || action === 'startBot') {
     // Check subscription status (trial expired, payment required, etc.)
@@ -224,15 +225,23 @@ export async function checkActionAllowed(
 
     // For live trading, also check billing suspension status
     const billingResult = await query(
-      `SELECT billing_status FROM user_stripe_billing WHERE user_id = $1`,
+      `SELECT billing_status FROM user_billing WHERE user_id = $1`,
       [userId]
     );
     if (billingResult[0]?.billing_status === 'suspended') {
       return {
         allowed: false,
-        reason: 'Your billing is suspended due to failed payments. Please update your payment method to resume trading.',
+        reason: 'Your account is suspended due to an unpaid invoice. Please pay your outstanding USDC invoice to resume trading.',
         requiresPaymentMethod: true,
       };
+    }
+
+    // For live trading, enforce minimum account balance
+    if (options?.tradingMode === 'live' && options?.exchange) {
+      const balanceCheck = await checkMinimumBalance(userId, options.exchange, 'live');
+      if (!balanceCheck.allowed) {
+        return { allowed: false, reason: balanceCheck.reason, insufficientBalance: true };
+      }
     }
   }
 

@@ -9,8 +9,8 @@ import { z } from 'zod';
 /**
  * POST /api/admin/fees/refund
  * Mark a paid fee as refunded (manual crypto refund process)
- * Note: With Coinbase Commerce, refunds must be processed manually
- * via crypto wallet transfer. This endpoint records the refund in the system.
+ * Note: USDC refunds must be processed manually via direct wallet transfer.
+ * This endpoint records the refund in the system.
  */
 export async function POST(req: NextRequest) {
   try {

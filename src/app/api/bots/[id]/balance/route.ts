@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { decrypt } from '@/lib/crypto';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
+import { getEnvironmentConfig } from '@/config/environment';
 
 /**
  * GET /api/bots/[id]/balance
@@ -199,9 +200,12 @@ export async function GET(
         ethPrice,
       });
 
+      const liveMinimum = getEnvironmentConfig().LIVE_TRADING_MIN_BALANCE_USD;
+
       return NextResponse.json({
         available: bufferedBalance,        // Deployable trading balance (95% of USDT/USD)
         real: realBalance,                 // Raw USDT/USD balance
+        minimum: liveMinimum,              // Minimum required for live trading (LIVE_TRADING_MIN_BALANCE_USD)
         totalAccountValue,                 // Full account value incl. BTC + ETH holdings
         breakdown: {
           usdCash,

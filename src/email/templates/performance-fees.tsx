@@ -124,6 +124,7 @@ interface UpcomingBillingProps {
   tradeCount: number;
   billingDate: string;
   billingUrl: string;
+  feePercent?: number | string;
 }
 
 export function UpcomingBillingEmailTemplate({
@@ -132,7 +133,9 @@ export function UpcomingBillingEmailTemplate({
   tradeCount,
   billingDate,
   billingUrl,
+  feePercent = 6,
 }: UpcomingBillingProps): EmailTemplate {
+  const feePercentNum = parseFloat(String(feePercent));
   const html = `
     <!DOCTYPE html>
     <html>
@@ -170,7 +173,7 @@ export function UpcomingBillingEmailTemplate({
             <p>Hi ${name},</p>
             <p>This is a reminder that your monthly performance fees will be charged on <strong>${billingDate}</strong>.</p>
             <div class="fee-box">
-              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (15% of Profits)</p>
+              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (${feePercentNum}% of Profits)</p>
               <div class="amount">$${totalPendingFees.toFixed(2)}</div>
               <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${tradeCount} profitable trade(s)</p>
             </div>
@@ -188,7 +191,7 @@ export function UpcomingBillingEmailTemplate({
             </table>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>How Performance Fees Work</h3>
-            <p>You only pay when your bot generates profits. We charge 15% of your realized profits each month. No profits = no charge.</p>
+            <p>You only pay when your bot generates profits. We charge ${feePercentNum}% of your realized profits each month. No profits = no charge.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
@@ -209,13 +212,13 @@ Hi ${name},
 
 This is a reminder that your monthly performance fees will be charged on ${billingDate}.
 
-Pending Performance Fees (15% of Profits): $${totalPendingFees.toFixed(2)}
+Pending Performance Fees (${feePercentNum}% of Profits): $${totalPendingFees.toFixed(2)}
 From: ${tradeCount} profitable trade(s)
 
 Billing Date: ${billingDate}
-Payment Method: Card on file (auto-charge)
+Payment Method: USDC on Base network
 
-Your card on file will be charged automatically. If you need to update your payment method, please do so before the billing date.
+An invoice will be generated on the billing date. Pay directly from your Billing Dashboard using MetaMask, WalletConnect, or any USDC wallet.
 
 Manage billing: ${billingUrl}
 

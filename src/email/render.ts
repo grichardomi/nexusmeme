@@ -84,6 +84,7 @@ export function renderEmailTemplate(
       return WelcomeEmailTemplate({
         name: ctx.name || '',
         verificationUrl: ctx.verificationUrl,
+        feePercent: ctx.feePercent,
       });
     }
 
@@ -92,6 +93,7 @@ export function renderEmailTemplate(
       return WelcomeEmailTemplate({
         name: ctx.name || '',
         verificationUrl: ctx.verificationUrl,
+        feePercent: ctx.feePercent,
       });
     }
 
@@ -141,6 +143,7 @@ export function renderEmailTemplate(
         trialEndsDate: ctx.trialEndsDate,
         daysRemaining: ctx.daysRemaining,
         upgradePath: ctx.upgradePath,
+        feePercent: ctx.feePercent,
       });
     }
 
@@ -352,6 +355,7 @@ export function renderEmailTemplate(
         tradeCount: ctx.tradeCount,
         billingDate: ctx.billingDate,
         billingUrl: ctx.billingUrl,
+        feePercent: ctx.feePercent,
       });
     }
 

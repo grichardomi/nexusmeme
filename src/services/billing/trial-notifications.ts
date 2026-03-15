@@ -9,8 +9,8 @@ import { TRIAL_CONFIG } from '@/config/pricing';
  * Handles sending trial expiration notifications for live trading trial users
  *
  * After trial expires:
- * - Users transition to performance_fees plan where they pay 15% on profits
- * - Users must add a payment method to continue trading after trial ends
+ * - Users transition to performance_fees plan where they pay a performance fee on profits
+ * - Users switch to live trading to continue after trial ends
  */
 
 const TRIAL_NOTIFICATION_WINDOWS = {
@@ -101,7 +101,7 @@ async function sendTrialNotificationEmail(
       trialEndsDate,
       daysRemaining: Math.max(0, daysUntilExpiry),
       performanceFeePercent: TRIAL_CONFIG.PERFORMANCE_FEE_PERCENT,
-      addPaymentPath: `https://nexusmeme.com/dashboard/billing/payment-methods?returnTo=trading`,
+      addPaymentPath: `https://nexusmeme.com/dashboard/billing`,
     };
 
     // Determine which email template to send based on days remaining
@@ -111,7 +111,7 @@ async function sendTrialNotificationEmail(
       if (!hasPaymentMethod) {
         // Need payment method to continue after trial
         templateType = 'trial_ending_soon_add_payment';
-        templateData.setupPaymentPath = `https://nexusmeme.com/dashboard/billing/payment-methods?setup=true`;
+        templateData.setupPaymentPath = `https://nexusmeme.com/dashboard/billing`;
       }
     }
     // else: daysUntilExpiry is 2-3 days, use default 'trial_ending_performance_fees' (3-day warning)

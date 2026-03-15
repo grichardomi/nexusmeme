@@ -86,8 +86,7 @@ export async function GET(request: NextRequest) {
         pf.created_at,
         pf.billed_at,
         pf.paid_at,
-        pf.stripe_invoice_id,
-        pf.coinbase_charge_id,
+        pf.payment_reference,
         pf.fee_rate_applied
       FROM performance_fees pf
       JOIN users u ON pf.user_id = u.id
@@ -112,8 +111,7 @@ export async function GET(request: NextRequest) {
       created_at: f.created_at,
       billed_at: f.billed_at,
       paid_at: f.paid_at,
-      stripe_invoice_id: f.stripe_invoice_id,
-      coinbase_charge_id: f.coinbase_charge_id,
+      payment_reference: f.payment_reference,
       fee_rate_applied: f.fee_rate_applied != null ? parseFloat(String(f.fee_rate_applied)) : null,
     }));
 

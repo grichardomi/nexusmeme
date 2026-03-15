@@ -5,6 +5,17 @@
 
 import { queueEmail } from './queue';
 import { EmailContext } from '@/types/email';
+import { query } from '@/lib/db';
+import { getEnvironmentConfig } from '@/config/environment';
+
+async function getDefaultFeePercent(): Promise<number> {
+  try {
+    const rows = await query("SELECT value FROM billing_settings WHERE key = 'performance_fee_rate'", []);
+    if (rows[0]) return parseFloat(String(rows[0].value)) * 100;
+  } catch { /* fall through */ }
+  const env = getEnvironmentConfig();
+  return env.PERFORMANCE_FEE_RATE * 100;
+}
 
 /**
  * Send welcome email after signup
@@ -14,9 +25,11 @@ export async function sendWelcomeEmail(
   name: string,
   verificationUrl: string
 ): Promise<string> {
+  const feePercent = await getDefaultFeePercent();
   const context: EmailContext = {
     name,
     verificationUrl,
+    feePercent,
   };
 
   return queueEmail('welcome', email, context);
@@ -393,6 +406,7 @@ export async function sendUpcomingBillingEmail(
   billingDate: string
 ): Promise<string> {
   const billingUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://nexusmeme.com'}/dashboard/billing`;
+  const feePercent = await getDefaultFeePercent();
 
   const context: EmailContext = {
     name,
@@ -400,6 +414,7 @@ export async function sendUpcomingBillingEmail(
     tradeCount,
     billingDate,
     billingUrl,
+    feePercent,
   };
 
   return queueEmail('upcoming_billing', email, context);

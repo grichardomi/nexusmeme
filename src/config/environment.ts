@@ -29,13 +29,6 @@ const envSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().url(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
 
-  /* Coinbase Business - Crypto payments for performance fees */
-  COINBASE_BUSINESS_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
-  COINBASE_BUSINESS_API_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
-  COINBASE_BUSINESS_WEBHOOK_SECRET: z.string().optional().transform(v => v?.trim() || undefined),
-  COINBASE_BUSINESS_ENABLED: z.string().transform(val => val === 'true').default('false'),
-  COINBASE_BUSINESS_API_BASE_URL: z.string().default('https://business.coinbase.com/api/v1'),
-
   /* Direct USDC Payment (Base Network) */
   USDC_PAYMENT_ENABLED: z.string().transform(v => v === 'true').default('false'),
   USDC_WALLET_ADDRESS: z.string().optional().transform(v => v?.trim() || undefined),
@@ -48,9 +41,7 @@ const envSchema = z.object({
   /* Lemon Squeezy - Card/PayPal payments for performance fees */
 
   /* Exchange APIs */
-  KRAKEN_API_BASE_URL: z.string().url().default('https://api.kraken.com'),
   BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.us'),
-  COINBASE_API_BASE_URL: z.string().url().default('https://api.coinbase.com'),
 
   /* Exchange Trading Fees - Used as fallback when actual fees unavailable */
   KRAKEN_TAKER_FEE_DEFAULT: z.string().transform(Number).default('0.0026'), // 0.26% tier 1
@@ -325,6 +316,9 @@ const envSchema = z.object({
   /* Encryption */
   ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 
+  /* Live Trading Requirements */
+  LIVE_TRADING_MIN_BALANCE_USD: z.string().transform(Number).default('1000'), // Minimum account balance for live trading
+
   /* Performance Fees */
   PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.06'), // 6% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
@@ -398,11 +392,6 @@ function getDefaultEnvironment(): Environment {
     INTERNAL_API_KEY: 'build-phase',
     UPSTASH_REDIS_REST_URL: 'https://build-phase.upstash.io',
     UPSTASH_REDIS_REST_TOKEN: 'build-phase',
-    COINBASE_BUSINESS_API_KEY: undefined,
-    COINBASE_BUSINESS_API_SECRET: undefined,
-    COINBASE_BUSINESS_WEBHOOK_SECRET: undefined,
-    COINBASE_BUSINESS_ENABLED: false,
-    COINBASE_BUSINESS_API_BASE_URL: 'https://business.coinbase.com/api/v1',
     USDC_PAYMENT_ENABLED: false,
     USDC_WALLET_ADDRESS: undefined,
     USDC_CONTRACT_ADDRESS: undefined,
@@ -410,9 +399,7 @@ function getDefaultEnvironment(): Environment {
     ALCHEMY_API_KEY: undefined,
     ALCHEMY_WEBHOOK_SIGNING_KEY: undefined,
     USDC_REQUIRED_CONFIRMATIONS: 3,
-    KRAKEN_API_BASE_URL: 'https://api.kraken.com',
     BINANCE_API_BASE_URL: 'https://api.binance.us',
-    COINBASE_API_BASE_URL: 'https://api.coinbase.com',
     KRAKEN_TAKER_FEE_DEFAULT: 0.0026,
     KRAKEN_MAKER_FEE_DEFAULT: 0.0016,
     BINANCE_TAKER_FEE_DEFAULT: 0.001,
@@ -569,6 +556,7 @@ function getDefaultEnvironment(): Environment {
     BTC_DUMP_MOM1H_THRESHOLD: -0.5,
     BTC_DUMP_VOLUME_MIN: 2.5,
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
+    LIVE_TRADING_MIN_BALANCE_USD: 1000,
     PERFORMANCE_FEE_RATE: 0.06,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
@@ -682,6 +670,7 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
       BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
+      LIVE_TRADING_MIN_BALANCE_USD: 1000,
       PERFORMANCE_FEE_RATE: 0.06,
       PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
       AI_CONFIDENCE_BOOST_ENABLED: false,
@@ -820,17 +809,6 @@ export function estimateRoundTripFeePct(exchange: string): number {
  * Billing configuration
  */
 export const billingConfig = {
-  coinbaseBusiness: {
-    get apiKey() {
-      return getEnv('COINBASE_BUSINESS_API_KEY');
-    },
-    get webhookSecret() {
-      return getEnv('COINBASE_BUSINESS_WEBHOOK_SECRET');
-    },
-    get enabled() {
-      return getEnv('COINBASE_BUSINESS_ENABLED');
-    },
-  },
   performanceFee: {
     get rate() {
       return getEnv('PERFORMANCE_FEE_RATE');

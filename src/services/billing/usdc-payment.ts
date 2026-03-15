@@ -281,7 +281,7 @@ export async function processIncomingUSDCTransfer(transfer: {
 
     // Reset failed charge attempts + activate billing
     await client.query(
-      `UPDATE user_stripe_billing
+      `UPDATE user_billing
        SET billing_status = 'active',
            failed_charge_attempts = 0
        WHERE user_id = $1`,

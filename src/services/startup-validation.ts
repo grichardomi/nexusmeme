@@ -21,21 +21,14 @@ export async function validateStartup(): Promise<ValidationResult> {
 
   logger.info('Starting application startup validation');
 
-  // 1. Validate Coinbase Business configuration (required for billing)
-  if (!process.env.COINBASE_BUSINESS_API_KEY || !process.env.COINBASE_BUSINESS_API_SECRET) {
-    warnings.push('COINBASE_BUSINESS_API_KEY or COINBASE_BUSINESS_API_SECRET is not set (billing will not work)');
+  // 1. Validate USDC payment configuration
+  if (!process.env.USDC_WALLET_ADDRESS || !process.env.ALCHEMY_WEBHOOK_SIGNING_KEY) {
+    warnings.push('USDC_WALLET_ADDRESS or ALCHEMY_WEBHOOK_SIGNING_KEY is not set (USDC billing will not work)');
   } else {
-    logger.info('✓ Coinbase Business API key and secret configured');
+    logger.info('✓ USDC payment configured');
   }
 
-  // 2. Validate Coinbase Business webhook secret
-  if (!process.env.COINBASE_BUSINESS_WEBHOOK_SECRET) {
-    warnings.push('COINBASE_BUSINESS_WEBHOOK_SECRET is not set (webhooks will not work)');
-  } else {
-    logger.info('✓ Coinbase Business webhook secret configured');
-  }
-
-  // 3. Validate database connection (already happens in db.ts)
+  // 2. Validate database connection (already happens in db.ts)
   if (!process.env.DATABASE_URL) {
     errors.push('DATABASE_URL is not set');
   } else {

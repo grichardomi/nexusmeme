@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { z } from 'zod';
 import { tradingConfig } from '@/config/environment';
 import { checkActionAllowed } from '@/services/billing/subscription';
+import { checkMinimumBalance } from '@/services/billing/balance-guard';
 import { sendBotCreatedEmail } from '@/services/email/triggers';
 
 /**
@@ -123,9 +124,9 @@ export async function GET(_request: NextRequest) {
  */
 
 const createBotSchema = z.object({
-  exchange: z.enum(['kraken', 'binance']),
+  exchange: z.enum(['binance']),
   enabledPairs: z.array(z.string()).min(1, 'At least one pair is required'),
-  initialCapital: z.number().min(100, 'Minimum capital is $100'),
+  initialCapital: z.number().min(0, 'Capital must be 0 (unlimited) or a positive amount'),
   tradingMode: z.enum(['paper', 'live']).default('paper'),
 });
 
@@ -175,6 +176,17 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // Enforce minimum balance for live trading (paper trading has no minimum)
+    if (tradingMode === 'live' && !isAdmin) {
+      const balanceCheck = await checkMinimumBalance(session.user.id, exchange, 'live');
+      if (!balanceCheck.allowed) {
+        return NextResponse.json(
+          { error: balanceCheck.reason, code: 'INSUFFICIENT_BALANCE', minimum: balanceCheck.minimum, balance: balanceCheck.balance },
+          { status: 403 }
+        );
+      }
     }
 
     // PROFITABILITY CONSTRAINT: Validate pairs are BTC/ETH only
@@ -381,7 +393,7 @@ export async function PATCH(request: NextRequest) {
 
     // Verify the bot belongs to the user
     const bot = await query(
-      `SELECT id, config, enabled_pairs FROM bot_instances WHERE id = $1 AND user_id = $2`,
+      `SELECT id, exchange, config, enabled_pairs FROM bot_instances WHERE id = $1 AND user_id = $2`,
       [botId, session.user.id]
     );
 
@@ -502,6 +514,7 @@ export async function PATCH(request: NextRequest) {
       if (currentTradingMode === 'paper' && tradingMode === 'live') {
         const liveCheck = await checkActionAllowed(session.user.id, 'startBot', {
           tradingMode: 'live',
+          exchange: bot[0].exchange,
         });
 
         if (!liveCheck.allowed) {
@@ -513,8 +526,10 @@ export async function PATCH(request: NextRequest) {
 
           return NextResponse.json(
             {
-              error: liveCheck.reason || 'Please add a payment method before switching to live trading.',
-              code: liveCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED' : 'SUBSCRIPTION_REQUIRED',
+              error: liveCheck.reason || `Please ensure your ${(bot[0].exchange || 'exchange').toUpperCase()} account has sufficient balance before switching to live trading.`,
+              code: liveCheck.insufficientBalance ? 'INSUFFICIENT_BALANCE'
+                  : liveCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED'
+                  : 'SUBSCRIPTION_INACTIVE',
               requiresPaymentMethod: liveCheck.requiresPaymentMethod,
             },
             { status: 403 }
@@ -552,6 +567,7 @@ export async function PATCH(request: NextRequest) {
 
         const startCheck = await checkActionAllowed(session.user.id, 'startBot', {
           tradingMode: botTradingMode,
+          exchange: bot[0].exchange,
         });
 
         if (!startCheck.allowed) {
@@ -565,7 +581,9 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json(
             {
               error: startCheck.reason || 'Cannot start bot - subscription issue',
-              code: startCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED' : 'SUBSCRIPTION_INACTIVE',
+              code: startCheck.insufficientBalance ? 'INSUFFICIENT_BALANCE'
+                  : startCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED'
+                  : 'SUBSCRIPTION_INACTIVE',
               requiresPaymentMethod: startCheck.requiresPaymentMethod,
             },
             { status: 403 }
@@ -606,9 +624,9 @@ export async function PATCH(request: NextRequest) {
           config.initialCapital = 0; // 0 represents unlimited
         } else {
           const capital = parseFloat(String(initialCapital));
-          if (isNaN(capital) || (capital < 100 && capital !== 0)) {
+          if (isNaN(capital) || capital < 0) {
             return NextResponse.json(
-              { error: 'Initial capital must be at least 100 (or 0 for unlimited)' },
+              { error: 'Initial capital must be 0 (unlimited) or a positive amount' },
               { status: 400 }
             );
           }
@@ -622,7 +640,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (exchange !== undefined) {
-      const validExchanges = ['binance', 'kraken', 'coinbase'];
+      const validExchanges = ['binance'];
       if (!validExchanges.includes(exchange.toLowerCase())) {
         return NextResponse.json(
           { error: `Invalid exchange. Must be one of: ${validExchanges.join(', ')}` },

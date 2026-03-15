@@ -7,8 +7,6 @@ import { useLoadMore } from '@/hooks/useLoadMore';
 interface ChargeRecord {
   id?: string;
   invoice_id: string;
-  stripe_invoice_id?: string;
-  stripe_charge_id?: string;
   billing_period_start: string;
   billing_period_end: string;
   total_fees: number;
@@ -280,11 +278,7 @@ export function ChargeHistory() {
                         </p>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-400 font-mono">
-                        {charge.stripe_invoice_id ? (
-                          <>Invoice: {charge.stripe_invoice_id.slice(0, 16)}...</>
-                        ) : (
-                          <>ID: {charge.invoice_id.slice(0, 12)}...</>
-                        )}
+                        ID: {charge.invoice_id.slice(0, 12)}...
                       </p>
                       {charge.paid_at && (
                         <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 interface BillingSetupModalProps {
@@ -15,6 +15,13 @@ interface BillingSetupModalProps {
  */
 export function BillingSetupModal({ botName }: BillingSetupModalProps) {
   const [dismissed, setDismissed] = useState(false);
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
 
   if (dismissed) {
     return null;
@@ -41,7 +48,7 @@ export function BillingSetupModal({ botName }: BillingSetupModalProps) {
               <strong>How it works:</strong>
             </p>
             <ul className="text-sm text-blue-900 dark:text-blue-100 space-y-1 ml-4">
-              <li>✓ 15% fee on profits only</li>
+              <li>✓ {feePercent !== null ? `${feePercent}%` : '…'} fee on profits only</li>
               <li>✓ No subscription fees</li>
               <li>✓ Charged monthly on the 1st</li>
               <li>✓ Free if bot loses money</li>
@@ -53,8 +60,8 @@ export function BillingSetupModal({ botName }: BillingSetupModalProps) {
             <p className="font-semibold mb-2">Quick setup (2 minutes):</p>
             <ol className="space-y-2 ml-4">
               <li>1. Go to Billing Dashboard</li>
-              <li>2. Add your payment method</li>
-              <li>3. Your bot starts trading immediately</li>
+              <li>2. Switch your bot to live trading</li>
+              <li>3. Pay invoices with USDC when fees are due</li>
             </ol>
           </div>
         </div>

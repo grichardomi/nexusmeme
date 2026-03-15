@@ -4,9 +4,11 @@ import { getLogoUrl, appUrl } from './shared';
 interface WelcomeEmailProps {
   name: string;
   verificationUrl: string;
+  feePercent?: number | string;
 }
 
-export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProps): EmailTemplate {
+export function WelcomeEmailTemplate({ name, verificationUrl, feePercent = 6 }: WelcomeEmailProps): EmailTemplate {
+  const feePercentNum = parseFloat(String(feePercent));
   const html = `
     <!DOCTYPE html>
     <html>
@@ -49,7 +51,7 @@ export function WelcomeEmailTemplate({ name, verificationUrl }: WelcomeEmailProp
               <li>Trade BTC & ETH — most liquid crypto markets</li>
               <li>Full AI-powered market regime detection</li>
               <li>No payment required during trial</li>
-              <li>Upgrade to live trading anytime - pay only 15% on profits</li>
+              <li>Upgrade to live trading anytime - pay only ${feePercentNum}% on profits</li>
             </ul>
             <p><strong>To get started, please verify your email address:</strong></p>
             <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">

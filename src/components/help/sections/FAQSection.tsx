@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { CollapsibleQA } from '../CollapsibleQA';
 
 interface FAQSectionProps {
@@ -8,10 +8,19 @@ interface FAQSectionProps {
 }
 
 export function FAQSection({ searchQuery }: FAQSectionProps) {
+  const [feePercent, setFeePercent] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/fee-rate/default')
+      .then(r => r.json())
+      .then(d => setFeePercent(d.feePercent ?? null))
+      .catch(() => {});
+  }, []);
+  const fee = feePercent !== null ? `${feePercent}%` : '…';
+
   const questions = [
     {
       question: 'Why is my bot not trading? Is something wrong?',
-      answer: `Nothing is wrong! NexusMeme is fundamentally different from other trading platforms:\n\n**Most trading bots**: Trade constantly in ANY market condition (often losing money when conditions are bad)\n\n**NexusMeme's approach**: Wait patiently for good opportunities, skip bad conditions\n\n**Common reasons your bot might not be trading:**\n\n1. **Unfavorable Market Conditions** - Our system detects that overall market conditions are not favorable for profitable trades right now.\n\n2. **No Clear Opportunities** - Prices aren't showing clear patterns or trends that meet our quality standards.\n\n3. **Risk Too High** - Current volatility or market behavior suggests higher risk of loss.\n\n4. **Movement Too Small** - Price changes aren't significant enough to justify the trading fees.\n\n5. **Already in Position** - Your bot has an open trade and is managing that position.\n\n**This is intentional!** Check your bot activity feed — you'll see messages explaining what's happening:\n• "Market conditions unfavorable - waiting"\n• "Protecting your capital - skipping"\n• "Good opportunity found - entering trade"\n\n**The result**: You only enter trades when conditions favor success. Our 15% performance fee means we only profit when YOU profit — we're motivated to be patient and selective, not reckless.`,
+      answer: `Nothing is wrong! NexusMeme is fundamentally different from other trading platforms:\n\n**Most trading bots**: Trade constantly in ANY market condition (often losing money when conditions are bad)\n\n**NexusMeme's approach**: Wait patiently for good opportunities, skip bad conditions\n\n**Common reasons your bot might not be trading:**\n\n1. **Unfavorable Market Conditions** - Our system detects that overall market conditions are not favorable for profitable trades right now.\n\n2. **No Clear Opportunities** - Prices aren't showing clear patterns or trends that meet our quality standards.\n\n3. **Risk Too High** - Current volatility or market behavior suggests higher risk of loss.\n\n4. **Movement Too Small** - Price changes aren't significant enough to justify the trading fees.\n\n5. **Already in Position** - Your bot has an open trade and is managing that position.\n\n**This is intentional!** Check your bot activity feed — you'll see messages explaining what's happening:\n• "Market conditions unfavorable - waiting"\n• "Protecting your capital - skipping"\n• "Good opportunity found - entering trade"\n\n**The result**: You only enter trades when conditions favor success. Our performance fee means we only profit when YOU profit — we're motivated to be patient and selective, not reckless.`,
     },
     {
       question: 'How often should my bot be trading?',
@@ -27,7 +36,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What is the minimum capital required?',
-      answer: `During your 10-day trial and after:\n\n- No capital limits - trade with your own funds\n- No minimum capital requirement\n- You can trade with any amount you choose\n- The more capital you have, the more you can potentially trade\n- It's recommended to start with capital you can afford to lose`,
+      answer: `During your 10-day trial, you use paper trading (simulated, no real money required).\n\nFor live trading:\n- Minimum $1,000 USDT/USD in your exchange account\n- This ensures your account can absorb normal market volatility\n- The more capital you have, the more you can potentially earn\n- It's recommended to only trade with capital you can afford to lose`,
     },
     {
       question: 'Can I run multiple bots?',
@@ -39,7 +48,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'How is NexusMeme different from other trading platforms?',
-      answer: `**NexusMeme vs. Other Trading Platforms:**\n\n**Traditional Auto-Trading Platforms**\n• How they work: Trade constantly on a schedule or grid pattern\n• Frequency: 50-100+ trades per week\n• Problem: Trade even when market conditions are terrible\n• Problem: Huge fees pile up fast (can eat all your profits)\n• Problem: Keep buying during crashes with no protection\n\n**Copy Trading Platforms**\n• How they work: Copy what other traders do\n• Problem: You're at the mercy of someone else's decisions\n• Problem: No way to know if they're having a good or bad day\n• Problem: Often charge monthly subscription fees\n\n**Simple Buy-and-Hold**\n• How it works: Buy crypto and hold it\n• Problem: You lose money when markets go down\n• Problem: No way to capture profits along the way\n• Problem: No protection during crashes\n\n**NexusMeme (Smart Selective Trading)**\n• How it works: WAIT for quality opportunities, skip bad conditions\n• Frequency: 0-10 trades per week (only when it makes sense)\n• Benefit: Enters trades only when market is favorable\n• Benefit: Automatically adjusts profit targets (2-12% based on how strong the trend is)\n• Benefit: Protects your capital when Bitcoin is falling\n• Benefit: Won't trade if the movement is too small to cover fees\n\n**The Big Difference**: Other platforms trade on autopilot regardless of conditions. NexusMeme actively WAITS and PROTECTS your capital when conditions are bad.\n\n**We Only Win When You Win**: We charge 15% only on your profits. If your bot doesn't trade (bad market), we don't earn anything. This means we want PROFITABLE trades for you, not just frequent activity.`,
+      answer: `**NexusMeme vs. Other Trading Platforms:**\n\n**Traditional Auto-Trading Platforms**\n• How they work: Trade constantly on a schedule or grid pattern\n• Frequency: 50-100+ trades per week\n• Problem: Trade even when market conditions are terrible\n• Problem: Huge fees pile up fast (can eat all your profits)\n• Problem: Keep buying during crashes with no protection\n\n**Copy Trading Platforms**\n• How they work: Copy what other traders do\n• Problem: You're at the mercy of someone else's decisions\n• Problem: No way to know if they're having a good or bad day\n• Problem: Often charge monthly subscription fees\n\n**Simple Buy-and-Hold**\n• How it works: Buy crypto and hold it\n• Problem: You lose money when markets go down\n• Problem: No way to capture profits along the way\n• Problem: No protection during crashes\n\n**NexusMeme (Smart Selective Trading)**\n• How it works: WAIT for quality opportunities, skip bad conditions\n• Frequency: 0-10 trades per week (only when it makes sense)\n• Benefit: Enters trades only when market is favorable\n• Benefit: Automatically adjusts profit targets (2-12% based on how strong the trend is)\n• Benefit: Protects your capital when Bitcoin is falling\n• Benefit: Won't trade if the movement is too small to cover fees\n\n**The Big Difference**: Other platforms trade on autopilot regardless of conditions. NexusMeme actively WAITS and PROTECTS your capital when conditions are bad.\n\n**We Only Win When You Win**: We charge ${fee} only on your profits. If your bot doesn't trade (bad market), we don't earn anything. This means we want PROFITABLE trades for you, not just frequent activity.`,
     },
     {
       question: 'How much profit can I expect?',
@@ -51,7 +60,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What if I want to test before going live with my own capital?',
-      answer: `Your 10-day live trading trial is your testing period:\n- You trade with your own funds in real market conditions\n- Real orders execute and you see real P&L\n- No capital limits during trial\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, continue trading and only pay 15% on profits.`,
+      answer: `Your 10-day live trading trial is your testing period:\n- You trade with your own funds in real market conditions\n- Real orders execute and you see real P&L\n- No capital limits during trial\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, continue trading and only pay ${fee} on profits.`,
     },
     {
       question: 'Why did my trade lose money?',
@@ -87,7 +96,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'Can I get my money back?',
-      answer: `Your capital and profits are always yours:\n\nTo withdraw your capital and profits:\n1. Stop your bot (optional)\n2. Wait for all trades to close\n3. Go to your Binance account directly\n4. Withdraw to your bank\n\nFees and considerations:\n- Binance withdrawal fees (set by Binance)\n- Bank transfer fees may apply\n- Currency conversion fees if applicable\n- Trading losses are your responsibility (you bear trading risk)\n- We only charge 15% on profitable trades`,
+      answer: `Your capital and profits are always yours:\n\nTo withdraw your capital and profits:\n1. Stop your bot (optional)\n2. Wait for all trades to close\n3. Go to your Binance account directly\n4. Withdraw to your bank\n\nFees and considerations:\n- Binance withdrawal fees (set by Binance)\n- Bank transfer fees may apply\n- Currency conversion fees if applicable\n- Trading losses are your responsibility (you bear trading risk)\n- We only charge ${fee} on profitable trades`,
     },
   ];
 
