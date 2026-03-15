@@ -27,8 +27,9 @@ export async function GET() {
     if (!sessionAny?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!isAdmin(session)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const [settingRows, overrideRows] = await Promise.all([
+    const [settingRows, trialDaysRows, overrideRows] = await Promise.all([
       query("SELECT value FROM billing_settings WHERE key = 'performance_fee_rate'", []),
+      query("SELECT value FROM billing_settings WHERE key = 'trial_duration_days'", []),
       query(
         `SELECT ubo.id, ubo.user_id, ubo.fee_rate, ubo.reason, ubo.created_at, u.email, u.name
          FROM user_billing_overrides ubo
@@ -42,9 +43,13 @@ export async function GET() {
     const globalFeeRate = settingRows[0]
       ? parseFloat(String(settingRows[0].value))
       : env.PERFORMANCE_FEE_RATE;
+    const trialDurationDays = trialDaysRows[0]
+      ? parseInt(String(trialDaysRows[0].value), 10)
+      : env.TRIAL_DURATION_DAYS;
 
     return NextResponse.json({
       globalFeeRate,
+      trialDurationDays,
       userOverrides: overrideRows.map(r => ({
         id: r.id,
         user_id: r.user_id,
@@ -69,20 +74,35 @@ export async function PUT(req: NextRequest) {
     if (!isAdmin(session)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await req.json();
-    const { type, feeRate, userId, userEmail, reason } = body as {
-      type: 'global' | 'user';
+    const { type, feeRate, trialDays, userId, userEmail, reason } = body as {
+      type: 'global' | 'user' | 'trial_days';
       feeRate: number | null;
+      trialDays?: number;
       userId?: string;
       userEmail?: string;
       reason?: string;
     };
 
+    const adminId = sessionAnyPut.user!.id!;
+
+    if (type === 'trial_days') {
+      if (!trialDays || typeof trialDays !== 'number' || trialDays < 1 || trialDays > 365) {
+        return NextResponse.json({ error: 'trialDays must be between 1 and 365' }, { status: 400 });
+      }
+      await query(
+        `INSERT INTO billing_settings (key, value, updated_at)
+         VALUES ('trial_duration_days', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [String(trialDays)]
+      );
+      logger.info('Trial duration updated', { adminId, trialDays });
+      return NextResponse.json({ success: true, trialDurationDays: trialDays });
+    }
+
     // feeRate null = delete user override
     if (feeRate !== null && (typeof feeRate !== 'number' || feeRate < 0 || feeRate > 1)) {
       return NextResponse.json({ error: 'feeRate must be a number between 0 and 1 (or null to delete)' }, { status: 400 });
     }
-
-    const adminId = sessionAnyPut.user!.id!;
 
     if (type === 'global') {
       if (feeRate === null) return NextResponse.json({ error: 'feeRate required for global update' }, { status: 400 });

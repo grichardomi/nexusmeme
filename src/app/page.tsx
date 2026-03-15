@@ -11,12 +11,18 @@ export default function Home() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [trialDays, setTrialDays] = useState<number | null>(null);
   const fee = feePercent !== null ? `${feePercent}%` : '…';
+  const trial = trialDays !== null ? `${trialDays}-day` : '…';
 
   useEffect(() => {
     fetch('/api/billing/fee-rate/default')
       .then(r => r.json())
       .then(d => { if (d.feePercent) setFeePercent(d.feePercent); })
+      .catch(() => {});
+    fetch('/api/billing/trial-days')
+      .then(r => r.json())
+      .then(d => { if (d.days) setTrialDays(d.days); })
       .catch(() => {});
   }, []);
 
@@ -61,7 +67,7 @@ export default function Home() {
                   </h1>
 
                   <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed mb-2">
-                    AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Start your 10-day free trial today.
+                    AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Start your {trial} free trial today.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
                     {fee} only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.
@@ -94,7 +100,7 @@ export default function Home() {
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Focused Trading</div>
                   </div>
                   <div className="space-y-1 text-center">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">10 days</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">{trialDays ?? '…'} days</div>
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Free Trial</div>
                   </div>
                   <div className="space-y-1 text-center">
@@ -336,7 +342,7 @@ export default function Home() {
                   </div>
                   <div className="mb-6 mt-4">
                     <div className="text-5xl font-bold text-blue-600 dark:text-blue-400 mb-2">$0</div>
-                    <h3 className="text-2xl font-bold text-slate-900 dark:text-white">10-Day Free Trial</h3>
+                    <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{trial} Free Trial</h3>
                   </div>
                   <p className="text-slate-700 dark:text-slate-300 mb-8 leading-relaxed font-semibold">
                     no capital limits to test live trading. No credit card required.
@@ -395,7 +401,7 @@ export default function Home() {
             {/* Info Banner */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6 text-center">
               <p className="text-slate-700 dark:text-slate-300 mb-2">
-                <strong>Everyone starts with the same 10-day free crypto trading trial</strong> with no capital limits.
+                <strong>Everyone starts with the same {trial} free crypto trading trial</strong> with no capital limits.
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 After trial ends, you automatically scale to our performance fee model. {fee} on profits — $0 on losses. We only earn when you do.
@@ -420,7 +426,7 @@ export default function Home() {
               Join traders earning passive income with AI-powered crypto bots.
             </p>
             <p className="text-base text-blue-200 mb-10">
-              Your 10-day free crypto trading trial starts today. no capital limits. No credit card needed.
+              Your {trial} free crypto trading trial starts today. No capital limits. No credit card needed.
             </p>
 
             {/* CTA Buttons */}

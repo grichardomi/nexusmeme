@@ -1,6 +1,7 @@
 import { getPool, query } from '@/lib/db';
 import { PRICING_PLANS } from '@/config/pricing';
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 import { Subscription, SubscriptionPlan, BillingPeriod } from '@/types/billing';
 import { checkMinimumBalance } from './balance-guard';
 
@@ -60,7 +61,14 @@ export async function initializeSubscription(
 
     const now = new Date();
     const trialEnd = new Date(now);
-    trialEnd.setDate(trialEnd.getDate() + 10); // 10-day trial
+    // Trial duration from DB (admin-configurable at /admin/fees) → env var fallback
+    const trialDaysResult = await client.query(
+      "SELECT value FROM billing_settings WHERE key = 'trial_duration_days'"
+    );
+    const trialDays = trialDaysResult.rows[0]
+      ? parseInt(String(trialDaysResult.rows[0].value), 10)
+      : getEnvironmentConfig().TRIAL_DURATION_DAYS;
+    trialEnd.setDate(trialEnd.getDate() + trialDays);
 
     // Create live_trial subscription (first and only trial for this user)
     const result = await client.query(

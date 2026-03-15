@@ -32,6 +32,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [showGoLiveWizard, setShowGoLiveWizard] = useState(false);
   const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [trialDays, setTrialDays] = useState<number | null>(null);
   const [activeInvoiceAmount, setActiveInvoiceAmount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -68,7 +69,11 @@ export default function BillingPage() {
       fetch('/api/billing/fee-rate')
         .then(r => r.json())
         .then(d => setFeePercent(d.feePercent ?? null))
-        .catch(() => setFeePercent(null)); // Don't hardcode — show loading state until API responds
+        .catch(() => setFeePercent(null));
+      fetch('/api/billing/trial-days')
+        .then(r => r.json())
+        .then(d => setTrialDays(d.days ?? null))
+        .catch(() => null);
       fetch('/api/billing/usdc/invoice')
         .then(r => r.json())
         .then(d => setActiveInvoiceAmount(d.activeInvoice?.amount ?? null))
@@ -116,12 +121,12 @@ export default function BillingPage() {
     }
     // Show different name based on trading mode during trial
     if (userPlan?.tradingMode === 'paper') {
-      return '10-Day Free Trial (Paper Trading)';
+      return `${trialDays ?? '…'}-Day Free Trial (Paper Trading)`;
     }
 
     switch (userPlan?.plan) {
       case 'live_trial':
-        return '10-Day Free Trial';
+        return `${trialDays ?? '…'}-Day Free Trial`;
       case 'performance_fees':
         return 'Live Trading (Performance Fees)';
       default:
@@ -224,7 +229,7 @@ export default function BillingPage() {
                 </svg>
               </summary>
               <ul className={`text-sm space-y-1 mt-2 ${colors.text}`}>
-                <li>✓ 10 days to test live trading</li>
+                <li>✓ {trialDays ?? '…'} days to test live trading</li>
                 <li>✓ No capital limits</li>
                 <li>✓ No payment required</li>
                 <li>✓ After trial: {feeDisplay}% on profits</li>

@@ -74,6 +74,12 @@ export default function AdminFeesPage() {
   const [rateSettingsError, setRateSettingsError] = useState<string | null>(null);
   const [rateSaving, setRateSaving] = useState(false);
 
+  // Trial duration state
+  const [trialDurationDays, setTrialDurationDays] = useState<number | null>(null);
+  const [editingTrialDays, setEditingTrialDays] = useState(false);
+  const [trialDaysInput, setTrialDaysInput] = useState('');
+  const [trialDaysSaving, setTrialDaysSaving] = useState(false);
+
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
   }
@@ -84,6 +90,7 @@ export default function AdminFeesPage() {
       if (!res.ok) return;
       const data = await res.json();
       setGlobalFeeRate(parseFloat(String(data.globalFeeRate)));
+      setTrialDurationDays(data.trialDurationDays ?? null);
       setUserOverrides(data.userOverrides ?? []);
     } catch {
       // non-fatal
@@ -216,6 +223,30 @@ export default function AdminFeesPage() {
     }
   };
 
+  const saveTrialDays = async () => {
+    const days = parseInt(trialDaysInput, 10);
+    if (isNaN(days) || days < 1 || days > 365) {
+      setRateSettingsError('Trial days must be between 1 and 365');
+      return;
+    }
+    setTrialDaysSaving(true);
+    setRateSettingsError(null);
+    try {
+      const res = await fetch('/api/admin/billing-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'trial_days', trialDays: days }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setTrialDurationDays(days);
+      setEditingTrialDays(false);
+    } catch (err) {
+      setRateSettingsError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setTrialDaysSaving(false);
+    }
+  };
+
   const saveUserOverride = async () => {
     const rate = parseFloat(overrideRate);
     if (!overrideEmail || isNaN(rate) || rate <= 0 || rate > 1) {
@@ -323,6 +354,56 @@ export default function AdminFeesPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Trial Duration */}
+        <div className="flex items-center gap-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Free Trial Duration</p>
+            {editingTrialDays ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  max="365"
+                  value={trialDaysInput}
+                  onChange={(e) => setTrialDaysInput(e.target.value)}
+                  placeholder="e.g. 14"
+                  className="w-24 px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                />
+                <span className="text-sm text-slate-500">days</span>
+                <button
+                  onClick={saveTrialDays}
+                  disabled={trialDaysSaving}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                  {trialDaysSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  onClick={() => setEditingTrialDays(false)}
+                  className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {trialDurationDays !== null ? `${trialDurationDays} days` : '…'}
+                </span>
+                <button
+                  onClick={() => { setTrialDaysInput(trialDurationDays?.toString() ?? ''); setEditingTrialDays(true); setRateSettingsError(null); }}
+                  className="px-3 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Applied to all new user signups. Existing trials are not affected.
+            </p>
           </div>
         </div>
 
