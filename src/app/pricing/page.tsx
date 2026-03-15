@@ -25,6 +25,13 @@ export default function PricingPage() {
               <p className="text-xl text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
                 Performance-based pricing means your costs align with your success. Trade with confidence knowing you only pay when you win.
               </p>
+              <p className="text-sm text-slate-500 dark:text-slate-500 mt-3">
+                Requires a{' '}
+                <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+                  Binance account
+                </a>
+                {' '}and $1,000 USDT minimum for live trading.
+              </p>
             </div>
 
             {/* Pricing Component */}

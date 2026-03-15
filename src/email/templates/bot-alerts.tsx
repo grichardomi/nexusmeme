@@ -94,7 +94,7 @@ export function BotCreatedEmailTemplate({
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
-            <p><a href="https://docs.nexusmeme.com/bots" style="color: #667eea; text-decoration: none;">Bot Guide</a> | <a href="${appUrl('/support')}" style="color: #667eea; text-decoration: none;">Support</a></p>
+            <p><a href="/help" style="color: #667eea; text-decoration: none;">Help Center</a> | <a href="${appUrl('/support')}" style="color: #667eea; text-decoration: none;">Support</a></p>
           </div>
         </div>
       </body>

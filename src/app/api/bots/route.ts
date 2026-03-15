@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
-import { tradingConfig } from '@/config/environment';
+import { tradingConfig, getSupportedExchanges } from '@/config/environment';
 import { checkActionAllowed } from '@/services/billing/subscription';
 import { checkMinimumBalance } from '@/services/billing/balance-guard';
 import { sendBotCreatedEmail } from '@/services/email/triggers';
@@ -124,7 +124,10 @@ export async function GET(_request: NextRequest) {
  */
 
 const createBotSchema = z.object({
-  exchange: z.enum(['binance']),
+  exchange: z.string().refine(
+    (v) => getSupportedExchanges().includes(v.toLowerCase()),
+    (v) => ({ message: `Unsupported exchange "${v}". Supported: ${getSupportedExchanges().join(', ')}` })
+  ),
   enabledPairs: z.array(z.string()).min(1, 'At least one pair is required'),
   initialCapital: z.number().min(0, 'Capital must be 0 (unlimited) or a positive amount'),
   tradingMode: z.enum(['paper', 'live']).default('paper'),
@@ -640,7 +643,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (exchange !== undefined) {
-      const validExchanges = ['binance'];
+      const validExchanges = getSupportedExchanges();
       if (!validExchanges.includes(exchange.toLowerCase())) {
         return NextResponse.json(
           { error: `Invalid exchange. Must be one of: ${validExchanges.join(', ')}` },

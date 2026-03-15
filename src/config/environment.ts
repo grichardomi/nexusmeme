@@ -42,6 +42,8 @@ const envSchema = z.object({
 
   /* Exchange APIs */
   BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.us'),
+  // Comma-separated list of active exchanges. Add a name here only when its adapter is ready.
+  SUPPORTED_EXCHANGES: z.string().default('binance'),
 
   /* Exchange Trading Fees - Used as fallback when actual fees unavailable */
   KRAKEN_TAKER_FEE_DEFAULT: z.string().transform(Number).default('0.0026'), // 0.26% tier 1
@@ -400,6 +402,7 @@ function getDefaultEnvironment(): Environment {
     ALCHEMY_WEBHOOK_SIGNING_KEY: undefined,
     USDC_REQUIRED_CONFIRMATIONS: 3,
     BINANCE_API_BASE_URL: 'https://api.binance.us',
+    SUPPORTED_EXCHANGES: 'binance',
     KRAKEN_TAKER_FEE_DEFAULT: 0.0026,
     KRAKEN_MAKER_FEE_DEFAULT: 0.0016,
     BINANCE_TAKER_FEE_DEFAULT: 0.001,
@@ -775,6 +778,19 @@ export const exchangeFeesConfig = {
     return getEnv('BINANCE_TAKER_FEE_DEFAULT');
   },
 };
+
+/**
+ * Active exchanges — parsed from SUPPORTED_EXCHANGES env var (comma-separated).
+ * To add a new exchange: add its adapter, then add its name here via env.
+ * Example: SUPPORTED_EXCHANGES=binance,kraken
+ */
+export function getSupportedExchanges(): string[] {
+  const env = getEnvironmentConfig();
+  return env.SUPPORTED_EXCHANGES
+    .split(',')
+    .map((e: string) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 /**
  * Get taker fee rate for a given exchange (decimal, e.g. 0.0026 for 0.26%)

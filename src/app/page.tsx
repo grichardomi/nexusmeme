@@ -266,7 +266,7 @@ export default function Home() {
                   </h3>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-snug sm:leading-relaxed mb-2 sm:mb-3">
-                  Connect your exchange account and start trading crypto
+                  Connect your Binance account and start trading crypto
                 </p>
                 <ul className="space-y-1 sm:space-y-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
                   <li className="flex items-center gap-1 sm:gap-1.5">
@@ -343,7 +343,7 @@ export default function Home() {
                   <ul className="space-y-3">
                     {[
                       'Real live trading - not paper trading',
-                      'Connect any major exchange',
+                      'Connect your Binance account',
                       'Deploy AI strategies immediately',
                       'Scale to performance fees after',
                     ].map((item, idx) => (

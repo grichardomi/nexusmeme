@@ -44,14 +44,14 @@ export function WelcomeEmailTemplate({ name, verificationUrl, feePercent = 6 }: 
             <p>Hi ${name || 'Trader'},</p>
             <p>Welcome to NexusMeme! We're excited to have you on board.</p>
             <p>NexusMeme is your AI-powered trading bot platform designed to help you execute profitable trades with intelligent risk management.</p>
-            <p><strong>You've been assigned to our free trial:</strong></p>
+            <p><strong>Your 10-day free trial starts now:</strong></p>
             <ul style="margin: 15px 0;">
-              <li>10-day free trial with paper trading (simulated, zero risk)</li>
-              <li>1 trading bot with real market data</li>
-              <li>Trade BTC & ETH — most liquid crypto markets</li>
+              <li>1 AI trading bot — paper mode by default (zero risk, simulated trades)</li>
+              <li>Switch to live trading anytime during your trial with your own Binance capital</li>
+              <li>Trade BTC &amp; ETH — most liquid crypto markets</li>
               <li>Full AI-powered market regime detection</li>
               <li>No payment required during trial</li>
-              <li>Upgrade to live trading anytime - pay only ${feePercentNum}% on profits</li>
+              <li>After trial: pay only ${feePercentNum}% on profits — nothing on losses</li>
             </ul>
             <p><strong>To get started, please verify your email address:</strong></p>
             <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
@@ -65,12 +65,13 @@ export function WelcomeEmailTemplate({ name, verificationUrl, feePercent = 6 }: 
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h2>What's Next?</h2>
             <ol>
-              <li>Verify your email address</li>
-              <li>Test your bot with paper trading (simulated, risk-free)</li>
-              <li>Choose your first trading strategy</li>
-              <li>When ready, upgrade to live trading with your own capital</li>
+              <li>Verify your email address (link above)</li>
+              <li>Create a <a href="https://www.binance.com" style="color: #667eea;">Binance account</a> if you don't have one — $1,000 USDT minimum for live trading</li>
+              <li>Connect your Binance API keys in Settings → API Keys</li>
+              <li>Create your first bot — starts in paper mode (simulated, zero risk)</li>
+              <li>Switch to live trading when ready to trade with real capital</li>
             </ol>
-            <p>Our documentation and tutorials are available at <a href="https://docs.nexusmeme.com">docs.nexusmeme.com</a></p>
+            <p>Questions? Visit our <a href="${appUrl('/help')}" style="color: #667eea;">Help Center</a> or reply to this email.</p>
             <p style="margin-top: 30px; font-size: 14px; color: #666;">Have questions? Reply to this email or visit our support center.</p>
           </div>
           <div class="footer">
@@ -90,10 +91,24 @@ Welcome to NexusMeme!
 
 Hi ${name || 'Trader'},
 
-Please verify your email address to get started:
+Your 10-day free trial has started. Your bot begins in paper mode (simulated trades, zero risk).
+You can switch to live trading during or after your trial — connect your Binance API keys first.
+
+After your trial: pay only ${feePercentNum}% on profits — nothing on losses.
+
+WHAT'S NEXT:
+1. Verify your email (link below)
+2. Create a Binance account at binance.com — $1,000 USDT minimum for live trading
+3. Connect your Binance API keys in Settings → API Keys
+4. Create your first bot (starts in paper mode)
+5. Switch to live trading when ready
+
+Verify your email:
 ${verificationUrl}
 
 This link will expire in 24 hours.
+
+Questions? Visit nexusmeme.com/help or reply to this email.
 
 Best regards,
 The NexusMeme Team

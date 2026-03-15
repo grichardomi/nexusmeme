@@ -62,7 +62,7 @@ const faqSchema = {
       name: 'Is there a free trial?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes! Everyone gets a 10-day free trial with paper trading (simulated trades, zero risk). No payment required during the trial. After the trial, upgrade to live trading and pay only a performance fee on profits.',
+        text: 'Yes! Everyone gets a 10-day free trial with paper trading (simulated trades, zero risk). No payment required during the trial. You can switch to live trading during or after your trial \u2014 connect your Binance API keys and go live whenever you\'re ready. Pay only a performance fee on profits.',
       },
     },
     {

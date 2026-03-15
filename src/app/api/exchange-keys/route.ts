@@ -5,6 +5,7 @@ import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { encrypt } from '@/lib/crypto';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
+import { getSupportedExchanges } from '@/config/environment';
 import { z } from 'zod';
 
 /**
@@ -43,7 +44,10 @@ export async function GET(_request: NextRequest) {
  */
 
 const addKeySchema = z.object({
-  exchange: z.enum(['kraken', 'binance']),
+  exchange: z.string().refine(
+    (v) => getSupportedExchanges().includes(v.toLowerCase()),
+    (v) => ({ message: `Unsupported exchange "${v}". Supported: ${getSupportedExchanges().join(', ')}` })
+  ),
   publicKey: z.string().min(1, 'Public key is required'),
   secretKey: z.string().min(1, 'Secret key is required'),
 });

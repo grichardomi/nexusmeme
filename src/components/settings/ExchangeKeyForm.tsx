@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { ConfirmationModal } from '@/components/modals/ConfirmationModal';
 
 const addKeySchema = z.object({
-  exchange: z.enum(['kraken', 'binance']),
+  exchange: z.string().min(1),
   publicKey: z.string().min(1, 'Public key is required'),
   secretKey: z.string().min(1, 'Secret key is required'),
 });
@@ -27,7 +27,7 @@ interface Bot {
 }
 
 interface ExchangeKeyFormProps {
-  exchange: 'kraken' | 'binance';
+  exchange: string;
   onSuccess?: () => void;
 }
 

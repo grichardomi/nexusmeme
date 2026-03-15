@@ -28,16 +28,15 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
       answer: `1. Create a Binance account at binance.com (if you don't have one)
 2. Sign up for a free NexusMeme account — you'll get a 10-day free trial
 3. Verify your email address
-4. Try paper trading (simulated) to test the bot risk-free
-5. Create your Binance API key (see "How do I get my Binance API key?" below)
-6. Connect your Binance API keys in NexusMeme
-7. Configure your trading pairs and risk parameters
-8. Upgrade to live trading after your trial to trade with real funds`,
+4. Create your Binance API key (see "How do I get my Binance API key?" below)
+5. Connect your Binance API keys in Settings → API Keys
+6. Create your first bot — it starts in paper mode (simulated trades, zero risk)
+7. Switch to live trading during or after your trial to trade with real capital ($1,000 USDT minimum)`,
     },
     {
       question: 'Do I need to pay upfront?',
       answer:
-        `No! All new users get a 10-day free trial with paper trading (simulated trades, zero risk). No payment required. After the trial, upgrade to live trading and pay only ${fee} on your profits.`,
+        `No! All new users get a 10-day free trial. Your bot starts in paper mode (simulated trades, zero risk) — no Binance account needed to try it out. Connect your Binance API keys and switch to live trading whenever you're ready, during or after the trial. After the trial you pay only ${fee} on profits — nothing on losses.`,
     },
     {
       question: 'Which exchange do I need?',

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getSupportedExchanges } from '@/config/environment';
 
 /**
  * GET /api/exchange-keys/:exchange
@@ -22,7 +23,7 @@ export async function GET(
     const { exchange } = await params;
 
     // Validate exchange
-    if (!['kraken', 'binance'].includes(exchange)) {
+    if (!getSupportedExchanges().includes(exchange.toLowerCase())) {
       return NextResponse.json(
         { error: 'Invalid exchange' },
         { status: 400 }
@@ -99,7 +100,7 @@ export async function DELETE(
     const { exchange } = await params;
 
     // Validate exchange
-    if (!['kraken', 'binance'].includes(exchange)) {
+    if (!getSupportedExchanges().includes(exchange.toLowerCase())) {
       return NextResponse.json(
         { error: 'Invalid exchange' },
         { status: 400 }

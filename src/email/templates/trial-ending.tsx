@@ -113,7 +113,7 @@ export function TrialEndingEmailTemplate({
             </ul>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
-              Questions? Reply to this email or visit our <a href="https://docs.nexusmeme.com">documentation</a>.
+              Questions? Reply to this email or visit our <a href="/help">Help Center</a>.
             </p>
           </div>
           <div class="footer">

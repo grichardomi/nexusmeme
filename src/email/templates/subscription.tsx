@@ -75,7 +75,7 @@ export function SubscriptionCreatedEmailTemplate({
             </table>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>Need Help?</h3>
-            <p>If you have any questions about your subscription or the features included in your plan, please visit our <a href="https://docs.nexusmeme.com">documentation</a> or contact <a href="mailto:support@nexusmeme.com">support@nexusmeme.com</a>.</p>
+            <p>If you have any questions about your subscription or the features included in your plan, please visit our <a href="/help">Help Center</a> or contact <a href="mailto:support@nexusmeme.com">support@nexusmeme.com</a>.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>

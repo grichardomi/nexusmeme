@@ -155,7 +155,7 @@ export function PricingPlans({ currentPlan, onSelectPlan, userCanUpgrade = true 
           <div>
             <h4 className="text-slate-900 dark:text-white font-semibold mb-2">Is there a free trial?</h4>
             <p className="text-slate-600 dark:text-slate-400 text-sm">
-              Yes! Everyone starts with a 10-day free trial with paper trading (simulated, zero risk). No payment required. After the trial, upgrade to live trading and pay only {fee} on profits.
+              Yes! Everyone starts with a 10-day free trial with paper trading (simulated, zero risk). No payment required. You can switch to live trading during or after your trial — connect your Binance API keys and go live whenever you're ready. Pay only {fee} on profits.
             </p>
           </div>
           <div>
