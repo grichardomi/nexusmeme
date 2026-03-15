@@ -422,7 +422,7 @@ export function USDCPayButton({ tradingMode }: USDCPayButtonProps) {
             <button
               onClick={() => handleMetaMaskPay(activeInvoice)}
               disabled={mmBusy}
-              className="w-full py-3 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-400 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
+              className="w-full py-4 px-4 bg-orange-500 hover:bg-orange-600 disabled:bg-slate-400 text-white rounded-xl font-bold text-base transition-colors flex items-center justify-center gap-2 shadow-md"
             >
               {mmBusy ? (
                 <>
@@ -452,7 +452,7 @@ export function USDCPayButton({ tradingMode }: USDCPayButtonProps) {
             <button
               onClick={() => handleWalletConnectPay(activeInvoice)}
               disabled={wcBusy}
-              className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-500 text-white rounded-xl font-medium text-sm transition-colors flex items-center justify-center gap-2"
             >
               {wcBusy ? (
                 <>
@@ -515,8 +515,24 @@ export function USDCPayButton({ tradingMode }: USDCPayButtonProps) {
               Send exactly this amount of USDC on Base:
             </p>
 
+            {/* QR Code — mobile first: scan beats typing */}
+            {status.usdcContract && (
+              <div className="flex flex-col items-center mb-4">
+                <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+                  <QRCodeSVG
+                    value={`ethereum:${status.usdcContract}@${status.chainId}/transfer?address=${activeInvoice.walletAddress}&uint256=${Math.round(Number(activeInvoice.amount) * 1_000_000)}`}
+                    size={180}
+                    level="M"
+                  />
+                </div>
+                <p className="text-center text-xs text-slate-500 dark:text-slate-400 mt-2">
+                  Scan with your mobile wallet — auto-fills token, amount &amp; network
+                </p>
+              </div>
+            )}
+
             {/* Amount */}
-            <div className="flex items-center justify-between mb-2 bg-white dark:bg-slate-700 rounded-lg px-3 py-2">
+            <div className="flex items-center justify-between mb-2 bg-white dark:bg-slate-700 rounded-lg px-3 py-2.5">
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Amount (USDC)</p>
                 <p className="font-bold text-lg text-slate-900 dark:text-white">
@@ -525,30 +541,38 @@ export function USDCPayButton({ tradingMode }: USDCPayButtonProps) {
               </div>
               <button
                 onClick={() => copyToClipboard(Number(activeInvoice.amount).toFixed(6), 'amount')}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors min-h-[40px]"
               >
-                {copied === 'amount' ? '✓ Copied' : 'Copy'}
+                {copied === 'amount' ? (
+                  <><span>✓</span> Copied</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Copy</>
+                )}
               </button>
             </div>
 
-            {/* Wallet address */}
-            <div className="flex items-center justify-between mb-2 bg-white dark:bg-slate-700 rounded-lg px-3 py-2">
+            {/* Wallet address — abbreviated display, full copy */}
+            <div className="flex items-center justify-between mb-2 bg-white dark:bg-slate-700 rounded-lg px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-slate-500 dark:text-slate-400">To Address (Base)</p>
-                <p className="font-mono text-sm text-slate-900 dark:text-white truncate">
-                  {activeInvoice.walletAddress}
+                <p className="font-mono text-sm text-slate-900 dark:text-white">
+                  {activeInvoice.walletAddress.slice(0, 10)}…{activeInvoice.walletAddress.slice(-8)}
                 </p>
               </div>
               <button
                 onClick={() => copyToClipboard(activeInvoice.walletAddress, 'address')}
-                className="ml-2 text-xs text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+                className="flex items-center gap-1 ml-2 px-3 py-2 rounded-lg text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors shrink-0 min-h-[40px]"
               >
-                {copied === 'address' ? '✓ Copied' : 'Copy'}
+                {copied === 'address' ? (
+                  <><span>✓</span> Copied</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Copy</>
+                )}
               </button>
             </div>
 
             {/* Payment reference */}
-            <div className="flex items-center justify-between bg-white dark:bg-slate-700 rounded-lg px-3 py-2">
+            <div className="flex items-center justify-between bg-white dark:bg-slate-700 rounded-lg px-3 py-2.5">
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Payment Reference</p>
                 <p className="font-mono font-bold text-slate-900 dark:text-white">
@@ -557,28 +581,16 @@ export function USDCPayButton({ tradingMode }: USDCPayButtonProps) {
               </div>
               <button
                 onClick={() => copyToClipboard(activeInvoice.reference, 'reference')}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors min-h-[40px]"
               >
-                {copied === 'reference' ? '✓ Copied' : 'Copy'}
+                {copied === 'reference' ? (
+                  <><span>✓</span> Copied</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg> Copy</>
+                )}
               </button>
             </div>
           </div>
-
-          {/* QR Code — EIP-681 URI for ERC-20 transfer */}
-          {status.usdcContract && (
-            <div className="flex justify-center mt-3">
-              <div className="p-3 bg-white rounded-lg border border-slate-200">
-                <QRCodeSVG
-                  value={`ethereum:${status.usdcContract}@${status.chainId}/transfer?address=${activeInvoice.walletAddress}&uint256=${Math.round(Number(activeInvoice.amount) * 1_000_000)}`}
-                  size={140}
-                  level="M"
-                />
-              </div>
-            </div>
-          )}
-          <p className="text-center text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Scan with a mobile wallet (auto-fills token, amount &amp; network)
-          </p>
 
           <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1 mt-2">
             <p>① Make sure you&apos;re on the <strong>Base</strong> network</p>

@@ -32,6 +32,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [showGoLiveWizard, setShowGoLiveWizard] = useState(false);
   const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [activeInvoiceAmount, setActiveInvoiceAmount] = useState<number | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -68,6 +69,10 @@ export default function BillingPage() {
         .then(r => r.json())
         .then(d => setFeePercent(d.feePercent ?? null))
         .catch(() => setFeePercent(null)); // Don't hardcode — show loading state until API responds
+      fetch('/api/billing/usdc/invoice')
+        .then(r => r.json())
+        .then(d => setActiveInvoiceAmount(d.activeInvoice?.amount ?? null))
+        .catch(() => null);
     }
   }, [status]);
 
@@ -149,6 +154,24 @@ export default function BillingPage() {
 
   return (
     <DashboardLayout title="Billing & Plans">
+      {/* Sticky invoice banner — visible immediately on mobile without scrolling */}
+      {activeInvoiceAmount !== null && (
+        <div className="sticky top-0 z-20 bg-amber-500 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-lg shrink-0">💳</span>
+            <span className="text-sm font-semibold truncate">
+              Invoice due: ${Number(activeInvoiceAmount).toFixed(2)} USDC
+            </span>
+          </div>
+          <a
+            href="#crypto-pay-section"
+            className="shrink-0 px-3 py-1.5 bg-white text-amber-700 rounded-lg text-xs font-bold whitespace-nowrap"
+          >
+            Pay now →
+          </a>
+        </div>
+      )}
+
       <div className="space-y-4 sm:space-y-6">
         {/* Trial Warning Banner (if applicable) */}
         <TrialWarningBanner />
