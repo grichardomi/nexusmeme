@@ -6,9 +6,9 @@ import { PWARegister } from '@/components/PWARegister';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'NexusMeme - AI Trading Bot Platform | Performance-Based Fees',
-  description: 'AI-powered crypto trading bots focused on BTC & ETH. Performance fees on profits only — $0 on losses. No subscription fees.',
-  keywords: 'trading bot, crypto trading, automated trading, AI trading strategies, performance fee model, algorithmic trading',
+  title: 'NexusMeme - AI Crypto Trading Bot | Pay Only on Profits',
+  description: 'AI-powered crypto trading bots for BTC & ETH on Binance International. Available globally. Performance fee only — pay nothing when the bot loses.',
+  keywords: 'crypto trading bot, AI trading bot, Binance trading bot, automated crypto trading, performance fee trading, BTC ETH trading bot, global crypto bot, algorithmic trading, no subscription trading bot',
   authors: [{ name: 'NexusMeme' }],
   creator: 'NexusMeme',
   publisher: 'NexusMeme',
@@ -20,25 +20,16 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://nexusmeme.com'),
   openGraph: {
     type: 'website',
-    locale: 'en_US',
+    locale: 'en_GB',
     url: 'https://nexusmeme.com',
     siteName: 'NexusMeme',
-    title: 'NexusMeme - Scale Your Trading Bot',
-    description: 'AI-powered trading platform with performance-based fees on profits. We only earn when you earn.',
-    images: [
-      {
-        url: 'https://nexusmeme.com/og-image.png',
-        width: 1200,
-        height: 630,
-        alt: 'NexusMeme Trading Platform',
-      },
-    ],
+    title: 'NexusMeme - AI Crypto Trading Bot | Pay Only on Profits',
+    description: 'AI-powered trading bots on Binance International. Available globally. We only earn when you earn.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'NexusMeme - AI Trading Bot Platform',
-    description: 'AI-powered crypto trading focused on BTC & ETH. Performance fee on profits only, $0 on losses.',
-    images: ['https://nexusmeme.com/og-image.png'],
+    title: 'NexusMeme - AI Crypto Trading Bot',
+    description: 'AI-powered crypto trading on Binance International. Available globally. Pay only on profits — $0 on losses.',
   },
   robots: {
     index: true,

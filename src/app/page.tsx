@@ -49,11 +49,16 @@ export default function Home() {
         <section className="px-4 sm:px-6 lg:px-8 pt-16 sm:pt-20 md:pt-28 pb-12 sm:pb-16 md:pb-24 bg-gradient-to-br from-white via-blue-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900/50 dark:to-slate-900">
           <div className="max-w-7xl mx-auto">
             {/* Badge */}
-            <div className="flex justify-center mb-8">
+            <div className="flex flex-col items-center gap-3 mb-8">
               <div className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 px-4 py-2 rounded-full border border-blue-200 dark:border-blue-800">
                 <span className="w-2 h-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full animate-pulse"></span>
                 <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
                   🚀 AI-Powered Crypto Trading Bots
+                </span>
+              </div>
+              <div className="inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 px-4 py-1.5 rounded-full border border-amber-200 dark:border-amber-800">
+                <span className="text-xs text-amber-700 dark:text-amber-300">
+                  🌍 Available globally via Binance International — not available to US residents
                 </span>
               </div>
             </div>
