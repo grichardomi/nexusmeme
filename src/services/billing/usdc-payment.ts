@@ -312,48 +312,106 @@ export async function processIncomingUSDCTransfer(transfer: {
 }
 
 /**
- * Expire overdue invoices (run nightly)
+ * Expire overdue invoices and write off associated fees (run nightly).
+ *
+ * Atomically per invoice:
+ *   1. Mark usdc_payment_references → 'expired'
+ *   2. Mark linked performance_fees → 'uncollectible'
+ *      (fees move out of 'billed' so revenue dashboard stays accurate)
+ *
+ * Returns: number of invoices successfully processed (not number of fee rows written off).
+ * Each invoice may cover multiple fee rows — check logs for per-invoice feeCount details.
+ *
+ * Fees are preserved for audit history — they are never deleted.
+ * If the user later pays a regenerated invoice, those new fees will be
+ * fresh 'pending_billing' records from their next billing cycle.
  */
 export async function expireOverdueInvoices(): Promise<number> {
+  // Fetch expired invoices with fee_ids in a single query
   const expired = await query<{
     id: string;
     user_id: string;
     payment_reference: string;
     amount_usd: string;
+    fee_ids: string[];
     email: string;
     name: string;
   }>(
-    `UPDATE usdc_payment_references r
-     SET status = 'expired', updated_at = NOW()
-     FROM users u
-     WHERE r.user_id = u.id
-       AND r.status = 'pending'
-       AND r.expires_at < NOW()
-     RETURNING r.id, r.user_id, r.payment_reference, r.amount_usd, u.email, u.name`,
+    `SELECT r.id, r.user_id, r.payment_reference, r.amount_usd, r.fee_ids, u.email, u.name
+     FROM usdc_payment_references r
+     JOIN users u ON u.id = r.user_id
+     WHERE r.status = 'pending'
+       AND r.expires_at < NOW()`,
     []
   );
 
-  if (expired.length > 0) {
-    logger.info('Expired overdue USDC invoices', { count: expired.length });
+  if (expired.length === 0) return 0;
 
-    const { sendInvoiceExpiredEmail } = await import('@/services/email/triggers');
-    const env = getEnvironmentConfig();
-    const billingUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing`;
+  logger.info('Expiring overdue USDC invoices', { count: expired.length });
 
-    for (const inv of expired) {
-      try {
-        await sendInvoiceExpiredEmail(
-          inv.email,
-          inv.name || 'Trader',
-          parseFloat(String(inv.amount_usd)),
-          inv.payment_reference,
-          billingUrl
+  let writeOffCount = 0;
+
+  for (const inv of expired) {
+    try {
+      await transaction(async (client) => {
+        // 1. Expire the invoice
+        await client.query(
+          `UPDATE usdc_payment_references
+           SET status = 'expired', updated_at = NOW()
+           WHERE id = $1`,
+          [inv.id]
         );
-      } catch (emailErr) {
-        logger.warn('Failed to send invoice expired email', { invoiceId: inv.id });
-      }
+
+        // 2. Write off the linked fees — move 'billed' → 'uncollectible'
+        //    Only touch 'billed' — don't clobber 'paid', 'waived', 'refunded'
+        if (inv.fee_ids?.length > 0) {
+          await client.query(
+            `UPDATE performance_fees
+             SET status = 'uncollectible',
+                 updated_at = NOW()
+             WHERE id = ANY($1::uuid[])
+               AND status = 'billed'`,
+            [inv.fee_ids]
+          );
+        }
+      });
+
+      writeOffCount++;
+
+      logger.info('Invoice expired and fees written off', {
+        invoiceId: inv.id,
+        userId: inv.user_id,
+        reference: inv.payment_reference,
+        amountUsd: inv.amount_usd,
+        feeCount: inv.fee_ids?.length ?? 0,
+      });
+    } catch (err) {
+      // Log but continue — a failed write-off on one invoice should not block others
+      logger.error('Failed to expire invoice', err instanceof Error ? err : null, {
+        invoiceId: inv.id,
+        userId: inv.user_id,
+      });
     }
   }
 
-  return expired.length;
+  // Send expiry emails (non-fatal — revenue write-off already committed)
+  const { sendInvoiceExpiredEmail } = await import('@/services/email/triggers');
+  const env = getEnvironmentConfig();
+  const billingUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing`;
+
+  for (const inv of expired) {
+    try {
+      await sendInvoiceExpiredEmail(
+        inv.email,
+        inv.name || 'Trader',
+        parseFloat(String(inv.amount_usd)),
+        inv.payment_reference,
+        billingUrl
+      );
+    } catch {
+      logger.warn('Failed to send invoice expired email', { invoiceId: inv.id });
+    }
+  }
+
+  return writeOffCount;
 }

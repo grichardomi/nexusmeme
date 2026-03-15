@@ -9,6 +9,7 @@ interface PerformanceFeesData {
     total_fees_collected: number;
     pending_fees: number;
     billed_fees: number;
+    uncollectible_fees: number;
     profitable_trades: number;
   };
   billing: {

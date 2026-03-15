@@ -311,6 +311,7 @@ export function renderEmailTemplate(
         amount: ctx.amount,
         attemptNumber: ctx.attemptNumber,
         deadline: ctx.deadline,
+        daysUntilSuspension: ctx.daysUntilSuspension,
         walletAddress: ctx.walletAddress,
         paymentReference: ctx.paymentReference,
         billingUrl: ctx.billingUrl,

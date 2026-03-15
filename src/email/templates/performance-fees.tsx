@@ -448,6 +448,7 @@ interface PerformanceFeeDunningProps {
   amount: number;
   attemptNumber: number;
   deadline: string;
+  daysUntilSuspension?: number;
   walletAddress?: string;
   paymentReference?: string;
   billingUrl?: string;
@@ -458,6 +459,7 @@ export function PerformanceFeeDunningEmailTemplate({
   amount,
   attemptNumber,
   deadline,
+  daysUntilSuspension = 4,
   walletAddress,
   paymentReference,
   billingUrl,
@@ -467,7 +469,7 @@ export function PerformanceFeeDunningEmailTemplate({
   const isFinalWarning = attemptNumber >= 2;
   const headerColor = isFinalWarning ? '#dc3545' : '#f59e0b';
   const headerTitle = isFinalWarning
-    ? '🚨 Final Payment Warning — Bots Suspend in 4 Days'
+    ? `🚨 Final Payment Warning — Bots Suspend in ${daysUntilSuspension} Days`
     : '⚠️ Invoice Overdue — Payment Required';
   const bodyMessage = isFinalWarning
     ? `This is your <strong>final warning</strong>. Your invoice of <strong>$${amountNum.toFixed(2)} USDC</strong> is still unpaid. Your bots will be <strong>suspended on ${deadline}</strong> if payment is not received.`

@@ -166,6 +166,7 @@ export async function GET(request: Request) {
       total_fees_collected: 0,
       pending_fees: 0,
       billed_fees: 0,
+      uncollectible_fees: 0,
       profitable_trades: 0,
     };
 
@@ -375,6 +376,7 @@ export async function GET(request: Request) {
         total_fees_collected: parseFloat(summary.total_fees_collected || 0),
         pending_fees: parseFloat(summary.pending_fees || 0),
         billed_fees: parseFloat(summary.billed_fees || 0),
+        uncollectible_fees: parseFloat(summary.uncollectible_fees || 0),
         profitable_trades: summary.profitable_trades || 0,
       },
       billing: billingStatus,

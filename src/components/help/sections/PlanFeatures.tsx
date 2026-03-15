@@ -45,7 +45,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
     },
     {
       question: 'What if a payment is late?',
-      answer: `If an invoice is unpaid:\n\n1. You'll receive an email notification\n2. Your bot continues trading during the grace period\n3. After the grace period, your bot is paused until the invoice is paid\n4. Pay the USDC invoice in Billing & Plans to immediately resume trading`,
+      answer: `If an invoice is unpaid:\n\n1. Day 7: You'll receive a reminder email\n2. Day 10: Final warning email sent with your suspension date\n3. Day 14: Your bot is paused — it resumes automatically once payment is confirmed\n\nTo pay: go to Billing & Plans and send the exact USDC amount shown to the wallet address on Base network. No other currencies accepted.\n\nIf your invoice has expired, generate a new one in Billing & Plans.`,
     },
     {
       question: 'Is there a money-back guarantee?',

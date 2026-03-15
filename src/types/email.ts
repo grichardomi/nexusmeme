@@ -178,6 +178,7 @@ export interface PerformanceFeeDunningContext {
   amount: number;
   attemptNumber: number;
   deadline: string;
+  daysUntilSuspension?: number;
   walletAddress?: string;
   paymentReference?: string;
   billingUrl?: string;

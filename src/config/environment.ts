@@ -322,13 +322,13 @@ const envSchema = z.object({
   /* Performance Fees */
   PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.06'), // 6% of profits
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
-  BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Days after invoice before dunning starts
-  BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Days after invoice before bots suspended
-  DUNNING_WARNING_DAYS: z.string().transform(Number).default('10'),        // Day for second dunning attempt (final warning)
+  BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Day 7: first dunning reminder
+  DUNNING_WARNING_DAYS: z.string().transform(Number).default('10'),        // Day 10: final warning email
+  BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('14'),    // Day 14: bots suspended
   CRON_SECRET: z.string().min(1).default('build-phase-placeholder'),       // Shared secret to authenticate cron calls
 
   /* USDC Invoice & Payment Configuration */
-  USDC_INVOICE_EXPIRY_DAYS: z.string().transform(Number).default('7'),    // Days until invoice expires
+  USDC_INVOICE_EXPIRY_DAYS: z.string().transform(Number).default('30'),   // Must exceed BILLING_SUSPENSION_DAYS so invoices remain payable through the full dunning window
   USDC_PAYMENT_REF_LENGTH: z.string().transform(Number).default('8'),     // Length of payment reference suffix
   USDC_PAYMENT_REF_RETRIES: z.string().transform(Number).default('5'),    // Max attempts to generate unique reference
   USDC_MICRO_OFFSET_MAX: z.string().transform(Number).default('999'),     // Max micro-offset raw units for unique amounts
@@ -560,10 +560,10 @@ function getDefaultEnvironment(): Environment {
     PERFORMANCE_FEE_RATE: 0.06,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
-    BILLING_SUSPENSION_DAYS: 14,
     DUNNING_WARNING_DAYS: 10,
+    BILLING_SUSPENSION_DAYS: 14,
     CRON_SECRET: 'build-phase-placeholder',
-    USDC_INVOICE_EXPIRY_DAYS: 7,
+    USDC_INVOICE_EXPIRY_DAYS: 30,
     USDC_PAYMENT_REF_LENGTH: 8,
     USDC_PAYMENT_REF_RETRIES: 5,
     USDC_MICRO_OFFSET_MAX: 999,

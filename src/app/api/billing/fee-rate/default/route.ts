@@ -18,8 +18,15 @@ export async function GET() {
       []
     );
     if (settingResult[0]) {
+      const env = getEnvironmentConfig();
       const rate = parseFloat(String(settingResult[0].value));
-      return NextResponse.json({ feeRate: rate, feePercent: +(rate * 100).toFixed(4) });
+      return NextResponse.json({
+        feeRate: rate,
+        feePercent: +(rate * 100).toFixed(4),
+        gracePeriodDays: env.BILLING_GRACE_PERIOD_DAYS,
+        dunningWarningDays: env.DUNNING_WARNING_DAYS,
+        suspensionDays: env.BILLING_SUSPENSION_DAYS,
+      });
     }
   } catch {
     // fall through to env
@@ -27,5 +34,11 @@ export async function GET() {
 
   const env = getEnvironmentConfig();
   const rate = env.PERFORMANCE_FEE_RATE;
-  return NextResponse.json({ feeRate: rate, feePercent: +(rate * 100).toFixed(4) });
+  return NextResponse.json({
+    feeRate: rate,
+    feePercent: +(rate * 100).toFixed(4),
+    gracePeriodDays: env.BILLING_GRACE_PERIOD_DAYS,   // Day 7: first reminder
+    dunningWarningDays: env.DUNNING_WARNING_DAYS,      // Day 10: final warning
+    suspensionDays: env.BILLING_SUSPENSION_DAYS,       // Day 14: bots suspended
+  });
 }

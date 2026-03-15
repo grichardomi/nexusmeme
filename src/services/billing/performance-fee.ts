@@ -16,7 +16,7 @@ export interface PerformanceFeeRecord {
   bot_instance_id: string;
   profit_amount: number;
   fee_amount: number;
-  status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived' | 'disputed';
+  status: 'pending_billing' | 'billed' | 'paid' | 'refunded' | 'waived' | 'disputed' | 'uncollectible';
   payment_reference: string | null;
   created_at: string;
 }
@@ -123,6 +123,7 @@ export async function getUserFeeSummary(userId: string) {
          SUM(CASE WHEN status = 'paid' THEN fee_amount ELSE 0 END)::DECIMAL as total_fees_collected,
          SUM(CASE WHEN status = 'pending_billing' THEN fee_amount ELSE 0 END)::DECIMAL as pending_fees,
          SUM(CASE WHEN status = 'billed' THEN fee_amount ELSE 0 END)::DECIMAL as billed_fees,
+         SUM(CASE WHEN status = 'uncollectible' THEN fee_amount ELSE 0 END)::DECIMAL as uncollectible_fees,
          COUNT(*)::INT as profitable_trades
        FROM performance_fees
        WHERE user_id = $1::uuid`,
@@ -134,6 +135,7 @@ export async function getUserFeeSummary(userId: string) {
       total_fees_collected: 0,
       pending_fees: 0,
       billed_fees: 0,
+      uncollectible_fees: 0,
       profitable_trades: 0,
     };
   } catch (error) {

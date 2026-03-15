@@ -5,8 +5,11 @@
  * Timeline (days after invoice created):
  *   Day 0  → Invoice created, initial email sent by billing job
  *   Day 7  → First dunning reminder (BILLING_GRACE_PERIOD_DAYS)
- *   Day 14 → Final warning + suspend bots (BILLING_SUSPENSION_DAYS)
- *   Payment → Immediately resume bots (handled by USDC webhook)
+ *   Day 10 → Final warning email (DUNNING_WARNING_DAYS)
+ *   Day 14 → Bots suspended (BILLING_SUSPENSION_DAYS)
+ *   Payment → Bots resume immediately (handled by USDC webhook)
+ *
+ *   Invoice expiry must exceed Day 14 — set USDC_INVOICE_EXPIRY_DAYS >= 30
  */
 
 import { query, transaction } from '@/lib/db';
@@ -115,11 +118,15 @@ async function sendDunningReminder(
   appUrl: string,
   attempt: 1 | 2
 ): Promise<void> {
+  const env = getEnvironmentConfig();
   const billingUrl = `${appUrl}/dashboard/billing`;
 
   const deadlineDate = new Date(invoice.expires_at).toLocaleDateString('en-US', {
     year: 'numeric', month: 'long', day: 'numeric',
   });
+
+  // Days from final warning (Day 10) until suspension (Day 14) = 4 by default, but computed from env
+  const daysUntilSuspension = env.BILLING_SUSPENSION_DAYS - env.DUNNING_WARNING_DAYS;
 
   await sendPerformanceFeeDunningEmail(
     invoice.email,
@@ -129,7 +136,8 @@ async function sendDunningReminder(
     deadlineDate,
     invoice.wallet_address,
     invoice.payment_reference,
-    billingUrl
+    billingUrl,
+    daysUntilSuspension
   );
 
   // Record attempt so we don't resend the same phase tomorrow

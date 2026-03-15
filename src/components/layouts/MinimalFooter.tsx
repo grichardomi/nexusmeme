@@ -19,6 +19,12 @@ export function MinimalFooter() {
         {/* Legal Links */}
         <div className="flex items-center gap-4 sm:gap-6">
           <Link
+            href="/help/performance-fees"
+            className="hover:text-slate-900 dark:hover:text-white transition"
+          >
+            Fees Guide
+          </Link>
+          <Link
             href="/dashboard/support"
             className="hover:text-slate-900 dark:hover:text-white transition font-medium"
           >

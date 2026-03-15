@@ -342,13 +342,15 @@ export async function sendPerformanceFeeDunningEmail(
   deadline: string,
   walletAddress?: string,
   paymentReference?: string,
-  billingUrl?: string
+  billingUrl?: string,
+  daysUntilSuspension?: number
 ): Promise<string> {
   const context: EmailContext = {
     name,
     amount,
     attemptNumber,
     deadline,
+    daysUntilSuspension,
     walletAddress,
     paymentReference,
     billingUrl,

@@ -3,21 +3,35 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 
-function useFeePercent() {
-  const [feePercent, setFeePercent] = useState<number | null>(null);
+interface BillingConfig {
+  feePercent: number;
+  gracePeriodDays: number;
+  dunningWarningDays: number;
+  suspensionDays: number;
+}
+
+function useBillingConfig() {
+  const [config, setConfig] = useState<BillingConfig | null>(null);
   useEffect(() => {
     fetch('/api/billing/fee-rate/default')
       .then(r => r.json())
-      .then(d => setFeePercent(d.feePercent ?? null))
+      .then(d => setConfig({
+        feePercent: d.feePercent ?? 6,
+        gracePeriodDays: d.gracePeriodDays ?? 7,
+        dunningWarningDays: d.dunningWarningDays ?? 10,
+        suspensionDays: d.suspensionDays ?? 14,
+      }))
       .catch(() => {});
   }, []);
-  return feePercent;
+  return config;
 }
 
 export default function PerformanceFeesPage() {
-  const feePercent = useFeePercent();
+  const billing = useBillingConfig();
+  const feePercent = billing?.feePercent ?? null;
   const fee = feePercent !== null ? `${feePercent}%` : '…';
   const feeDecimal = feePercent !== null ? feePercent / 100 : null;
+  const suspensionDays = billing?.suspensionDays ?? 14;
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
@@ -149,15 +163,15 @@ export default function PerformanceFeesPage() {
             <div className="flex gap-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
               <div className="text-2xl flex-shrink-0">🟡</div>
               <div>
-                <h4 className="font-semibold text-yellow-900 dark:text-yellow-100">Invoice Pending</h4>
-                <p className="text-sm text-yellow-800 dark:text-yellow-200">An invoice is awaiting your USDC payment. Go to Billing & Plans to pay.</p>
+                <h4 className="font-semibold text-yellow-900 dark:text-yellow-100">Overdue</h4>
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">An invoice is awaiting your USDC payment. Your bot continues trading until Day {suspensionDays}. Go to Billing &amp; Plans to pay. If the invoice has expired, generate a new one there.</p>
               </div>
             </div>
             <div className="flex gap-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
               <div className="text-2xl flex-shrink-0">🔴</div>
               <div>
                 <h4 className="font-semibold text-red-900 dark:text-red-100">Suspended</h4>
-                <p className="text-sm text-red-800 dark:text-red-200">An invoice is overdue. Your bot has been paused. Pay with USDC to immediately resume trading.</p>
+                <p className="text-sm text-red-800 dark:text-red-200">Your invoice is more than {suspensionDays} days overdue. Your bot has been paused and will not execute any trades. Go to Billing &amp; Plans, pay the USDC invoice on Base network — your bot resumes automatically once payment is confirmed. If the invoice has expired, generate a new one there.</p>
               </div>
             </div>
           </div>

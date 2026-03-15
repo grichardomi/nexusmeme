@@ -68,10 +68,10 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="/"
+                  href="/dashboard"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  About
+                  Dashboard
                 </Link>
               </li>
             </ul>
@@ -92,14 +92,12 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <a
-                  href={process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv'}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  href="/help/performance-fees"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  Discord Community
-                </a>
+                  Performance Fees Guide
+                </Link>
               </li>
               <li>
                 <Link
@@ -108,6 +106,16 @@ export function Footer() {
                 >
                   FAQ
                 </Link>
+              </li>
+              <li>
+                <a
+                  href={process.env.NEXT_PUBLIC_DISCORD_INVITE || 'https://discord.gg/psad3vBVmv'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
+                >
+                  Discord Community
+                </a>
               </li>
             </ul>
           </div>
@@ -120,26 +128,18 @@ export function Footer() {
             <ul className="space-y-2 text-xs">
               <li>
                 <Link
-                  href="/legal/privacy"
-                  className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
-                >
-                  Privacy
-                </Link>
-              </li>
-              <li>
-                <Link
                   href="/legal/terms"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  Terms
+                  Terms of Service
                 </Link>
               </li>
               <li>
                 <Link
-                  href="/legal/cookies"
+                  href="/legal/privacy"
                   className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition"
                 >
-                  Cookies
+                  Privacy Policy
                 </Link>
               </li>
             </ul>

@@ -112,9 +112,9 @@ export default function TermsPage() {
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Billing Status</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-2">Your billing account has three possible statuses:</p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
-            <li>• <strong>Active:</strong> All charges succeeded, account in good standing</li>
-            <li>• <strong>Past Due:</strong> A USDC invoice is overdue; please pay to continue trading</li>
-            <li>• <strong>Suspended:</strong> Multiple charge attempts failed; bot will pause in 24 hours</li>
+            <li>• <strong>Active:</strong> Account in good standing; all invoices paid</li>
+            <li>• <strong>Past Due:</strong> A USDC invoice is overdue; your bot continues trading until Day 14</li>
+            <li>• <strong>Suspended:</strong> Invoice unpaid beyond 14 days; bot is paused until USDC payment is confirmed on the Base network</li>
           </ul>
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">No Charge Scenarios</h3>
