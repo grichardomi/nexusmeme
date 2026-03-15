@@ -28,6 +28,16 @@ export async function GET() {
       );
     }
 
+    // Test Binance.com accessibility from this server
+    let binanceComStatus = 'unknown';
+    try {
+      const binanceRes = await fetch('https://api.binance.com/api/v3/ping', { signal: AbortSignal.timeout(5000) });
+      const binanceBody = await binanceRes.json();
+      binanceComStatus = binanceBody && Object.keys(binanceBody).length === 0 ? 'accessible' : `blocked: ${JSON.stringify(binanceBody)}`;
+    } catch {
+      binanceComStatus = 'error';
+    }
+
     return NextResponse.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -35,6 +45,7 @@ export async function GET() {
       checks: {
         environment: 'ok',
         database: 'ok',
+        binanceCom: binanceComStatus,
       },
       environment: {
         nodeEnv: process.env.NODE_ENV,
