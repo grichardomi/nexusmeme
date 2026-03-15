@@ -225,10 +225,12 @@ export async function checkActionAllowed(
 
     // For live trading, also check billing suspension status
     const billingResult = await query(
-      `SELECT billing_status FROM user_billing WHERE user_id = $1`,
+      `SELECT billing_status, fee_exempt FROM user_billing WHERE user_id = $1`,
       [userId]
     );
-    if (billingResult[0]?.billing_status === 'suspended') {
+    // Fee-exempt users: bots always keep running regardless of invoice status
+    const isFeeExempt = billingResult[0]?.fee_exempt === true;
+    if (!isFeeExempt && billingResult[0]?.billing_status === 'suspended') {
       return {
         allowed: false,
         reason: 'Your account is suspended due to an unpaid invoice. Please pay your outstanding USDC invoice to resume trading.',

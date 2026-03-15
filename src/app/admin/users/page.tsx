@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 
 /**
  * Admin Users Management Page
- * View and manage user accounts, roles, and trial extensions
+ * View and manage user accounts, roles, trial extensions, and fee exemptions
  */
 
 interface Subscription {
@@ -25,12 +25,21 @@ interface User {
   billingTier: 'starter' | 'live' | 'elite' | null;
   totalAccountValue: number | null;
   accountValueUpdatedAt: string | null;
+  feeExempt: boolean;
+  feeExemptReason: string | null;
 }
 
 interface ExtendModalState {
   userId: string;
   email: string;
   currentExpiry: Date | null;
+}
+
+interface WaiverModalState {
+  userId: string;
+  email: string;
+  isExempt: boolean;
+  currentReason: string | null;
 }
 
 export default function AdminUsersPage() {
@@ -45,6 +54,10 @@ export default function AdminUsersPage() {
   const [extendDays, setExtendDays] = useState('7');
   const [extendLoading, setExtendLoading] = useState(false);
   const [extendError, setExtendError] = useState<string | null>(null);
+  const [waiverModal, setWaiverModal] = useState<WaiverModalState | null>(null);
+  const [waiverReason, setWaiverReason] = useState('');
+  const [waiverLoading, setWaiverLoading] = useState(false);
+  const [waiverError, setWaiverError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -122,6 +135,43 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleWaiverSubmit = async () => {
+    if (!waiverModal) return;
+    setWaiverLoading(true);
+    setWaiverError(null);
+
+    const action = waiverModal.isExempt ? 'remove_waiver' : 'waive_fees';
+
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: waiverModal.userId, action, reason: waiverReason }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setWaiverError(data.error || 'Failed to update fee exemption');
+        return;
+      }
+
+      if (action === 'waive_fees') {
+        const botMsg = data.resumedBots > 0 ? ` ${data.resumedBots} bot${data.resumedBots !== 1 ? 's' : ''} resumed.` : '';
+        setSuccessMsg(`Fee waiver granted for ${waiverModal.email}.${botMsg} Their bots will keep running regardless of invoices.`);
+      } else {
+        setSuccessMsg(`Fee waiver removed for ${waiverModal.email}. Standard billing resumes.`);
+      }
+
+      setWaiverModal(null);
+      setWaiverReason('');
+      fetchUsers();
+    } catch {
+      setWaiverError('Network error — please try again');
+    } finally {
+      setWaiverLoading(false);
+    }
+  };
+
   const getTrialBadge = (sub: Subscription | null) => {
     if (!sub) return <span className="text-slate-400 text-xs">No trial</span>;
 
@@ -165,7 +215,7 @@ export default function AdminUsersPage() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Users</h1>
-        <p className="text-slate-600 dark:text-slate-400">Manage user accounts and permissions</p>
+        <p className="text-slate-600 dark:text-slate-400">Manage user accounts, permissions, and fee exemptions</p>
       </div>
 
       {/* Success message */}
@@ -215,6 +265,7 @@ export default function AdminUsersPage() {
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Trial</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Account Value</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Tier</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Fees</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Joined</th>
                   <th className="text-left px-6 py-3 text-xs font-medium text-slate-600 dark:text-slate-300 uppercase">Actions</th>
                 </tr>
@@ -277,24 +328,61 @@ export default function AdminUsersPage() {
                         <span className="text-slate-400 text-xs">—</span>
                       )}
                     </td>
+                    <td className="px-6 py-3 text-sm">
+                      {user.feeExempt ? (
+                        <div>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                            🛡 Waived
+                          </span>
+                          {user.feeExemptReason && (
+                            <p className="text-xs text-slate-400 mt-0.5 max-w-[120px] truncate" title={user.feeExemptReason}>
+                              {user.feeExemptReason}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs">Standard</span>
+                      )}
+                    </td>
                     <td className="px-6 py-3 text-sm text-slate-600 dark:text-slate-400">
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-3 text-sm">
-                      {user.subscription && (
+                      <div className="flex flex-col gap-1">
+                        {user.subscription && (
+                          <button
+                            onClick={() =>
+                              setExtendModal({
+                                userId: user.id,
+                                email: user.email,
+                                currentExpiry: user.subscription?.trialEndsAt ?? null,
+                              })
+                            }
+                            className="px-3 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800 transition"
+                          >
+                            {user.subscription.planTier === 'live_trial' ? 'Extend Trial' : 'Grant Trial'}
+                          </button>
+                        )}
                         <button
-                          onClick={() =>
-                            setExtendModal({
+                          onClick={() => {
+                            setWaiverModal({
                               userId: user.id,
                               email: user.email,
-                              currentExpiry: user.subscription?.trialEndsAt ?? null,
-                            })
-                          }
-                          className="px-3 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800 transition"
+                              isExempt: user.feeExempt,
+                              currentReason: user.feeExemptReason,
+                            });
+                            setWaiverReason('');
+                            setWaiverError(null);
+                          }}
+                          className={`px-3 py-1 text-xs font-medium rounded transition ${
+                            user.feeExempt
+                              ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800'
+                              : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800'
+                          }`}
                         >
-                          {user.subscription.planTier === 'live_trial' ? 'Extend Trial' : 'Grant Trial'}
+                          {user.feeExempt ? 'Remove Waiver' : 'Waive Fees'}
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -387,6 +475,80 @@ export default function AdminUsersPage() {
                 className="px-4 py-2 text-sm font-medium rounded bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
               >
                 {extendLoading ? 'Extending...' : 'Extend Trial'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fee Waiver Modal */}
+      {waiverModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-md mx-4">
+            {waiverModal.isExempt ? (
+              <>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Remove Fee Waiver</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{waiverModal.email}</p>
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3 mb-4 text-sm text-amber-800 dark:text-amber-200">
+                  <p className="font-medium mb-1">This user currently has fees waived.</p>
+                  {waiverModal.currentReason && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">Reason: {waiverModal.currentReason}</p>
+                  )}
+                  <p className="mt-2">Removing the waiver will restore standard billing. If they have unpaid invoices and their account is overdue, they may be suspended on the next billing check.</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Waive Performance Fees</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{waiverModal.email}</p>
+                <div className="bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700 rounded-lg p-3 mb-4 text-sm text-emerald-800 dark:text-emerald-200">
+                  <p className="font-medium mb-1">🛡 Fee waiver — what this does:</p>
+                  <ul className="list-disc list-inside space-y-1 text-xs mt-1">
+                    <li>All future performance fees are recorded as <strong>waived</strong> (not billed)</li>
+                    <li>Bot keeps running even if account is overdue or suspended</li>
+                    <li>Any currently suspended bots are resumed immediately</li>
+                    <li>Existing unpaid invoices are <strong>not</strong> automatically cancelled</li>
+                  </ul>
+                </div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Reason <span className="text-slate-400 font-normal">(optional — shown in audit log)</span>
+                </label>
+                <input
+                  type="text"
+                  value={waiverReason}
+                  onChange={e => setWaiverReason(e.target.value)}
+                  placeholder="e.g. Beta tester, Partner, Internal account"
+                  className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 mb-4"
+                />
+              </>
+            )}
+
+            {waiverError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mb-3">{waiverError}</p>
+            )}
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setWaiverModal(null); setWaiverError(null); setWaiverReason(''); }}
+                disabled={waiverLoading}
+                className="px-4 py-2 text-sm font-medium rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleWaiverSubmit}
+                disabled={waiverLoading}
+                className={`px-4 py-2 text-sm font-medium rounded text-white transition disabled:opacity-50 ${
+                  waiverModal.isExempt
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {waiverLoading
+                  ? 'Saving...'
+                  : waiverModal.isExempt
+                  ? 'Remove Waiver'
+                  : 'Grant Waiver'}
               </button>
             </div>
           </div>

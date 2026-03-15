@@ -42,15 +42,17 @@ export async function recordPerformanceFee(
   const feeRate = await getEffectiveFeeRate(userId);
   const feeAmount = profitAmount * feeRate;
 
-  // Check if user is on free trial (waive fees)
+  // Check if user is on free trial or admin-granted fee exemption
   const userCheck = await query(
     `SELECT
       us.plan_tier AS plan,
       us.trial_ends_at,
-      bi.config
+      bi.config,
+      ub.fee_exempt
      FROM users u
      LEFT JOIN subscriptions us ON u.id = us.user_id
      LEFT JOIN bot_instances bi ON bi.id = $2
+     LEFT JOIN user_billing ub ON ub.user_id = u.id
      WHERE u.id = $1`,
     [userId, botInstanceId]
   );
@@ -59,9 +61,10 @@ export async function recordPerformanceFee(
                      (userCheck[0]?.trial_ends_at && new Date(userCheck[0].trial_ends_at) > new Date());
   const tradingMode = userCheck[0]?.config?.tradingMode || 'paper';
   const isPaperTrading = tradingMode === 'paper';
+  const isFeeExempt = userCheck[0]?.fee_exempt === true;
 
-  // Waive fees for: free trial OR paper trading
-  const status = (isFreeTrial || isPaperTrading) ? 'waived' : 'pending_billing';
+  // Waive fees for: free trial OR paper trading OR admin-granted fee exemption
+  const status = (isFreeTrial || isPaperTrading || isFeeExempt) ? 'waived' : 'pending_billing';
 
   try {
     const result = await query(

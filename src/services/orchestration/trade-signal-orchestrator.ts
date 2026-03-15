@@ -1661,7 +1661,8 @@ class TradeSignalOrchestrator {
           }
 
           // CHECK 2.7: MAX HOLD TIME — agile trading, not investing
-          // Each regime gets a max hold window. After that: take profit if green, exit if flat/red.
+          // In trending/bullish regimes, profitable trades are skipped — erosion cap handles exit.
+          // Erosion cap is the correct trailing mechanism; max hold cutting a winner is premature.
           if (!shouldClose) {
             const maxHoldByRegime: Record<string, number> = {
               choppy: env.MAX_HOLD_MINUTES_CHOPPY,
@@ -1672,34 +1673,61 @@ class TradeSignalOrchestrator {
             };
             const maxHoldMinutes = maxHoldByRegime[regime.toLowerCase()] ?? env.MAX_HOLD_MINUTES_MODERATE;
             if (tradeAgeMinutes >= maxHoldMinutes) {
-              shouldClose = true;
-              exitReason = currentProfitPct > 0 ? 'max_hold_profit' : 'max_hold_exit';
-              logger.info('⏰ MAX HOLD TIME - agile exit', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                regime,
-                ageMinutes: tradeAgeMinutes.toFixed(1),
-                maxHoldMinutes,
-                profitPct: currentProfitPct.toFixed(2) + '%',
-                exitReason,
-              });
+              const isTrending = ['moderate', 'strong'].includes(regime.toLowerCase());
+              // In trending regimes, let profitable trades ride — erosion cap will protect gains.
+              // Only exit via max hold when underwater or in choppy/weak markets.
+              if (currentProfitPct > 0 && isTrending) {
+                logger.info('⏰ MAX HOLD — profitable trade in trending regime, deferring to erosion cap', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  regime,
+                  ageMinutes: tradeAgeMinutes.toFixed(1),
+                  profitPct: currentProfitPct.toFixed(2) + '%',
+                });
+              } else {
+                shouldClose = true;
+                exitReason = currentProfitPct > 0 ? 'max_hold_profit' : 'max_hold_exit';
+                logger.info('⏰ MAX HOLD TIME - agile exit', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  regime,
+                  ageMinutes: tradeAgeMinutes.toFixed(1),
+                  maxHoldMinutes,
+                  profitPct: currentProfitPct.toFixed(2) + '%',
+                  exitReason,
+                });
+              }
             }
           }
 
           // CHECK 2.8: STALE FLAT — trade hovering at zero = dead capital, free it
+          // Skip when trade is net-positive: a profitable trade pausing in a bullish market
+          // is not dead capital — it may be consolidating before the next leg up.
+          // Erosion cap handles exit once the trade peaks and pulls back.
           if (!shouldClose) {
             const flatBand = env.STALE_FLAT_BAND_PCT * 100; // convert to pct
             const isFlat = Math.abs(grossProfitPct) <= flatBand;
             if (isFlat && tradeAgeMinutes >= env.STALE_FLAT_MINUTES) {
-              shouldClose = true;
-              exitReason = 'stale_flat';
-              logger.info('😴 STALE FLAT - dead capital, freeing for next opportunity', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                grossProfitPct: grossProfitPct.toFixed(3) + '%',
-                ageMinutes: tradeAgeMinutes.toFixed(1),
-                flatBand: flatBand.toFixed(2) + '%',
-              });
+              if (currentProfitPct > 0) {
+                // Trade is net-profitable even while "flat" — hold, let erosion cap protect gains
+                logger.info('😴 STALE FLAT skipped — trade is net-positive, erosion cap will exit', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  grossProfitPct: grossProfitPct.toFixed(3) + '%',
+                  netProfitPct: currentProfitPct.toFixed(3) + '%',
+                  ageMinutes: tradeAgeMinutes.toFixed(1),
+                });
+              } else {
+                shouldClose = true;
+                exitReason = 'stale_flat';
+                logger.info('😴 STALE FLAT - dead capital, freeing for next opportunity', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  grossProfitPct: grossProfitPct.toFixed(3) + '%',
+                  ageMinutes: tradeAgeMinutes.toFixed(1),
+                  flatBand: flatBand.toFixed(2) + '%',
+                });
+              }
             }
           }
 

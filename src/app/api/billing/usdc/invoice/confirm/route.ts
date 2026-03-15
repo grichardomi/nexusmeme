@@ -36,7 +36,19 @@ async function fetchTxReceipt(rpcUrl: string, txHash: string): Promise<{
       params: [txHash],
     }),
   });
+  if (!res.ok) {
+    logger.error('Alchemy RPC HTTP error', null, { status: res.status, txHash });
+    return null;
+  }
   const json = await res.json();
+  if (json.error) {
+    logger.error('Alchemy RPC JSON-RPC error', null, { error: json.error, txHash });
+    return null;
+  }
+  if (json.result && !Array.isArray(json.result.logs)) {
+    logger.error('Alchemy RPC unexpected response shape', null, { txHash });
+    return null;
+  }
   return json.result || null;
 }
 

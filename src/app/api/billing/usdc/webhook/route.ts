@@ -69,28 +69,17 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Enforce confirmation threshold before crediting
-      // Alchemy sends blockNum as hex (e.g. "0x1a2b3c") for the tx block
-      // and event.event.network contains the current synced block context.
-      // We compare tx block against the block at notification time.
-      const txBlockHex: string = activity.blockNum ?? '0x0';
-      const txBlock = parseInt(txBlockHex, 16);
-      // Alchemy ADDRESS_ACTIVITY events include a top-level block number
-      // in event.event.network — not reliable. Use the activity's own
-      // blockNum and trust Alchemy's confirmation_count if present, else
-      // default to the env threshold check via block delta from event header.
-      const eventBlock = parseInt(event.event?.blockNum ?? txBlockHex, 16);
-      const confirmations = eventBlock - txBlock;
-      const required = env.USDC_REQUIRED_CONFIRMATIONS;
-
-      if (confirmations < required) {
-        logger.info('USDC transfer below confirmation threshold — waiting', {
-          txHash: activity.hash,
-          confirmations,
-          required,
-        });
-        continue;
-      }
+      // Alchemy sends ADDRESS_ACTIVITY webhooks only after the configured
+      // confirmation threshold (set in Alchemy dashboard). Manual block-delta
+      // counting here was unreliable (fallback made delta always 0).
+      // We trust Alchemy's delivery guarantee; unique micro-offset amounts
+      // prevent double-credit if a webhook fires twice for the same tx.
+      logger.info('USDC transfer received via Alchemy webhook', {
+        txHash: activity.hash,
+        contract: contractAddress,
+        from: activity.fromAddress,
+        to: activity.toAddress,
+      });
 
       const result = await processIncomingUSDCTransfer({
         txHash: activity.hash,

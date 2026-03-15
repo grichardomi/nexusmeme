@@ -36,7 +36,9 @@ export async function GET(request: NextRequest) {
         s.trial_ends_at,
         b.config->>'billingTier' as billing_tier,
         (b.config->>'totalAccountValue')::numeric as total_account_value,
-        b.config->>'accountValueUpdatedAt' as account_value_updated_at
+        b.config->>'accountValueUpdatedAt' as account_value_updated_at,
+        ub.fee_exempt,
+        ub.fee_exempt_reason
       FROM users u
       LEFT JOIN LATERAL (
         SELECT id, status, plan_tier, trial_ends_at
@@ -52,6 +54,7 @@ export async function GET(request: NextRequest) {
         ORDER BY created_at DESC
         LIMIT 1
       ) b ON true
+      LEFT JOIN user_billing ub ON ub.user_id = u.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -96,6 +99,8 @@ export async function GET(request: NextRequest) {
         billingTier: u.billing_tier ?? null,
         totalAccountValue: u.total_account_value ? parseFloat(u.total_account_value) : null,
         accountValueUpdatedAt: u.account_value_updated_at ?? null,
+        feeExempt: u.fee_exempt === true,
+        feeExemptReason: u.fee_exempt_reason ?? null,
       })),
       total,
       page,
@@ -195,6 +200,52 @@ export async function PATCH(request: NextRequest) {
         daysAdded: daysNum,
         resumedBots: resumedBots.length,
       });
+    }
+
+    if (action === 'waive_fees') {
+      const reason = body.reason?.trim() || null;
+
+      await query(
+        `INSERT INTO user_billing (user_id, billing_status, fee_exempt, fee_exempt_reason, fee_exempt_set_at, fee_exempt_set_by)
+         VALUES ($1, 'exempt', true, $2, NOW(), $3)
+         ON CONFLICT (user_id) DO UPDATE
+           SET fee_exempt = true,
+               fee_exempt_reason = $2,
+               fee_exempt_set_at = NOW(),
+               fee_exempt_set_by = $3,
+               billing_status = CASE WHEN user_billing.billing_status = 'suspended' THEN 'exempt' ELSE user_billing.billing_status END,
+               updated_at = NOW()`,
+        [userId, reason, session.user.id]
+      );
+
+      // Resume any suspended bots
+      const resumedBots = await query<any>(
+        `UPDATE bot_instances SET status = 'running', updated_at = NOW()
+         WHERE user_id = $1 AND status IN ('paused', 'stopped') RETURNING id`,
+        [userId]
+      );
+
+      logger.info('Admin granted fee exemption', { adminId: session.user.id, targetUserId: userId, reason });
+
+      return NextResponse.json({ success: true, resumedBots: resumedBots.length });
+    }
+
+    if (action === 'remove_waiver') {
+      await query(
+        `UPDATE user_billing
+         SET fee_exempt = false,
+             fee_exempt_reason = NULL,
+             fee_exempt_set_at = NULL,
+             fee_exempt_set_by = NULL,
+             billing_status = CASE WHEN billing_status = 'exempt' THEN 'active' ELSE billing_status END,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId]
+      );
+
+      logger.info('Admin removed fee exemption', { adminId: session.user.id, targetUserId: userId });
+
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

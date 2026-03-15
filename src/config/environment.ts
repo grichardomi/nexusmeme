@@ -37,6 +37,10 @@ const envSchema = z.object({
   ALCHEMY_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   ALCHEMY_WEBHOOK_SIGNING_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   USDC_REQUIRED_CONFIRMATIONS: z.string().transform(Number).default('3'),
+  // WalletConnect project ID — optional; WalletConnect button hidden if unset
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: z.string().optional(),
+  // Set to 'true' in local dev to skip real on-chain verification
+  NEXT_PUBLIC_USDC_PAYMENT_MOCK: z.string().transform(v => v === 'true').default('false'),
 
   /* Lemon Squeezy - Card/PayPal payments for performance fees */
 
@@ -405,6 +409,8 @@ function getDefaultEnvironment(): Environment {
     ALCHEMY_API_KEY: undefined,
     ALCHEMY_WEBHOOK_SIGNING_KEY: undefined,
     USDC_REQUIRED_CONFIRMATIONS: 3,
+    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: undefined,
+    NEXT_PUBLIC_USDC_PAYMENT_MOCK: false,
     BINANCE_API_BASE_URL: 'https://api.binance.us',
     SUPPORTED_EXCHANGES: 'binance',
     KRAKEN_TAKER_FEE_DEFAULT: 0.0026,

@@ -1,4 +1,0 @@
-Pair,Entry Time,Exit Time,Entry Price,Exit Price,Quantity,Gross P&L,Fees,Net P&L,Net P&L %,Status,Exit Reason
-"ETH/USD","3/9/2026, 7:45:27 PM","Open","$2031.07","N/A","0.141551","$0.00","$0.29","$-0.29","-0.10%","open","N/A"
-"BTC/USD","3/9/2026, 7:31:13 PM","Open","$69430.71","N/A","0.004141","$0.00","$0.29","$-0.29","-0.10%","open","N/A"
-"BTC/USD","3/9/2026, 2:08:47 PM","3/9/2026, 5:38:33 PM","$68753.87","$68510.05","0.002606","$-0.64","$0.36","$-0.99","-0.56%","closed","stale_underwater"
