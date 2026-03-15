@@ -16,7 +16,7 @@ function useBillingConfig() {
     fetch('/api/billing/fee-rate/default')
       .then(r => r.json())
       .then(d => setConfig({
-        feePercent: d.feePercent ?? 6,
+        feePercent: d.feePercent,
         gracePeriodDays: d.gracePeriodDays ?? 7,
         dunningWarningDays: d.dunningWarningDays ?? 10,
         suspensionDays: d.suspensionDays ?? 14,

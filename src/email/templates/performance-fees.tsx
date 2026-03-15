@@ -17,13 +17,14 @@ interface PerformanceFeeChargedProps {
 export function PerformanceFeeChargedEmailTemplate({
   name = 'Trader',
   amount,
-  feePercent = 6,
+  feePercent,
   invoiceId,
   invoiceUrl,
   trades,
 }: PerformanceFeeChargedProps): EmailTemplate {
   const amountNum = parseFloat(String(amount));
-  const feePercentNum = parseFloat(String(feePercent));
+  const feePercentNum = feePercent != null ? parseFloat(String(feePercent)) : null;
+  const feeDisplay = feePercentNum != null ? `${feePercentNum}%` : 'performance fee';
   const html = `
     <!DOCTYPE html>
     <html>
@@ -61,7 +62,7 @@ export function PerformanceFeeChargedEmailTemplate({
             <p>Hi ${name},</p>
             <p>Your trading bot generated profits this month. Here is your performance fee invoice — pay via USDC on Base network.</p>
             <div class="fee-box">
-              <p style="margin: 0; color: #666; font-size: 14px;">Performance Fee (${feePercentNum}% of Profits)</p>
+              <p style="margin: 0; color: #666; font-size: 14px;">Performance Fee (${feeDisplay} of Profits)</p>
               <div class="amount">$${amountNum.toFixed(2)} USDC</div>
               <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${trades} profitable trade(s)</p>
             </div>
@@ -79,7 +80,7 @@ export function PerformanceFeeChargedEmailTemplate({
             </table>` : ''}
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>How Performance Fees Work</h3>
-            <p>You only pay when your bot generates profits. We charge ${feePercentNum}% of your realized profits each month. We only earn when you earn.</p>
+            <p>You only pay when your bot generates profits. We charge ${feeDisplay} of your realized profits each month. We only earn when you earn.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
@@ -99,7 +100,7 @@ Hi ${name},
 
 Your trading bot generated profits. Here is your invoice.
 
-Performance Fee (${feePercentNum}% of profits): $${amountNum.toFixed(2)} USDC
+Performance Fee (${feeDisplay} of profits): $${amountNum.toFixed(2)} USDC
 From: ${trades} profitable trade(s)
 Invoice Reference: ${invoiceId}
 Status: Awaiting Payment
@@ -133,9 +134,10 @@ export function UpcomingBillingEmailTemplate({
   tradeCount,
   billingDate,
   billingUrl,
-  feePercent = 6,
+  feePercent,
 }: UpcomingBillingProps): EmailTemplate {
-  const feePercentNum = parseFloat(String(feePercent));
+  const feePercentNum = feePercent != null ? parseFloat(String(feePercent)) : null;
+  const feeDisplay = feePercentNum != null ? `${feePercentNum}%` : 'performance fee';
   const html = `
     <!DOCTYPE html>
     <html>
@@ -173,7 +175,7 @@ export function UpcomingBillingEmailTemplate({
             <p>Hi ${name},</p>
             <p>This is a reminder that your monthly performance fees will be charged on <strong>${billingDate}</strong>.</p>
             <div class="fee-box">
-              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (${feePercentNum}% of Profits)</p>
+              <p style="margin: 0; color: #666; font-size: 14px;">Pending Performance Fees (${feeDisplay} of Profits)</p>
               <div class="amount">$${totalPendingFees.toFixed(2)}</div>
               <p style="margin: 10px 0 0 0; color: #666; font-size: 14px;">From ${tradeCount} profitable trade(s)</p>
             </div>
@@ -191,7 +193,7 @@ export function UpcomingBillingEmailTemplate({
             </table>
             <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
             <h3>How Performance Fees Work</h3>
-            <p>You only pay when your bot generates profits. We charge ${feePercentNum}% of your realized profits each month. No profits = no charge.</p>
+            <p>You only pay when your bot generates profits. We charge ${feeDisplay} of your realized profits each month. No profits = no charge.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 NexusMeme. All rights reserved.</p>
@@ -212,7 +214,7 @@ Hi ${name},
 
 This is a reminder that your monthly performance fees will be charged on ${billingDate}.
 
-Pending Performance Fees (${feePercentNum}% of Profits): $${totalPendingFees.toFixed(2)}
+Pending Performance Fees (${feeDisplay} of Profits): $${totalPendingFees.toFixed(2)}
 From: ${tradeCount} profitable trade(s)
 
 Billing Date: ${billingDate}

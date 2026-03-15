@@ -287,7 +287,7 @@ export function renderEmailTemplate(
       return PerformanceFeeChargedEmailTemplate({
         name: ctx.name,
         amount: ctx.amount,
-        feePercent: ctx.feePercent ?? 6,
+        feePercent: ctx.feePercent,
         invoiceId: ctx.invoiceId,
         invoiceUrl: ctx.invoiceUrl,
         trades: ctx.trades || 1,
@@ -376,6 +376,7 @@ export function renderEmailTemplate(
         trialDays: ctx.trialDays,
         trialEndsAt: ctx.trialEndsAt,
         dashboardUrl: ctx.dashboardUrl,
+        feePercent: ctx.feePercent,
       });
     }
 

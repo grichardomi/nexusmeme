@@ -320,6 +320,7 @@ interface TrialStartedProps {
   trialDays: number;
   trialEndsAt: string;
   dashboardUrl: string;
+  feePercent?: number | string;
 }
 
 export function TrialStartedEmailTemplate({
@@ -327,7 +328,10 @@ export function TrialStartedEmailTemplate({
   trialDays,
   trialEndsAt,
   dashboardUrl,
+  feePercent,
 }: TrialStartedProps): EmailTemplate {
+  const feePercentNum = feePercent != null ? parseFloat(String(feePercent)) : null;
+  const feeDisplay = feePercentNum != null ? `${feePercentNum}%` : 'a performance fee';
   const html = `
     <!DOCTYPE html>
     <html>
@@ -377,7 +381,7 @@ export function TrialStartedEmailTemplate({
               <li>All profits are 100% yours — no fees during trial</li>
               <li>Full access to trading analytics and performance dashboard</li>
             </ul>
-            <p>After your trial, we only charge a <strong>performance fee on your profits</strong> — you pay nothing if your bot doesn't make money.</p>
+            <p>After your trial, we only charge <strong>${feeDisplay} on your profits</strong> — you pay nothing if your bot doesn't make money.</p>
             <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
               <tr>
                 <td style="border-radius: 4px; background-color: #6f42c1;">
@@ -413,7 +417,7 @@ What you can do:
 - All profits are 100% yours — no fees during trial
 - Full access to trading analytics
 
-After your trial, we only charge a performance fee on profits — you pay nothing if your bot doesn't make money.
+After your trial, we only charge ${feeDisplay} on profits — you pay nothing if your bot doesn't make money.
 
 Launch your bot: ${dashboardUrl}
 

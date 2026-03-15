@@ -29,7 +29,9 @@ export async function getEffectiveFeeRate(userId: string): Promise<number> {
     console.error('[fee-rate] DB error, using env fallback:', err);
   }
 
-  // 3. Env fallback
+  // 3. Emergency env fallback — only reaches here during a DB outage.
+  // The authoritative rate is managed in billing_settings via /admin/fees.
   const env = getEnvironmentConfig();
+  console.warn('[fee-rate] WARNING: DB unavailable — using PERFORMANCE_FEE_RATE env fallback. Fee rate may not reflect admin-configured value.');
   return env.PERFORMANCE_FEE_RATE;
 }

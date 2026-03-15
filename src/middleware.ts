@@ -23,6 +23,11 @@ export default withAuth(
       return NextResponse.next();
     }
 
+    // Public billing endpoints — accessible without auth for landing/pricing/help pages
+    if (pathname === '/api/billing/fee-rate/default') {
+      return NextResponse.next();
+    }
+
     // Unauthenticated — API routes get 401 JSON, page routes redirect to signin
     if (!token) {
       if (isApiRoute) {

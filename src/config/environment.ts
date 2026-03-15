@@ -322,7 +322,11 @@ const envSchema = z.object({
   LIVE_TRADING_MIN_BALANCE_USD: z.string().transform(Number).default('1000'), // Minimum account balance for live trading
 
   /* Performance Fees */
-  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.06'), // 6% of profits
+  // EMERGENCY FALLBACK ONLY — do NOT set this in Railway env to configure the fee rate.
+  // The authoritative fee rate is managed by the admin at /admin/fees and stored in
+  // billing_settings.performance_fee_rate (DB). This env var is only used when the DB
+  // is unreachable (outage). Changing this has no effect in normal operation.
+  PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.06'),
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
   BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Day 7: first dunning reminder
   DUNNING_WARNING_DAYS: z.string().transform(Number).default('10'),        // Day 10: final warning email

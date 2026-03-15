@@ -7,8 +7,9 @@ interface WelcomeEmailProps {
   feePercent?: number | string;
 }
 
-export function WelcomeEmailTemplate({ name, verificationUrl, feePercent = 6 }: WelcomeEmailProps): EmailTemplate {
-  const feePercentNum = parseFloat(String(feePercent));
+export function WelcomeEmailTemplate({ name, verificationUrl, feePercent }: WelcomeEmailProps): EmailTemplate {
+  const feePercentNum = feePercent != null ? parseFloat(String(feePercent)) : null;
+  const feeDisplay = feePercentNum != null ? `${feePercentNum}%` : 'a performance fee';
   const html = `
     <!DOCTYPE html>
     <html>
@@ -51,7 +52,7 @@ export function WelcomeEmailTemplate({ name, verificationUrl, feePercent = 6 }: 
               <li>Trade BTC &amp; ETH — most liquid crypto markets</li>
               <li>Full AI-powered market regime detection</li>
               <li>No payment required during trial</li>
-              <li>After trial: pay only ${feePercentNum}% on profits — nothing on losses</li>
+              <li>After trial: pay only ${feeDisplay} on profits — nothing on losses</li>
             </ul>
             <p><strong>To get started, please verify your email address:</strong></p>
             <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
@@ -94,7 +95,7 @@ Hi ${name || 'Trader'},
 Your 10-day free trial has started. Your bot begins in paper mode (simulated trades, zero risk).
 You can switch to live trading during or after your trial — connect your Binance API keys first.
 
-After your trial: pay only ${feePercentNum}% on profits — nothing on losses.
+After your trial: pay only ${feeDisplay} on profits — nothing on losses.
 
 WHAT'S NEXT:
 1. Verify your email (link below)

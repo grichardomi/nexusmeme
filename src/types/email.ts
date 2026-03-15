@@ -225,6 +225,7 @@ export interface TrialStartedContext {
   trialDays: number;
   trialEndsAt: string;
   dashboardUrl: string;
+  feePercent?: number;
 }
 
 export interface InvoiceExpiredContext {

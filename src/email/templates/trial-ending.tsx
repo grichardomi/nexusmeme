@@ -14,9 +14,10 @@ export function TrialEndingEmailTemplate({
   trialEndsDate,
   daysRemaining,
   upgradePath,
-  feePercent = 6,
+  feePercent,
 }: TrialEndingEmailProps): EmailTemplate {
-  const feePercentNum = parseFloat(String(feePercent));
+  const feePercentNum = feePercent != null ? parseFloat(String(feePercent)) : null;
+  const feeDisplay = feePercentNum != null ? `${feePercentNum}%` : 'a performance fee';
   const html = `
     <!DOCTYPE html>
     <html>
@@ -77,7 +78,7 @@ export function TrialEndingEmailTemplate({
             <p><strong>Ready to trade with real money?</strong> Upgrade to live trading with our simple performance-based model:</p>
 
             <div class="plan-highlight">
-              <h3 style="margin-top: 0;">Upgrade to Live Trading - <strong>${feePercentNum}% on Profits Only</strong></h3>
+              <h3 style="margin-top: 0;">Upgrade to Live Trading - <strong>${feeDisplay} on Profits Only</strong></h3>
               <ul style="margin: 10px 0; padding-left: 20px;">
                 <li>Switch from paper to live trading with real capital</li>
                 <li>1 trading bot - BTC & ETH focused</li>
@@ -88,7 +89,7 @@ export function TrialEndingEmailTemplate({
               </ul>
             </div>
 
-            <p><strong>How it works:</strong> Your bot makes a $1,000 profit? You pay $${(1000 * feePercentNum / 100).toFixed(0)} (${feePercentNum}% fee). Your bot loses money? You pay nothing. That's it!</p>
+            <p><strong>How it works:</strong> Your bot makes a $1,000 profit? You pay $${feePercentNum != null ? (1000 * feePercentNum / 100).toFixed(0) : '...'} (${feeDisplay} fee). Your bot loses money? You pay nothing. That's it!</p>
 
             <p style="text-align: center;">
               <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
@@ -109,7 +110,7 @@ export function TrialEndingEmailTemplate({
               <li>Paper trading ends - your bot will pause (not deleted)</li>
               <li>Add a payment method to upgrade to live trading</li>
               <li>Your historical trade data is preserved</li>
-              <li>Start trading with real money - pay only ${feePercentNum}% on profits</li>
+              <li>Start trading with real money - pay only ${feeDisplay} on profits</li>
             </ul>
 
             <p style="margin-top: 30px; font-size: 14px; color: #666;">
@@ -136,7 +137,7 @@ Hi ${name || 'Trader'},
 Your 10-day live trading trial will expire on ${trialEndsDate} (${daysRemaining} days remaining).
 
 To keep your trading bot active, add a payment method to continue:
-- Performance Fee Model: ${feePercentNum}% on profits only
+- Performance Fee Model: ${feeDisplay} on profits only
 - No subscription fees, no setup costs
 - Only pay when your bot makes money
 - Minimum $1,000 USDT in your exchange account for live trading

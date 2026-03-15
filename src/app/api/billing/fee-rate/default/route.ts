@@ -29,7 +29,7 @@ export async function GET() {
       });
     }
   } catch {
-    // fall through to env
+    console.warn('[fee-rate/default] WARNING: DB unavailable — using PERFORMANCE_FEE_RATE env fallback. Fee may not reflect admin-configured value.');
   }
 
   const env = getEnvironmentConfig();

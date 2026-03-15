@@ -12,7 +12,9 @@ async function getDefaultFeePercent(): Promise<number> {
   try {
     const rows = await query("SELECT value FROM billing_settings WHERE key = 'performance_fee_rate'", []);
     if (rows[0]) return parseFloat(String(rows[0].value)) * 100;
-  } catch { /* fall through */ }
+  } catch {
+    console.warn('[email/triggers] WARNING: DB unavailable — using PERFORMANCE_FEE_RATE env fallback for email. Fee may not reflect admin-configured value.');
+  }
   const env = getEnvironmentConfig();
   return env.PERFORMANCE_FEE_RATE * 100;
 }
@@ -301,13 +303,14 @@ export async function sendPerformanceFeeChargedEmail(
   trades?: number,
   feePercent?: number
 ): Promise<string> {
+  const resolvedFeePercent = feePercent ?? await getDefaultFeePercent();
   const context: EmailContext = {
     name,
     amount,
     invoiceId,
     invoiceUrl,
     trades: trades || 1,
-    feePercent: feePercent ?? 6,
+    feePercent: resolvedFeePercent,
   };
 
   return queueEmail('performance_fee_charged', email, context);
@@ -472,11 +475,13 @@ export async function sendTrialStartedEmail(
   trialEndsAt: Date,
   dashboardUrl: string
 ): Promise<string> {
+  const feePercent = await getDefaultFeePercent();
   const context = {
     name,
     trialDays,
     trialEndsAt: trialEndsAt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
     dashboardUrl,
+    feePercent,
   };
 
   return queueEmail('trial_started', email, context as any);
