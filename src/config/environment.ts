@@ -235,7 +235,7 @@ const envSchema = z.object({
 
   /* Intrabar momentum guard (no-entry-on-red) */
   ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.05'), // +0.05% min 1h momentum for choppy/weak
-  ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('0'), // 0% threshold for trending (allow small dips)
+  ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('-0.3'), // -0.3% threshold for trending (block active drops, allow small dips)
 
   /* Green-to-Red Protection - Safeguards against entry noise */
   /* Only triggers if peak was meaningful OR trade has been open long enough */
@@ -524,7 +524,7 @@ function getDefaultEnvironment(): Environment {
     BREAKEVEN_PROTECTION_BUFFER_PCT: 0.0001, // 0.01%
     BREAKEVEN_MIN_EXIT_PROFIT_PCT: 0.05,
     ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: 0.05,
-    ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: 0,
+    ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: -0.3,
     GREEN_TO_RED_MIN_PEAK_PCT: 0.0002, // 0.02%
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,

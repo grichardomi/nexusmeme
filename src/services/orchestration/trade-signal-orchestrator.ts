@@ -309,9 +309,11 @@ class TradeSignalOrchestrator {
                       exitPrice,
                       profitLoss,
                       profitLossPercent: grossProfitPct,
-                      // Use reason provided by position tracker when available to standardize naming
                       exitReason: erosionResult.reason || 'erosion_cap_exceeded',
                       userId: trade.user_id,
+                      // Pass known entry data to skip redundant DB query in close route
+                      entryPrice: parseFloat(String(trade.entry_price)),
+                      entryFee: trade.fee ? parseFloat(String(trade.fee)) : undefined,
                     }),
                   }
                 );
@@ -632,30 +634,34 @@ class TradeSignalOrchestrator {
             continue; // Skip this pair
           }
 
-          // INTRABAR MOMENTUM CHECK (CHOPPY ONLY): Don't enter when price is falling in choppy markets
-          // In trending markets (ADX >= 20), small red candles are normal pullbacks — don't block
-          // In choppy markets (ADX < 20), candle direction matters — avoid entering on red candles
+          // INTRABAR MOMENTUM CHECK: Block entry when price is actively falling
+          // Choppy markets: block if intrabar < +0.05% (any red/flat candle)
+          // Trending markets: block if intrabar < -0.3% (price actively dropping, not just a tick)
+          // This prevents re-entry immediately after erosion exit when momentum is still reversing
           const adx = indicators.adx ?? 0;
-          if (adx < 20) {
-            const minIntrabar = env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.05;
+          {
+            const minIntrabar = adx < 20
+              ? (env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.05)
+              : (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING || -0.3);
             if (intrabarMomentum < minIntrabar) {
-              console.log(`\n🔴 INTRABAR BLOCKED (choppy): ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (ADX ${adx.toFixed(1)} < 20)`);
-              logger.info('Orchestrator: entry blocked - intrabar momentum in choppy market', {
+              const regime = adx < 20 ? 'choppy' : 'trending';
+              console.log(`\n🔴 INTRABAR BLOCKED (${regime}): ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (ADX ${adx.toFixed(1)})`);
+              logger.info('Orchestrator: entry blocked - intrabar momentum falling', {
                 pair,
                 intrabarMomentum: intrabarMomentum.toFixed(3),
                 minIntrabar,
                 adx: adx.toFixed(1),
+                regime,
               });
               rejectedSignals.push({
                 pair,
                 reason: 'intrabar_negative',
-                details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (choppy ADX ${adx.toFixed(1)})`,
+                details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (${regime} ADX ${adx.toFixed(1)})`,
                 stage: 'Pre-Filter',
               });
               continue;
             }
           }
-          // ADX >= 20: skip intrabar check — trend context makes small red candles irrelevant
 
           // Run 5-stage risk filter
           const ticker = { bid, ask, spread: spreadPct }; // Use real bid/ask data
@@ -1223,6 +1229,8 @@ class TradeSignalOrchestrator {
                     profitLoss,
                     profitLossPercent,
                     exitReason: momExitType,
+                    entryPrice: parseFloat(String(trade.entry_price)),
+                    entryFee: trade.fee ? parseFloat(String(trade.fee)) : undefined,
                   }),
                 }
               );

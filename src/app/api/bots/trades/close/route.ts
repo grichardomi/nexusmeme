@@ -39,6 +39,9 @@ const tradeCloseSchema = z.object({
   profitLoss: z.number({ required_error: 'Profit/loss amount is required' }),
   profitLossPercent: z.number({ required_error: 'Profit/loss percent is required' }),
   exitReason: z.string().optional().describe('Reason for trade exit (e.g., momentum_failure, profit_target, stop_loss)'),
+  // Optional: pass known entry data to skip redundant DB query (reduces close latency)
+  entryPrice: z.number().positive().optional(),
+  entryFee: z.number().optional(),
 });
 
 type TradeCloseRequest = z.infer<typeof tradeCloseSchema>;
@@ -185,10 +188,16 @@ export async function POST(req: NextRequest) {
         let minExitPrice = data.exitPrice;
         let cachedEntryInfo: { price: any; fee: any; amount: any } | null = null;
         try {
-          const entryInfo = (await query(
-            `SELECT price, fee, amount FROM trades WHERE id = $1`,
-            [data.tradeId]
-          ))[0];
+          // Use caller-supplied entry data when available (avoids DB round-trip, reduces latency)
+          let entryInfo: { price: any; fee: any; amount: any } | undefined;
+          if (data.entryPrice) {
+            entryInfo = { price: data.entryPrice, fee: data.entryFee ?? null, amount: quantity };
+          } else {
+            entryInfo = (await query(
+              `SELECT price, fee, amount FROM trades WHERE id = $1`,
+              [data.tradeId]
+            ))[0];
+          }
           cachedEntryInfo = entryInfo || null;
           const entryPrice = entryInfo?.price ? parseFloat(String(entryInfo.price)) : null;
           const entryFeeQuote = entryInfo?.fee ? parseFloat(String(entryInfo.fee)) : 0;
