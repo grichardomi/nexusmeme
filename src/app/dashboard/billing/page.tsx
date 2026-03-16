@@ -21,6 +21,7 @@ interface UserPlan {
   plan: 'free' | 'live_trial' | 'performance_fees';
   subscriptionStatus: string;
   trialEndsAt: string | null;
+  trialExtended: boolean;
   tradingMode: 'paper' | 'live';
   botsPerUser: number;
   tradingPairsPerBot: number;
@@ -51,6 +52,7 @@ export default function BillingPage() {
           plan: (planUsage?.plan || 'live_trial') as 'live_trial' | 'performance_fees',
           subscriptionStatus: data.subscription?.status || 'trialing',
           trialEndsAt: data.subscription?.trial_ends_at || null,
+          trialExtended: data.subscription?.trial_extended === true,
           tradingMode: planUsage?.limits?.tradingMode || 'live',
           botsPerUser: planUsage?.limits?.botsPerUser || 1,
           tradingPairsPerBot: planUsage?.limits?.tradingPairsPerBot || 2,
@@ -185,11 +187,16 @@ export default function BillingPage() {
         <section className={`rounded-xl border p-4 sm:p-6 ${colors.bg} ${colors.border}`}>
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <h2 className={`text-lg sm:text-xl font-bold ${colors.text}`}>{getPlanName()}</h2>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${colors.badge}`}>
                   {isTrialExpired ? 'Expired' : 'Active'}
                 </span>
+                {userPlan?.trialExtended && !isTrialExpired && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
+                    ✦ Extended
+                  </span>
+                )}
               </div>
               <p className={`text-sm ${colors.text}`}>{getPlanDescription()}</p>
             </div>

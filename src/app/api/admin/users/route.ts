@@ -170,9 +170,12 @@ export async function PATCH(request: NextRequest) {
          SET trial_ends_at = $1,
              plan_tier = 'live_trial',
              status = 'trialing',
+             trial_extended = TRUE,
+             trial_extended_at = NOW(),
+             trial_extended_days = COALESCE(trial_extended_days, 0) + $3,
              updated_at = NOW()
          WHERE id = $2`,
-        [newTrialEnd, sub.id],
+        [newTrialEnd, sub.id, daysNum],
       );
 
       // Resume paused/stopped bots — trial is active again, user should not need to restart manually
