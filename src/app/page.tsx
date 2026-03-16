@@ -328,6 +328,22 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Cost callout for newbies */}
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 sm:p-8 mb-6 text-white text-center">
+              <p className="text-2xl sm:text-3xl font-bold mb-2">
+                {fee} performance fee — only when you profit
+              </p>
+              <p className="text-blue-100 text-sm sm:text-base max-w-xl mx-auto">
+                No credit card. No subscription. No monthly fees. We only make money when <strong>you</strong> make money.
+                If your bot has a losing month, you pay <strong>$0</strong>.
+              </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-4 text-sm">
+                <span className="bg-white/20 rounded-full px-4 py-1">No credit card required</span>
+                <span className="bg-white/20 rounded-full px-4 py-1">No monthly subscription</span>
+                <span className="bg-white/20 rounded-full px-4 py-1">$0 when bot loses</span>
+              </div>
+            </div>
+
             {/* Key trust callouts */}
             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 sm:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="flex items-start gap-3">
