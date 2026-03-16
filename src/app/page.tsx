@@ -295,6 +295,73 @@ export default function Home() {
           </div>
         </section>
 
+        {/* How it works — Trust section for new traders */}
+        <section id="how-it-works" className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24 bg-slate-50 dark:bg-slate-900">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-10 sm:mb-14">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-4">
+                New to trading bots? <span className="bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">Here's how it works</span>
+              </h2>
+              <p className="text-base sm:text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
+                NexusMeme connects to your existing exchange account. Your funds never leave your exchange — ever.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 mb-10">
+              {/* Step 1 */}
+              <div className="text-center">
+                <div className="w-14 h-14 bg-blue-100 dark:bg-blue-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold text-blue-600 dark:text-blue-400">1</div>
+                <h3 className="font-bold text-slate-900 dark:text-white mb-2">Connect your exchange</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Generate a read + trade API key on Binance or Kraken. Paste it into NexusMeme. Takes 2 minutes.</p>
+              </div>
+              {/* Step 2 */}
+              <div className="text-center">
+                <div className="w-14 h-14 bg-purple-100 dark:bg-purple-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold text-purple-600 dark:text-purple-400">2</div>
+                <h3 className="font-bold text-slate-900 dark:text-white mb-2">Bot trades for you</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Our AI scans BTC & ETH markets 24/7. When conditions are right, it buys and sells on your exchange automatically.</p>
+              </div>
+              {/* Step 3 */}
+              <div className="text-center">
+                <div className="w-14 h-14 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold text-green-600 dark:text-green-400">3</div>
+                <h3 className="font-bold text-slate-900 dark:text-white mb-2">Profits stay in your account</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">All profits go directly into your exchange balance. Log in to Binance or Kraken anytime to see every trade and your full P&L.</p>
+              </div>
+            </div>
+
+            {/* Key trust callouts */}
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-6 sm:p-8 grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div className="flex items-start gap-3">
+                <span className="text-green-500 text-xl flex-shrink-0 mt-0.5">🔒</span>
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white text-sm">Your money never leaves your exchange</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">NexusMeme does not hold, move, or custody your funds. We only place trades via your API key.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="text-blue-500 text-xl flex-shrink-0 mt-0.5">🔑</span>
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white text-sm">Withdrawal access is never required</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Only enable Read + Spot Trading permissions. Never grant withdrawal access — we don't need it.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="text-purple-500 text-xl flex-shrink-0 mt-0.5">👁️</span>
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white text-sm">Full transparency on your exchange</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Every trade NexusMeme places is visible in your Binance or Kraken trade history — nothing hidden.</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="text-orange-500 text-xl flex-shrink-0 mt-0.5">⚡</span>
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-white text-sm">Revoke access anytime in seconds</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Delete your API key on the exchange and the bot stops instantly. You are always in control.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Pricing Section */}
         <section id="pricing" className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24 bg-slate-50 dark:bg-slate-900">
           <div className="max-w-7xl mx-auto">

@@ -274,6 +274,12 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
 
             <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
 
+              {/* Newbie trust note */}
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2.5 text-xs text-green-700 dark:text-green-300">
+                <p className="font-semibold text-green-800 dark:text-green-200 mb-1">💡 Your money stays on your exchange</p>
+                <p>NexusMeme never holds or moves your funds. We trade on your behalf directly on your exchange using your API keys. Log in to your exchange at any time to see every trade, balance, and P&L.</p>
+              </div>
+
               {/* Balance check */}
               <div className={`rounded-lg p-3 sm:p-4 border ${
                 balanceLoading
@@ -337,12 +343,12 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
               {/* Exchange region notice — shown for Binance bots */}
               {bots[0]?.exchange?.toLowerCase() === 'binance' && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-blue-700 dark:text-blue-300">
-                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">🌍 Binance account required</p>
+                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">🌍 Binance global account required</p>
                   <ul className="space-y-1 leading-relaxed">
-                    <li>• <strong>USA residents</strong>: connect a <strong>Binance US</strong> account (binance.us)</li>
-                    <li>• <strong>Outside USA</strong>: connect a <strong>Binance global</strong> account (binance.com)</li>
+                    <li>• This platform connects to <strong>Binance global</strong> (binance.com)</li>
+                    <li>• <strong>USA residents</strong>: Binance.com is restricted in the US — use a supported VPN or a different exchange</li>
                   </ul>
-                  <p className="mt-1.5 text-blue-600 dark:text-blue-400">Using the wrong account will cause API authentication errors. Connect your keys in <strong>Settings → API Keys</strong> before continuing.</p>
+                  <p className="mt-1.5 text-blue-600 dark:text-blue-400">Connect your Binance global API keys in <strong>Settings → API Keys</strong> before continuing.</p>
                 </div>
               )}
 

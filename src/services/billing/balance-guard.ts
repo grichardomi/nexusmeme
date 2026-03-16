@@ -118,7 +118,7 @@ export async function checkMinimumBalance(
     });
     return {
       allowed: false,
-      reason: `Could not verify your ${exchange.toUpperCase()} account balance. Please check that your API keys are valid and have read permissions. USA users need Binance US keys (binance.us), others need Binance global keys (binance.com).`,
+      reason: `Could not verify your ${exchange.toUpperCase()} account balance. Please check that your API keys are valid, have read permissions, and are from your Binance global (binance.com) account.`,
       exchange,
     };
   }

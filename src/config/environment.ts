@@ -45,7 +45,7 @@ const envSchema = z.object({
   /* Lemon Squeezy - Card/PayPal payments for performance fees */
 
   /* Exchange APIs */
-  BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.us'),
+  BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.com'),
   // Comma-separated list of active exchanges. Add a name here only when its adapter is ready.
   SUPPORTED_EXCHANGES: z.string().default('binance'),
 
@@ -421,7 +421,7 @@ function getDefaultEnvironment(): Environment {
     USDC_REQUIRED_CONFIRMATIONS: 3,
     NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: undefined,
     NEXT_PUBLIC_USDC_PAYMENT_MOCK: false,
-    BINANCE_API_BASE_URL: 'https://api.binance.us',
+    BINANCE_API_BASE_URL: 'https://api.binance.com',
     SUPPORTED_EXCHANGES: 'binance',
     KRAKEN_TAKER_FEE_DEFAULT: 0.0026,
     KRAKEN_MAKER_FEE_DEFAULT: 0.0016,

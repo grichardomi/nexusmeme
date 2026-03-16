@@ -243,9 +243,16 @@ export default function SettingsPage() {
                 How to get your API key
               </a>
             </div>
-            <p className="text-slate-600 dark:text-slate-400 mb-4">
-              Connect your exchange API keys to enable live trading. API keys are encrypted and stored securely.
-            </p>
+            {/* Newbie trust note */}
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 mb-4">
+              <p className="text-sm font-semibold text-green-800 dark:text-green-200">💡 New to trading bots? Here's how this works</p>
+              <ul className="text-xs text-green-700 dark:text-green-300 mt-1.5 space-y-1">
+                <li>• <strong>Your money never leaves your exchange.</strong> NexusMeme does not hold, move, or custody your funds.</li>
+                <li>• You simply connect your exchange account here — we trade on your behalf directly on Binance or Kraken.</li>
+                <li>• Log in to your exchange at any time to see your full trade history, balances, and P&L.</li>
+                <li>• You can revoke access instantly by deleting your API keys on the exchange.</li>
+              </ul>
+            </div>
 
             {/* Security notice */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500 text-blue-700 dark:text-blue-200 px-4 py-3 rounded mb-6">

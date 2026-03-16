@@ -215,8 +215,8 @@ export default function DashboardPage() {
             <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">🔑 Connect your exchange API keys to go live</p>
             <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
               Your paper trading bot is running. To trade with real funds, connect your{' '}
-              {bots[0]?.exchange === 'binance' ? 'Binance US (USA) or Binance global (outside USA)' : bots[0]?.exchange?.toUpperCase() || 'exchange'}{' '}
-              API keys first.
+              {bots[0]?.exchange === 'binance' ? 'Binance global (binance.com)' : bots[0]?.exchange?.toUpperCase() || 'exchange'}{' '}
+              API keys. <strong>Your money stays on your exchange</strong> — NexusMeme never holds or moves your funds.
             </p>
           </div>
           <Link
