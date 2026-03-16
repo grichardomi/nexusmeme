@@ -19,12 +19,11 @@ export async function GET(_request: NextRequest) {
 
     const result = await query(
       `SELECT
-        id,
-        email,
-        name,
-        preferences
-      FROM users
-      WHERE id = $1`,
+        u.id, u.email, u.name, u.preferences,
+        ep.trade_alerts
+      FROM users u
+      LEFT JOIN email_preferences ep ON ep.user_id = u.id
+      WHERE u.id = $1`,
       [session.user.id]
     );
 
@@ -37,13 +36,19 @@ export async function GET(_request: NextRequest) {
       ? JSON.parse(user.preferences || '{}')
       : user.preferences || {};
 
+    // email_preferences.trade_alerts is the authoritative source for notification preference
+    // Fall back to users.preferences.notificationsEnabled, then default false (opt-in)
+    const tradeAlerts = user.trade_alerts !== null && user.trade_alerts !== undefined
+      ? user.trade_alerts
+      : (preferences.notificationsEnabled ?? false);
+
     logger.info('Fetched user settings', { userId: session.user.id });
 
     return NextResponse.json({
       id: user.id,
       email: user.email,
       name: user.name,
-      notificationsEnabled: preferences.notificationsEnabled ?? true,
+      notificationsEnabled: tradeAlerts,
       dailyReports: preferences.dailyReports ?? true,
       lossAlerts: preferences.lossAlerts ?? false,
     });
@@ -135,6 +140,16 @@ export async function PUT(request: NextRequest) {
          RETURNING id, email, name, preferences`,
         [name || null, JSON.stringify(updatedPreferences), session.user.id]
       );
+
+      // Sync notificationsEnabled → email_preferences.trade_alerts
+      if (notificationsEnabled !== undefined) {
+        await client.query(
+          `INSERT INTO email_preferences (user_id, trade_alerts, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET trade_alerts = $2, updated_at = NOW()`,
+          [session.user.id, notificationsEnabled]
+        );
+      }
 
       return updateResult.rows[0];
     });

@@ -265,6 +265,7 @@ const envSchema = z.object({
   ADX_MODERATE_MAX: z.string().transform(Number).default('40'), // ADX 25-40 = moderate (5% target), >= 40 = strong (12% target)
   ADX_TRANSITION_SIZE_MULTIPLIER: z.string().transform(Number).default('0.5'), // 50% position size for transitioning regime entries
   MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
+  VOLUME_SURGE_ADX_OVERRIDE_RATIO: z.string().transform(Number).default('4.0'), // Volume >= 4x + positive momentum overrides low ADX in transition zone
 
   /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
   PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.005'),       // 0.5% - scalp and move on
@@ -352,6 +353,7 @@ const envSchema = z.object({
   EMAIL_MAX_RETRIES: z.string().transform(Number).default('3'),           // Max delivery attempts before marking failed
   EMAIL_JOB_PRIORITY: z.string().transform(Number).default('7'),          // Job queue priority for email jobs
   EMAIL_BATCH_SIZE: z.string().transform(Number).default('100'),          // Max emails processed per queue flush
+  EMAIL_TRADE_ALERTS_DEFAULT: z.string().transform(val => val === 'true').default('false'), // Default opt-in for trade alert emails (false = opt-in required)
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
   CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -536,6 +538,7 @@ function getDefaultEnvironment(): Environment {
     ADX_MODERATE_MAX: 40,
     ADX_TRANSITION_SIZE_MULTIPLIER: 0.5,
     MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
+    VOLUME_SURGE_ADX_OVERRIDE_RATIO: 4.0, // Volume >= 4x + positive momentum overrides low ADX in transition zone
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
     PYRAMID_L1_TRIGGER_PCT: 0.045,

@@ -133,13 +133,15 @@ class RiskManager {
    * CRITICAL: Block entries when ADX < 20 (choppy market) - matches /nexus behavior
    * ADX slope enables transition zone detection: ADX 15-20 + rising fast → allow at 50% size
    */
-  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number): RiskFilterResult {
+  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number, volumeRatio?: number): RiskFilterResult {
     const slope = adxSlope ?? 0;
     const mom1h = momentum1h ?? 0;
+    const vol = volumeRatio ?? 1;
     const env = getEnvironmentConfig();
     const transitionZoneMin = env.ADX_TRANSITION_ZONE_MIN; // 12 (lowered for momentum override)
     const slopeRisingThreshold = env.ADX_SLOPE_RISING_THRESHOLD; // +2.0/candle
     const momentumOverrideMin = env.MOMENTUM_OVERRIDE_MIN_1H; // 1.5% (clear directional move)
+    const volumeSurgeRatio = env.VOLUME_SURGE_ADX_OVERRIDE_RATIO; // 4.0x = extraordinary volume confirms breakout
 
     // PROMINENT LOG: Always show ADX value + slope for debugging
     console.log(`\n🏥 HEALTH GATE: ADX = ${adx?.toFixed(1) || 'N/A'} (threshold: ${this.config.minADXForEntry}) | slope: ${slope.toFixed(2)}/candle`);
@@ -169,6 +171,18 @@ class RiskManager {
     if (adx >= transitionZoneMin && adx < this.config.minADXForEntry) {
       const hasSlope = slope >= slopeRisingThreshold;
       const hasMomentum = mom1h >= momentumOverrideMin;
+
+      // Volume surge override: extraordinary volume (>= 4x) with positive momentum confirms breakout
+      // ADX is lagging — 4x+ volume is a leading indicator that the trend is real
+      const hasVolumeSurge = vol >= volumeSurgeRatio && mom1h > 0;
+      if (hasVolumeSurge && !hasSlope && !hasMomentum) {
+        console.log(`\n🚀 VOLUME SURGE OVERRIDE: ADX=${adx.toFixed(1)} in transition zone but volume=${vol.toFixed(2)}x >= ${volumeSurgeRatio}x + mom1h=${mom1h.toFixed(2)}% > 0 → ALLOW at reduced size`);
+        logger.info('RiskManager: Volume surge override - extraordinary volume confirms breakout despite low ADX', {
+          adx, volumeRatio: vol, volumeSurgeRatio, momentum1h: mom1h,
+          note: 'ADX lags price; 4x+ volume is leading indicator',
+        });
+        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isTransitioning: true };
+      }
 
       if (hasSlope && hasMomentum) {
         console.log(`\n🚀 TRANSITION + MOMENTUM: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + slope=${slope.toFixed(2)} >= ${slopeRisingThreshold} + mom1h=${mom1h.toFixed(2)}% >= ${momentumOverrideMin}% → ALLOW at reduced size`);
@@ -314,11 +328,12 @@ class RiskManager {
     // DYNAMIC REGIME-AWARE price top check:
     // In trending markets (ADX >= minADXForEntry), price near highs is NORMAL - that's where trends trade
     // In choppy/weak markets (ADX < minADXForEntry), buying at local tops is dangerous (mean reversion)
-    // This replaces the static CREEPING_UPTREND_ENABLED flag with real-time ADX detection
-    // CRITICAL: Must use same threshold as health gate (20) to avoid blocking valid entries (ADX 20-24)
+    // Volume surge override: extraordinary volume with positive momentum = breakout (being near high is correct)
     const isTrending = adx >= this.config.minADXForEntry;
+    const volumeSurgeRatio = env.VOLUME_SURGE_ADX_OVERRIDE_RATIO;
+    const isVolumeSurge = volumeRatio >= volumeSurgeRatio && momentum1h > 0;
 
-    if (this.hasCreepingUptrend || isTrending) {
+    if (this.hasCreepingUptrend || isTrending || isVolumeSurge) {
       // TRENDING MODE: Allow entries near highs (trends make new highs!)
       // Only block if price has pulled back too far from high (broken trend signal)
       const pullbackThreshold = env.CREEPING_UPTREND_PULLBACK_THRESHOLD; // default 0.95 = 5% pullback
@@ -724,9 +739,10 @@ class RiskManager {
     const adx = indicators.adx ?? 0;
     const adxSlope = indicators.adxSlope ?? 0;
 
-    // STAGE 1: Health Gate - Check ADX for choppy markets (with slope + momentum override)
+    // STAGE 1: Health Gate - Check ADX for choppy markets (with slope + momentum + volume surge override)
     const momentum1h = indicators.momentum1h ?? 0;
-    const stage1 = this.checkHealthGate(adx, adxSlope, momentum1h);
+    const volumeRatio = indicators.volumeRatio ?? 1;
+    const stage1 = this.checkHealthGate(adx, adxSlope, momentum1h, volumeRatio);
     if (!stage1.pass) {
       return stage1;
     }
