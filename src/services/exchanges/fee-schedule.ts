@@ -144,7 +144,9 @@ export async function getSymbolTakerRate(userId: string, exchange: string, pair:
     }
 
     // Binance SAPI /sapi/v1/asset/tradeFee?symbol=ETHUSDT (private signed)
-    const baseUrl = 'https://api.binance.com/sapi';
+    // Use configured base URL so Binance US (api.binance.us) and global (api.binance.com) both work
+    const env = getEnvironmentConfig();
+    const baseUrl = `${env.BINANCE_API_BASE_URL}/sapi`;
     const path = '/v1/asset/tradeFee';
     const params: Record<string, any> = { symbol, timestamp: Date.now() };
     const queryString = Object.entries(params)

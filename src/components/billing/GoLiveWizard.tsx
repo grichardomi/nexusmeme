@@ -20,11 +20,13 @@ interface BotSwitchResult {
 }
 
 interface BalanceInfo {
-  real: number;       // raw USDT/USD
-  minimum: number;    // LIVE_TRADING_MIN_BALANCE_USD
+  real: number;         // raw USDT/stablecoin balance
+  minimum: number;      // LIVE_TRADING_MIN_BALANCE_USD (total account value threshold)
+  minUsdt: number;      // LIVE_TRADING_MIN_USDT_USD (min stablecoin to place first trade)
+  totalAccountValue?: number; // all assets converted to USD
   sufficient: boolean;
   exchange: string;
-  error?: string;     // set if balance fetch failed (non-blocking)
+  error?: string;       // set if balance fetch failed (non-blocking)
 }
 
 interface GoLiveWizardProps {
@@ -106,14 +108,16 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
       const res = await fetch(`/api/bots/${bot.id}/balance`);
       const data = await res.json();
 
-      // Read minimum from balance response (reflects LIVE_TRADING_MIN_BALANCE_USD env)
+      // Read thresholds from balance response (reflect env vars, no hardcoding)
       const minimum: number = data.minimum ?? 1000;
+      const minUsdt: number = data.minUsdt ?? 100;
       setMinBalance(minimum);
 
       if (!res.ok || data.available === null) {
         setBalance({
           real: 0,
           minimum,
+          minUsdt,
           sufficient: true, // fail open — server-side check is authoritative
           exchange: bot.exchange,
           error: data.error || 'Could not verify balance — the server will check on switch.',
@@ -122,16 +126,20 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
       }
 
       const real = data.real ?? data.available ?? 0;
+      const totalAccountValue = data.totalAccountValue ?? real;
       setBalance({
         real,
         minimum,
-        sufficient: real >= minimum,
+        minUsdt,
+        totalAccountValue,
+        sufficient: totalAccountValue >= minimum,
         exchange: bot.exchange,
       });
     } catch {
       setBalance({
         real: 0,
         minimum: 1000,
+        minUsdt: 100,
         sufficient: true, // fail open
         exchange: bot.exchange,
         error: 'Could not verify balance — the server will check on switch.',
@@ -302,16 +310,41 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                     </p>
                   </div>
                 ) : (
-                  <div>
+                  <div className="space-y-2">
                     <p className="text-xs sm:text-sm font-semibold text-green-800 dark:text-green-200">✅ Balance verified</p>
-                    <p className="text-xs text-green-700 dark:text-green-300 mt-1">
-                      {balance!.exchange.toUpperCase()} account:{' '}
-                      <strong>${balance!.real.toFixed(2)} USDT/USD</strong>
-                      {' '}(minimum: ${balance!.minimum.toLocaleString()})
+                    <p className="text-xs text-green-700 dark:text-green-300">
+                      {balance!.exchange.toUpperCase()} account value:{' '}
+                      <strong>${(balance!.totalAccountValue ?? balance!.real).toFixed(2)} USD equivalent</strong>
+                      {' '}· minimum: ${balance!.minimum.toLocaleString()}
                     </p>
+                    {/* USDT conversion warning — shown when total passes but stablecoin is low */}
+                    {balance!.real < balance!.minUsdt && (
+                      <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded p-2 mt-1">
+                        <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                          ⚠️ Low USDT balance — convert before trading
+                        </p>
+                        <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                          You have <strong>${balance!.real.toFixed(2)} USDT/stablecoin</strong> but the bot needs at least{' '}
+                          <strong>${balance!.minUsdt.toLocaleString()} USDT</strong> to place its first trade.{' '}
+                          Convert some BTC or ETH to USDT on {balance!.exchange.toUpperCase()} before switching to live trading.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
+
+              {/* Exchange region notice — shown for Binance bots */}
+              {bots[0]?.exchange?.toLowerCase() === 'binance' && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-blue-700 dark:text-blue-300">
+                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">🌍 Binance account required</p>
+                  <ul className="space-y-1 leading-relaxed">
+                    <li>• <strong>USA residents</strong>: connect a <strong>Binance US</strong> account (binance.us)</li>
+                    <li>• <strong>Outside USA</strong>: connect a <strong>Binance global</strong> account (binance.com)</li>
+                  </ul>
+                  <p className="mt-1.5 text-blue-600 dark:text-blue-400">Using the wrong account will cause API authentication errors. Connect your keys in <strong>Settings → API Keys</strong> before continuing.</p>
+                </div>
+              )}
 
               {/* Irreversible warning */}
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 sm:p-4 space-y-2">

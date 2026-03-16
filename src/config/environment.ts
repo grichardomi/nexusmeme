@@ -326,7 +326,8 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32, 'ENCRYPTION_KEY must be at least 32 characters'),
 
   /* Live Trading Requirements */
-  LIVE_TRADING_MIN_BALANCE_USD: z.string().transform(Number).default('1000'), // Minimum account balance for live trading
+  LIVE_TRADING_MIN_BALANCE_USD: z.string().transform(Number).default('1000'),  // Minimum total account value (USD-equiv) for live trading
+  LIVE_TRADING_MIN_USDT_USD: z.string().transform(Number).default('100'),     // Minimum USDT/stablecoin to actually place first trade
 
   /* Performance Fees */
   // EMERGENCY FALLBACK ONLY — do NOT set this in Railway env to configure the fee rate.
@@ -354,6 +355,11 @@ const envSchema = z.object({
   EMAIL_JOB_PRIORITY: z.string().transform(Number).default('7'),          // Job queue priority for email jobs
   EMAIL_BATCH_SIZE: z.string().transform(Number).default('100'),          // Max emails processed per queue flush
   EMAIL_TRADE_ALERTS_DEFAULT: z.string().transform(val => val === 'true').default('false'), // Default opt-in for trade alert emails (false = opt-in required)
+
+  /* Default Bot - Auto-created during onboarding so users see activity immediately */
+  DEFAULT_BOT_EXCHANGE: z.string().default('binance'),
+  DEFAULT_BOT_PAIRS: z.string().default('BTC/USDT,ETH/USDT'),  // Comma-separated
+  DEFAULT_BOT_CAPITAL: z.string().transform(Number).default('0'), // 0 = unlimited simulated capital
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
   CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -577,6 +583,7 @@ function getDefaultEnvironment(): Environment {
     BTC_DUMP_VOLUME_MIN: 2.5,
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
     LIVE_TRADING_MIN_BALANCE_USD: 1000,
+    LIVE_TRADING_MIN_USDT_USD: 100,
     PERFORMANCE_FEE_RATE: 0.06,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
     BILLING_GRACE_PERIOD_DAYS: 7,
@@ -588,6 +595,9 @@ function getDefaultEnvironment(): Environment {
     USDC_PAYMENT_REF_RETRIES: 5,
     USDC_MICRO_OFFSET_MAX: 999,
     TRIAL_DURATION_DAYS: 10,
+    DEFAULT_BOT_EXCHANGE: 'binance',
+    DEFAULT_BOT_PAIRS: 'BTC/USDT,ETH/USDT',
+    DEFAULT_BOT_CAPITAL: 0,
     EMAIL_MAX_RETRIES: 3,
     EMAIL_JOB_PRIORITY: 7,
     EMAIL_BATCH_SIZE: 100,
@@ -692,6 +702,7 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
       BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
       LIVE_TRADING_MIN_BALANCE_USD: 1000,
+      LIVE_TRADING_MIN_USDT_USD: 100,
       PERFORMANCE_FEE_RATE: 0.06,
       PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
       AI_CONFIDENCE_BOOST_ENABLED: false,

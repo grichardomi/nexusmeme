@@ -200,12 +200,15 @@ export async function GET(
         ethPrice,
       });
 
-      const liveMinimum = getEnvironmentConfig().LIVE_TRADING_MIN_BALANCE_USD;
+      const env = getEnvironmentConfig();
+      const liveMinimum = env.LIVE_TRADING_MIN_BALANCE_USD;
+      const minUsdt = env.LIVE_TRADING_MIN_USDT_USD;
 
       return NextResponse.json({
         available: bufferedBalance,        // Deployable trading balance (95% of USDT/USD)
-        real: realBalance,                 // Raw USDT/USD balance
-        minimum: liveMinimum,              // Minimum required for live trading (LIVE_TRADING_MIN_BALANCE_USD)
+        real: realBalance,                 // Raw USDT/USD stablecoin balance
+        minimum: liveMinimum,             // Minimum total account value (LIVE_TRADING_MIN_BALANCE_USD)
+        minUsdt,                          // Minimum USDT/stablecoin to place first trade (LIVE_TRADING_MIN_USDT_USD)
         totalAccountValue,                 // Full account value incl. BTC + ETH holdings
         breakdown: {
           usdCash,

@@ -11,6 +11,7 @@ import { logger } from '@/lib/logger';
 import { decrypt } from '@/lib/crypto';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { getEnvironmentConfig } from '@/config/environment';
+import { marketDataAggregator } from '@/services/market-data/aggregator';
 
 export interface BalanceGuardResult {
   allowed: boolean;
@@ -52,11 +53,30 @@ async function fetchDeployableBalance(
       currency[b.asset.toUpperCase()] = b.total;
     }
 
-    // Deployable = stablecoin holdings only (USDT, USDC, USD, BUSD)
-    return (currency['USDT'] ?? 0)
-         + (currency['USDC'] ?? 0)
-         + (currency['USD']  ?? 0)
-         + (currency['BUSD'] ?? 0);
+    // Stablecoins (USD-pegged, any region)
+    const stableValue = (currency['USDT'] ?? 0)
+                      + (currency['USDC'] ?? 0)
+                      + (currency['USD']  ?? 0)
+                      + (currency['BUSD'] ?? 0)
+                      + (currency['TUSD'] ?? 0)
+                      + (currency['DAI']  ?? 0);
+
+    // Crypto holdings converted to USD using live prices
+    // International users may hold BTC/ETH instead of stablecoins
+    let btcPrice = 0;
+    let ethPrice = 0;
+    try {
+      const priceMap = await marketDataAggregator.getMarketData(['BTC/USDT', 'ETH/USDT']);
+      btcPrice = priceMap.get('BTC/USDT')?.price ?? 0;
+      ethPrice = priceMap.get('ETH/USDT')?.price ?? 0;
+    } catch {
+      // Price fetch failed — stablecoin-only total will be used
+    }
+    const btcValue = (currency['BTC'] ?? 0) * btcPrice;
+    const ethValue = (currency['ETH'] ?? 0) * ethPrice;
+
+    // Total deployable value in USD-equivalent (stablecoins + crypto at market price)
+    return stableValue + btcValue + ethValue;
   } catch (err) {
     logger.warn('balance-guard: failed to fetch balance from exchange', {
       userId,
@@ -90,13 +110,17 @@ export async function checkMinimumBalance(
   const balance = await fetchDeployableBalance(userId, exchange);
 
   if (balance === null) {
-    // Could not fetch — fail open with a warning so API key errors
-    // surface separately (they're caught earlier in the flow)
-    logger.warn('balance-guard: could not verify balance — allowing through', {
+    // Could not fetch balance — this means keys exist but are invalid/expired/wrong region
+    // Fail CLOSED: require valid keys before going live (bad keys = trade failures)
+    logger.warn('balance-guard: could not verify balance — blocking live switch (likely invalid API keys)', {
       userId,
       exchange,
     });
-    return { allowed: true, exchange };
+    return {
+      allowed: false,
+      reason: `Could not verify your ${exchange.toUpperCase()} account balance. Please check that your API keys are valid and have read permissions. USA users need Binance US keys (binance.us), others need Binance global keys (binance.com).`,
+      exchange,
+    };
   }
 
   if (balance < minimum) {
@@ -108,7 +132,7 @@ export async function checkMinimumBalance(
     });
     return {
       allowed: false,
-      reason: `Your ${exchange.toUpperCase()} account balance ($${balance.toFixed(2)} USDT/USD) is below the $${minimum.toLocaleString()} minimum required for live trading. Please fund your account and try again.`,
+      reason: `Your ${exchange.toUpperCase()} account value ($${balance.toFixed(2)} USD equivalent) is below the $${minimum.toLocaleString()} minimum required for live trading. Your balance includes stablecoins (USDT, USDC, USD) plus BTC and ETH at current market prices. Please fund your account and try again.`,
       balance,
       minimum,
       exchange,

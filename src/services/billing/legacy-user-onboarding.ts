@@ -5,6 +5,70 @@ import { sendTrialStartedEmail } from '@/services/email/triggers';
 import { getEnvironmentConfig } from '@/config/environment';
 
 /**
+ * Create the default paper-trading bot for a new user.
+ * Paper bots don't require exchange API keys — trades are fully simulated.
+ * Called during onboarding so users see activity immediately after signup.
+ */
+async function createDefaultBotForUser(userId: string): Promise<void> {
+  const env = getEnvironmentConfig();
+  const client = await getPool().connect();
+  try {
+    // Skip if user already has a bot
+    const existing = await client.query(
+      `SELECT id FROM bot_instances WHERE user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (existing.rows.length > 0) return;
+
+    const exchange = env.DEFAULT_BOT_EXCHANGE;
+    const pairs = env.DEFAULT_BOT_PAIRS.split(',').map(p => p.trim()).filter(Boolean);
+    const capital = env.DEFAULT_BOT_CAPITAL;
+
+    await client.query(
+      `INSERT INTO bot_instances (user_id, exchange, enabled_pairs, trading_pairs, status, config)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        userId,
+        exchange,
+        pairs,
+        pairs,
+        'running',
+        JSON.stringify({
+          initialCapital: capital,
+          createdAt: new Date().toISOString(),
+          totalTrades: 0,
+          profitLoss: 0,
+          tradingMode: 'paper',
+          profitTargetConservative: 0.02,
+          profitTargetModerate: 0.05,
+          profitTargetAggressive: 0.12,
+          maxHoldHours: 336,
+          emergencyLossLimit: -0.06,
+          minADXForEntry: 20,
+          btcDumpThreshold1h: -0.015,
+          volumeSpikeMax: 3.0,
+          spreadMaxPercent: 0.005,
+          priceTopThreshold: 0.995,
+          rsiExtremeOverbought: 85,
+          minMomentum1h: 0.005,
+          minMomentum4h: 0.005,
+          volumeBreakoutRatio: 1.3,
+          aiMinConfidence: 70,
+          profitTargetMinimum: 0.005,
+        }),
+      ]
+    );
+
+    logger.info('Created default paper bot for new user', { userId, exchange, pairs });
+  } catch (err) {
+    // Non-fatal: user can create a bot manually
+    logger.warn('Failed to create default bot during onboarding', { userId, error: err instanceof Error ? err.message : String(err) });
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Legacy User Onboarding Service
  * Handles automatic plan assignment for users who don't have active subscriptions.
  * This ensures users signup before the billing system was implemented still get access.
@@ -103,6 +167,9 @@ export async function assignStarterPlanToLegacyUser(
         subscriptionId: subscription.id,
         trialEndsAt,
       });
+
+      // Create default paper bot so users see activity immediately (fire-and-forget)
+      await createDefaultBotForUser(userId);
 
       // Send trial welcome email (fire-and-forget — don't fail subscription on email error)
       try {
