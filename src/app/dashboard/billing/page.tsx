@@ -161,8 +161,8 @@ export default function BillingPage() {
 
   return (
     <DashboardLayout title="Billing & Plans">
-      {/* Sticky invoice banner — visible immediately on mobile without scrolling */}
-      {activeInvoiceAmount !== null && (
+      {/* Sticky invoice banner — hidden during trial when NEXT_PUBLIC_USDC_SHOW_IN_TRIAL=false */}
+      {activeInvoiceAmount !== null && (process.env.NEXT_PUBLIC_USDC_SHOW_IN_TRIAL !== 'false' || userPlan?.plan !== 'live_trial') && (
         <div className="sticky top-0 z-20 bg-amber-500 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-md">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-lg shrink-0">💳</span>
@@ -297,8 +297,10 @@ export default function BillingPage() {
         {/* Performance Fees - Full width on mobile, priority position */}
         <PerformanceFeesSummary tradingMode={userPlan?.tradingMode} onGoLive={() => setShowGoLiveWizard(true)} feePercent={feePercent} />
 
-        {/* USDC Direct Payment */}
-        <USDCPayButton tradingMode={userPlan?.tradingMode} />
+        {/* USDC Direct Payment — hidden during trial when NEXT_PUBLIC_USDC_SHOW_IN_TRIAL=false */}
+        {(process.env.NEXT_PUBLIC_USDC_SHOW_IN_TRIAL !== 'false' || userPlan?.plan !== 'live_trial') && (
+          <USDCPayButton tradingMode={userPlan?.tradingMode} />
+        )}
 
         {/* Recent Transactions */}
         <RecentTransactions />
