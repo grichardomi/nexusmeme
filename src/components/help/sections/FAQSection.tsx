@@ -19,6 +19,10 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
 
   const questions = [
     {
+      question: 'Does the bot go short or use leverage?',
+      answer: `No — NexusMeme only takes **long positions**. This means the bot buys BTC or ETH and sells when a profit target is hit. It never short-sells (betting on prices falling) and never uses leverage or margin.\n\n**Why long-only?**\n• Simpler and more transparent — you always know what the bot is doing\n• No risk of liquidation that comes with leveraged positions\n• Aligned with how most retail investors approach crypto\n• Short-selling requires a different risk profile and is not suitable for all users\n\n**What happens in a falling market?**\nThe bot sits out. Our regime filter blocks new entries when BTC is in a confirmed downtrend (price below EMA200) or when market conditions are too choppy. Protecting your capital during bad conditions is as important as making money in good ones.\n\n**In summary**: The bot only makes money when prices go up. When prices are falling, it waits.`,
+    },
+    {
       question: 'Why is my bot not trading? Is something wrong?',
       answer: `Nothing is wrong! NexusMeme is fundamentally different from other trading platforms:\n\n**Most trading bots**: Trade constantly in ANY market condition (often losing money when conditions are bad)\n\n**NexusMeme's approach**: Wait patiently for good opportunities, skip bad conditions\n\n**Common reasons your bot might not be trading:**\n\n1. **Unfavorable Market Conditions** - Our system detects that overall market conditions are not favorable for profitable trades right now.\n\n2. **No Clear Opportunities** - Prices aren't showing clear patterns or trends that meet our quality standards.\n\n3. **Risk Too High** - Current volatility or market behavior suggests higher risk of loss.\n\n4. **Movement Too Small** - Price changes aren't significant enough to justify the trading fees.\n\n5. **Already in Position** - Your bot has an open trade and is managing that position.\n\n**This is intentional!** Check your bot activity feed — you'll see messages explaining what's happening:\n• "Market conditions unfavorable - waiting"\n• "Protecting your capital - skipping"\n• "Good opportunity found - entering trade"\n\n**The result**: You only enter trades when conditions favor success. Our performance fee means we only profit when YOU profit — we're motivated to be patient and selective, not reckless.`,
     },
@@ -113,8 +117,8 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-6 mb-8">
-        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Frequently Asked Questions</h2>
+      <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4 sm:p-6 mb-6 sm:mb-8">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-2">Frequently Asked Questions</h2>
         <p className="text-slate-700 dark:text-slate-300">
           Common questions about NexusMeme features, plans, and trading.
         </p>

@@ -498,6 +498,64 @@ export default function Home() {
           </div>
         </section>
 
+        {/* FAQ Section */}
+        <section id="faq" className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24 bg-white dark:bg-slate-950">
+          <div className="max-w-3xl mx-auto">
+            <div className="text-center mb-10 sm:mb-14">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-4">
+                Frequently Asked <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Questions</span>
+              </h2>
+            </div>
+
+            <div className="space-y-4">
+              {[
+                {
+                  q: 'Does the bot go short (bet on prices falling)?',
+                  a: 'No. NexusMeme only takes long positions — it buys BTC or ETH and sells when a profit target is reached. It never short-sells or uses leverage. This keeps the strategy simple, transparent, and aligned with how most retail investors think about crypto: buy low, sell higher.',
+                },
+                {
+                  q: 'What markets does the bot trade?',
+                  a: 'BTC/USDT and ETH/USDT only — the two most liquid crypto markets in the world. Focusing on high-liquidity pairs means tighter spreads, faster fills, and lower slippage on every trade.',
+                },
+                {
+                  q: 'What happens in a bear market or when prices are falling?',
+                  a: 'The bot sits out. Our AI regime filter blocks entries when the market is in a confirmed downtrend (price below EMA200) or when market conditions are too choppy. Preserving capital during bad conditions is as important as making money in good ones.',
+                },
+                {
+                  q: 'Does the bot use leverage or margin?',
+                  a: 'Never. All trades are spot only — the bot only spends what is already in your account. No borrowing, no leverage, no risk of liquidation.',
+                },
+                {
+                  q: 'How does the bot decide when to buy and sell?',
+                  a: 'It uses technical analysis (ADX trend strength, momentum, volume) to identify high-probability long setups. Profit targets adjust dynamically based on trend strength: 0.5–0.8% in choppy markets, up to 8% in strong trends. Losses are cut early to keep the average loss small.',
+                },
+                {
+                  q: 'Do I need to do anything once it\'s running?',
+                  a: 'No. Once your exchange API key is connected and the bot is started, it runs 24/7 automatically. You can log in to Binance or Kraken anytime to see every trade in your own account history.',
+                },
+                {
+                  q: 'When do I pay the performance fee?',
+                  a: `${fee} of profits, billed on the 1st of each month. If your bot had a losing month, you pay $0. No credit card required to start — fees are invoiced and payable in USDC.`,
+                },
+              ].map((item, i) => (
+                <details key={i} className="group bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                  <summary className="flex items-center justify-between gap-4 px-6 py-4 cursor-pointer list-none font-semibold text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                    {item.q}
+                    <span className="flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </span>
+                  </summary>
+                  <p className="px-6 pb-5 text-slate-600 dark:text-slate-400 leading-relaxed text-sm sm:text-base">
+                    {item.a}
+                  </p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Final CTA Section - High Impact */}
         <section className="px-4 sm:px-6 lg:px-8 py-16 sm:py-20 md:py-32 bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 dark:from-slate-950 dark:via-blue-950 dark:to-purple-950 relative overflow-hidden">
           {/* Animated background elements */}
