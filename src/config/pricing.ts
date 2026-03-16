@@ -63,7 +63,7 @@ export const PRICING_PLANS = {
     highlight: 'Start trading immediately',
     trialType: 'live_trading',
     trialDurationDays: 10
-  },
+  }, 
 
   performance_fees: {
     id: 'performance_fees' as SubscriptionPlan,
