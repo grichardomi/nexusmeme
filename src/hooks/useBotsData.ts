@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 export interface Bot {
   id: string;
   exchange: string;
+  name?: string;
   enabledPairs: string[];
   isActive: boolean;
   createdAt: string;

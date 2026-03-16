@@ -136,6 +136,25 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
         return;
       }
 
+      // Keys saved — check if validation passed or failed
+      if (data.validationFailed) {
+        setError(`Keys saved but connection failed: ${data.validationError}`);
+        setIsLoading(false);
+        // Still refresh saved keys (they are stored, just not validated)
+        try {
+          const keysResponse = await fetch('/api/exchange-keys');
+          if (keysResponse.ok) {
+            const keysData = await keysResponse.json();
+            const keys = keysData.keys || [];
+            const found = keys.find((k: SavedKey) => k.exchange === exchange);
+            setSavedKey(found || null);
+          }
+        } catch (err) {
+          console.error('Failed to refresh keys:', err);
+        }
+        return;
+      }
+
       // Success! Clear form immediately
       setFormData({ publicKey: '', secretKey: '' });
       setSuccess(true);
@@ -209,8 +228,12 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
 
   const exchangeNames: Record<string, { name: string; docUrl: string }> = {
     binance: {
-      name: 'Binance',
+      name: 'Binance International',
       docUrl: 'https://www.binance.com/en/support/faq/360002502072',
+    },
+    kraken: {
+      name: 'Kraken',
+      docUrl: 'https://support.kraken.com/hc/en-us/articles/360000919966',
     },
   };
 
@@ -336,14 +359,14 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
 
           <div>
             <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-              Public Key (API Key)
+              {exchange === 'kraken' ? 'API Key' : 'Public Key (API Key)'}
             </label>
             <input
               type="text"
               name="publicKey"
               value={formData.publicKey}
               onChange={handleChange}
-              placeholder="Paste your public API key"
+              placeholder={exchange === 'kraken' ? 'Paste your Kraken API key' : 'Paste your public API key'}
               disabled={isLoading}
               autoComplete="new-password"
               spellCheck="false"
@@ -356,20 +379,20 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
 
           <div>
             <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-              Secret Key (API Secret)
+              {exchange === 'kraken' ? 'Private Key' : 'Secret Key (API Secret)'}
             </label>
             <input
               type="password"
               name="secretKey"
               value={formData.secretKey}
               onChange={handleChange}
-              placeholder="Paste your secret key"
+              placeholder={exchange === 'kraken' ? 'Paste your Kraken private key' : 'Paste your secret key'}
               disabled={isLoading}
               autoComplete="new-password"
               className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800"
             />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Your secret is encrypted and stored securely.
+              Your {exchange === 'kraken' ? 'private key' : 'secret'} is encrypted and stored securely.
             </p>
           </div>
 

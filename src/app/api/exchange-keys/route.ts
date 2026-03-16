@@ -161,11 +161,14 @@ export async function POST(request: NextRequest) {
     if (validationStatus === 'invalid') {
       return NextResponse.json(
         {
-          error: `API keys saved but could not connect to ${exchange.toUpperCase()}. Please check your key and secret and try again.`,
-          validationFailed: true,
+          message: result.updated ? 'API keys updated (validation failed)' : 'API keys saved (validation failed)',
           exchange,
+          id: result.id,
+          validated: false,
+          validationFailed: true,
+          validationError: validationError || `Could not connect to ${exchange.toUpperCase()}. Check your key permissions and try again.`,
         },
-        { status: 422 }
+        { status: result.updated ? 200 : 201 }
       );
     }
 

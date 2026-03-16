@@ -93,7 +93,7 @@ export function BotsList() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-2">
-                    {bot.exchange} Trading Bot {bot.tradingMode === 'paper' && <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded ml-2">PAPER</span>}
+                    {bot.name || `${bot.exchange} Trading Bot`} {bot.tradingMode === 'paper' && <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded ml-2">PAPER</span>}
                   </h3>
                   <div className="text-sm text-slate-400 space-y-1">
                     <p>Pairs: {bot.enabledPairs.join(', ') || 'None'}</p>
@@ -127,7 +127,7 @@ export function BotsList() {
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-lg font-semibold text-white mb-2">
-                {bot.exchange} Trading Bot
+                {bot.name || `${bot.exchange} Trading Bot`}
               </h3>
               <div className="text-sm text-slate-400 space-y-1">
                 <p>Pairs: {bot.enabledPairs.join(', ') || 'None'}</p>

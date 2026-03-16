@@ -120,54 +120,43 @@ class CapitalPreservationService {
   private evaluateBtcTrend(cache: BtcTrendCache): CapitalPreservationResult {
     const { btcClose, ema50, ema200 } = cache;
 
+    // Log BTC trend for informational purposes only — no size reduction.
+    // ADX gate (<20 = blocked) already handles market quality per-signal.
+    // Size reduction here was penalizing strong individual signals (ADX 37+)
+    // just because BTC is in a broader downtrend — redundant and costly.
     if (btcClose < ema200) {
-      console.log(`\n🛡️ [CAPITAL PRESERVATION] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) - reducing to 25% size (opportunistic mode)`);
-      logger.info('Capital preservation: BTC below EMA200, reducing size but staying opportunistic', {
+      console.log(`\n📊 [BTC TREND] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) — informational only, full size trading`);
+      logger.info('Capital preservation: BTC below EMA200 (informational — ADX gate handles quality)', {
         btcClose: btcClose.toFixed(2),
         ema50: ema50.toFixed(2),
         ema200: ema200.toFixed(2),
-        layer: 'btc_trend_gate',
       });
-      return {
-        allowTrading: true,
-        sizeMultiplier: 0.25,
-        reason: `BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}), cautious but opportunistic`,
-        layer: 'btc_trend_gate',
-      };
-    }
-
-    if (btcClose < ema50) {
-      console.log(`\n🛡️ [CAPITAL PRESERVATION] BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) - reducing size 50%`);
-      logger.info('Capital preservation: BTC below EMA50, reducing size', {
+    } else if (btcClose < ema50) {
+      console.log(`\n📊 [BTC TREND] BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) — informational only, full size trading`);
+      logger.info('Capital preservation: BTC below EMA50 (informational — ADX gate handles quality)', {
         btcClose: btcClose.toFixed(2),
         ema50: ema50.toFixed(2),
         ema200: ema200.toFixed(2),
-        layer: 'btc_trend_gate',
       });
-      return {
-        allowTrading: true,
-        sizeMultiplier: 0.5,
-        reason: `BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}), above EMA200`,
-        layer: 'btc_trend_gate',
-      };
+    } else {
+      console.log(`\n✅ [BTC TREND] BTC above EMA50 ($${btcClose.toFixed(0)} > $${ema50.toFixed(0)}) — full trading`);
+      logger.debug('Capital preservation: BTC above EMA50, full trading', {
+        btcClose: btcClose.toFixed(2),
+        ema50: ema50.toFixed(2),
+        ema200: ema200.toFixed(2),
+      });
     }
 
-    console.log(`\n✅ [CAPITAL PRESERVATION] BTC above EMA50 ($${btcClose.toFixed(0)} > $${ema50.toFixed(0)}) - full trading`);
-    logger.debug('Capital preservation: BTC above EMA50, full trading', {
-      btcClose: btcClose.toFixed(2),
-      ema50: ema50.toFixed(2),
-      ema200: ema200.toFixed(2),
-    });
-    return { allowTrading: true, sizeMultiplier: 1.0, reason: 'BTC above EMA50, full trading' };
+    return { allowTrading: true, sizeMultiplier: 1.0, reason: 'Full size — ADX gate handles market quality' };
   }
 
   /**
-   * Layer 2: Rolling Drawdown Circuit Breaker (per-bot)
-   * Tracks 7-day rolling P&L and peak equity.
-   * - 7-day loss > 5% of capital → multiplier *= 0.5
-   * - 7-day loss > 10% of capital → pause 24h
-   * - Drawdown from peak > 15% → pause until BTC recovers above EMA50
-   * Auto-resume: pause expires, or BTC > EMA50 for 15% case
+   * Layer 2: Rolling Drawdown Size Reducer (per-bot)
+   * Tracks 7-day rolling P&L — NO PAUSES (cooldowns forbidden).
+   * Only reduces position size:
+   * - 7-day loss > 5%  → multiplier 0.5
+   * - 7-day loss > 10% → multiplier 0.25
+   * - 7-day loss > 15% → multiplier 0.25 (floor — still trades every opportunity)
    * Reset: 3 consecutive wins → restore full size
    */
   async checkDrawdown(botId: string, effectiveBalance: number): Promise<CapitalPreservationResult> {
@@ -178,7 +167,7 @@ class CapitalPreservationService {
     }
 
     try {
-      // Check if bot is currently paused
+      // Clear any stale pause flags (cooldowns are forbidden)
       const botConfig = await query<{ config: Record<string, any> }>(
         `SELECT config FROM bot_instances WHERE id = $1`,
         [botId]
@@ -189,36 +178,8 @@ class CapitalPreservationService {
           ? JSON.parse(botConfig[0].config)
           : botConfig[0].config;
 
-        if (config?.cp_paused_until) {
-          const pausedUntil = new Date(config.cp_paused_until).getTime();
-          if (Date.now() < pausedUntil) {
-            // Check if this is a 15% drawdown pause (requires BTC recovery)
-            if (config.cp_pause_reason === 'drawdown_15pct') {
-              // Check if BTC has recovered
-              const btcResult = await this.checkBtcTrendGate();
-              if (btcResult.sizeMultiplier < 1.0) {
-                return {
-                  allowTrading: false,
-                  sizeMultiplier: 0,
-                  reason: `Paused: 15% drawdown, waiting for BTC recovery (currently ${btcResult.reason})`,
-                  layer: 'drawdown',
-                };
-              }
-              // BTC recovered - clear the pause
-              await this.updateBotCpConfig(botId, { cp_paused_until: null, cp_pause_reason: null });
-            } else {
-              const remainingMin = Math.ceil((pausedUntil - Date.now()) / 60000);
-              return {
-                allowTrading: false,
-                sizeMultiplier: 0,
-                reason: `Paused for ${remainingMin}min (drawdown circuit breaker)`,
-                layer: 'drawdown',
-              };
-            }
-          } else {
-            // Pause expired - clear it
-            await this.updateBotCpConfig(botId, { cp_paused_until: null, cp_pause_reason: null });
-          }
+        if (config?.cp_paused_until || config?.cp_pause_reason) {
+          await this.updateBotCpConfig(botId, { cp_paused_until: null, cp_pause_reason: null });
         }
       }
 
@@ -241,15 +202,9 @@ class CapitalPreservationService {
       const peakEquity = parseFloat(String(config?.cp_peak_equity || effectiveBalance));
       const currentEquity = effectiveBalance + rollingPL;
 
-      // Update peak equity if we've hit a new high
       if (currentEquity > peakEquity) {
         await this.updateBotCpConfig(botId, { cp_peak_equity: currentEquity });
       }
-
-      // Check drawdown from peak
-      const drawdownFromPeak = peakEquity > 0
-        ? ((peakEquity - currentEquity) / peakEquity) * 100
-        : 0;
 
       logger.debug('Capital preservation: drawdown check', {
         botId,
@@ -257,43 +212,32 @@ class CapitalPreservationService {
         rollingPLPct: rollingPLPct.toFixed(2),
         peakEquity: peakEquity.toFixed(2),
         currentEquity: currentEquity.toFixed(2),
-        drawdownFromPeak: drawdownFromPeak.toFixed(2),
       });
 
-      // 15% drawdown from peak → pause until BTC recovers
-      if (drawdownFromPeak >= env.CP_DRAWDOWN_STOP_PCT) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${drawdownFromPeak.toFixed(1)}% drawdown from peak - PAUSING until BTC recovers`);
-        await this.updateBotCpConfig(botId, {
-          cp_paused_until: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(), // Far future - cleared by BTC recovery
-          cp_pause_reason: 'drawdown_15pct',
-        });
+      // Size reduction tiers — NO pauses, always trades
+      if (Math.abs(rollingPLPct) >= env.CP_DRAWDOWN_STOP_PCT && rollingPL < 0) {
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss - reducing to 25% size (still trading)`);
         return {
-          allowTrading: false,
-          sizeMultiplier: 0,
-          reason: `${drawdownFromPeak.toFixed(1)}% drawdown from peak (>${env.CP_DRAWDOWN_STOP_PCT}%), pausing until BTC recovers`,
+          allowTrading: true,
+          sizeMultiplier: 0.25,
+          reason: `${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss (>${env.CP_DRAWDOWN_STOP_PCT}%), cautious 25% size`,
           layer: 'drawdown',
         };
       }
 
-      // 10% rolling loss → pause for configured hours
       if (Math.abs(rollingPLPct) >= env.CP_DRAWDOWN_PAUSE_PCT && rollingPL < 0) {
-        const pauseMs = env.CP_DRAWDOWN_PAUSE_HOURS * 60 * 60 * 1000;
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${rollingPLPct.toFixed(1)}% 7-day loss - PAUSING ${env.CP_DRAWDOWN_PAUSE_HOURS}h`);
-        await this.updateBotCpConfig(botId, {
-          cp_paused_until: new Date(Date.now() + pauseMs).toISOString(),
-          cp_pause_reason: 'drawdown_10pct',
-        });
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss - reducing to 25% size`);
         return {
-          allowTrading: false,
-          sizeMultiplier: 0,
-          reason: `${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss (>${env.CP_DRAWDOWN_PAUSE_PCT}%), paused ${env.CP_DRAWDOWN_PAUSE_HOURS}h`,
+          allowTrading: true,
+          sizeMultiplier: 0.25,
+          reason: `${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss (>${env.CP_DRAWDOWN_PAUSE_PCT}%), cautious 25% size`,
           layer: 'drawdown',
         };
       }
 
       // 5% rolling loss → reduce size
       if (Math.abs(rollingPLPct) >= env.CP_DRAWDOWN_REDUCE_PCT && rollingPL < 0) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${rollingPLPct.toFixed(1)}% 7-day loss - reducing size 50%`);
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss - reducing size 50%`);
         return {
           allowTrading: true,
           sizeMultiplier: 0.5,
@@ -329,11 +273,9 @@ class CapitalPreservationService {
 
   /**
    * Layer 3: Consecutive Loss Detection (per-bot)
-   * Counts leading consecutive losses from most recent trades.
-   * - 3 consecutive → multiplier *= 0.5
-   * - 5 consecutive → multiplier *= 0.25
-   * - 7 consecutive → pause 4 hours
-   * Auto-resume: pause expires; first win resets streak
+   * NO PAUSES (cooldowns forbidden) — size reduction only.
+   * - 3 consecutive → multiplier 0.5
+   * - 5+ consecutive → multiplier 0.25 (floor — still trades every opportunity)
    */
   async checkLossStreak(botId: string): Promise<CapitalPreservationResult> {
     const env = getEnvironmentConfig();
@@ -343,7 +285,7 @@ class CapitalPreservationService {
     }
 
     try {
-      // Check if bot is currently paused from streak
+      // Clear any stale streak pause flags (cooldowns are forbidden)
       const botConfig = await query<{ config: Record<string, any> }>(
         `SELECT config FROM bot_instances WHERE id = $1`,
         [botId]
@@ -355,17 +297,6 @@ class CapitalPreservationService {
           : botConfig[0].config;
 
         if (config?.cp_streak_paused_until) {
-          const pausedUntil = new Date(config.cp_streak_paused_until).getTime();
-          if (Date.now() < pausedUntil) {
-            const remainingMin = Math.ceil((pausedUntil - Date.now()) / 60000);
-            return {
-              allowTrading: false,
-              sizeMultiplier: 0,
-              reason: `Paused for ${remainingMin}min (${env.CP_LOSS_STREAK_PAUSE}+ consecutive losses)`,
-              layer: 'loss_streak',
-            };
-          }
-          // Pause expired
           await this.updateBotCpConfig(botId, { cp_streak_paused_until: null });
         }
       }
@@ -396,17 +327,13 @@ class CapitalPreservationService {
         recentTradeCount: recentTrades.length,
       });
 
-      // 7+ consecutive losses → pause
+      // 7+ consecutive losses → quarter size (no pause — cooldowns forbidden)
       if (consecutiveLosses >= env.CP_LOSS_STREAK_PAUSE) {
-        const pauseMs = env.CP_LOSS_STREAK_PAUSE_HOURS * 60 * 60 * 1000;
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - PAUSING ${env.CP_LOSS_STREAK_PAUSE_HOURS}h`);
-        await this.updateBotCpConfig(botId, {
-          cp_streak_paused_until: new Date(Date.now() + pauseMs).toISOString(),
-        });
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - reducing to 25% size (still trading)`);
         return {
-          allowTrading: false,
-          sizeMultiplier: 0,
-          reason: `${consecutiveLosses} consecutive losses (>=${env.CP_LOSS_STREAK_PAUSE}), paused ${env.CP_LOSS_STREAK_PAUSE_HOURS}h`,
+          allowTrading: true,
+          sizeMultiplier: 0.25,
+          reason: `${consecutiveLosses} consecutive losses (>=${env.CP_LOSS_STREAK_PAUSE}), cautious 25% size`,
           layer: 'loss_streak',
         };
       }

@@ -752,8 +752,8 @@ export class KrakenAdapter extends BaseExchangeAdapter {
     this.validateKeys();
 
     try {
-      // 1. Add nonce to params (milliseconds as integer)
-      const nonce = Date.now().toString();
+      // 1. Add nonce to params (microseconds — Kraken requires strictly increasing 16-digit nonce)
+      const nonce = (Date.now() * 1000).toString();
       const requestParams = { ...params, nonce };
 
       // 2. Create request body (URL-encoded)

@@ -118,8 +118,8 @@ export default function BotDetailPage() {
     // Load user's connected exchanges when opening settings
     fetch('/api/exchanges/connected')
       .then(r => r.json())
-      .then(d => setConnectedExchanges(Array.isArray(d.exchanges) ? d.exchanges : []))
-      .catch(() => setConnectedExchanges(['binance', 'kraken']));
+      .then(d => setConnectedExchanges(Array.isArray(d.exchanges) ? d.exchanges : [bot?.exchange || 'binance']))
+      .catch(() => setConnectedExchanges([bot?.exchange || 'binance']));
 
     const initialCapital = bot?.initialCapital;
     // Check if unlimited (0 = unlimited, uses real exchange balance)
