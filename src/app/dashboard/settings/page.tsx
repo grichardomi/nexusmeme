@@ -82,7 +82,7 @@ export default function SettingsPage() {
       // Only send fields that changed
       const changedFields: Record<string, any> = {};
       (Object.keys(formData) as Array<keyof typeof formData>).forEach(key => {
-        if (formData[key] !== originalData[key]) {
+        if (formData[key] !== originalData?.[key]) {
           changedFields[key] = formData[key];
         }
       });
