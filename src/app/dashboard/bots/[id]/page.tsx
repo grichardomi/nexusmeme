@@ -27,6 +27,7 @@ interface Bot {
   isActive: boolean;
   createdAt: string;
   tradingMode: 'paper' | 'live';
+  liveSince: string | null;
   totalTrades: number;
   profitLoss: number;
   initialCapital: number; // 0 = unlimited (uses real exchange balance)
@@ -776,14 +777,23 @@ export default function BotDetailPage() {
               </div>
 
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Total Trades</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  {bot.tradingMode === 'live' && bot.liveSince ? 'Live Trades' : 'Total Trades'}
+                </p>
                 <p className="text-3xl font-bold text-slate-900 dark:text-white mt-2">
                   {bot.totalTrades}
                 </p>
+                {bot.tradingMode === 'live' && bot.liveSince && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    since {new Date(bot.liveSince).toLocaleDateString()}
+                  </p>
+                )}
               </div>
 
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Profit/Loss</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  {bot.tradingMode === 'live' && bot.liveSince ? 'Live Profit/Loss' : 'Profit/Loss'}
+                </p>
                 <p
                   className={`text-3xl font-bold mt-2 ${
                     bot.profitLoss >= 0
@@ -793,6 +803,11 @@ export default function BotDetailPage() {
                 >
                   ${bot.profitLoss.toFixed(2)}
                 </p>
+                {bot.tradingMode === 'live' && bot.liveSince && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    since {new Date(bot.liveSince).toLocaleDateString()}
+                  </p>
+                )}
               </div>
 
             </div>

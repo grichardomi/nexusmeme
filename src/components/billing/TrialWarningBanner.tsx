@@ -12,9 +12,10 @@ interface TrialInfo {
 
 interface TrialWarningBannerProps {
   minimal?: boolean; // Show minimal version on dashboard
+  onGoLive?: () => void; // If provided, opens wizard directly instead of navigating
 }
 
-export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps) {
+export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBannerProps) {
   const [trialInfo, setTrialInfo] = useState<TrialInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBanner, setShowBanner] = useState(false);
@@ -156,18 +157,33 @@ export function TrialWarningBanner({ minimal = false }: TrialWarningBannerProps)
           </ul>
         </div>
 
-        <Link
-          href="/dashboard/billing"
-          className={`px-4 py-2 rounded-lg font-semibold text-white whitespace-nowrap transition ${
-            isEndingTomorrow
-              ? 'bg-red-600 hover:bg-red-700'
-              : isEnding
-              ? 'bg-yellow-600 hover:bg-yellow-700'
-              : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          {isEndingTomorrow ? 'Switch to Live Trading Now' : 'Switch to Live Trading'}
-        </Link>
+        {onGoLive ? (
+          <button
+            onClick={onGoLive}
+            className={`px-4 py-2 rounded-lg font-semibold text-white whitespace-nowrap transition ${
+              isEndingTomorrow
+                ? 'bg-red-600 hover:bg-red-700'
+                : isEnding
+                ? 'bg-yellow-600 hover:bg-yellow-700'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {isEndingTomorrow ? 'Switch to Live Trading Now' : 'Switch to Live Trading'}
+          </button>
+        ) : (
+          <Link
+            href="/dashboard/billing"
+            className={`px-4 py-2 rounded-lg font-semibold text-white whitespace-nowrap transition ${
+              isEndingTomorrow
+                ? 'bg-red-600 hover:bg-red-700'
+                : isEnding
+                ? 'bg-yellow-600 hover:bg-yellow-700'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {isEndingTomorrow ? 'Switch to Live Trading Now' : 'Switch to Live Trading'}
+          </Link>
+        )}
       </div>
     </div>
   );

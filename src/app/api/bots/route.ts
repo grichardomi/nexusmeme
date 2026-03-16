@@ -28,6 +28,7 @@ export async function GET(_request: NextRequest) {
       status: string;
       createdAt: string;
       config: Record<string, unknown>;
+      liveSince: string | null;
     }
 
     const bots = await query<BotRow>(
@@ -37,7 +38,8 @@ export async function GET(_request: NextRequest) {
         enabled_pairs as "enabledPairs",
         status,
         created_at as "createdAt",
-        config
+        config,
+        live_since as "liveSince"
       FROM bot_instances
       WHERE user_id = $1
       ORDER BY created_at DESC`,
@@ -50,12 +52,19 @@ export async function GET(_request: NextRequest) {
     let botProfitLoss: Record<string, number> = {};
 
     if (botIds.length > 0) {
-      // Get trade counts
+      // Build a map of live_since per bot for filtering
+      const liveSinceMap: Record<string, string | null> = {};
+      bots.forEach(b => { liveSinceMap[b.id] = b.liveSince; });
+
+      // Get live trade counts (only trades after live_since, or all if still paper)
       const tradeCountResults = await query<{ bot_instance_id: string; count: number }>(
-        `SELECT bot_instance_id, COUNT(*) as count
-         FROM trades
-         WHERE bot_instance_id = ANY($1)
-         GROUP BY bot_instance_id`,
+        `SELECT t.bot_instance_id, COUNT(*) as count
+         FROM trades t
+         INNER JOIN bot_instances b ON b.id = t.bot_instance_id
+         WHERE t.bot_instance_id = ANY($1)
+           AND (b.live_since IS NULL OR t.entry_time >= b.live_since)
+           AND t.trading_mode = COALESCE(b.config->>'tradingMode', 'paper')
+         GROUP BY t.bot_instance_id`,
         [botIds]
       );
 
@@ -63,12 +72,16 @@ export async function GET(_request: NextRequest) {
         tradeCounts[result.bot_instance_id] = result.count;
       });
 
-      // Get total profit/loss from closed trades
+      // Get live profit/loss from closed trades (only trades after live_since)
       const profitLossResults = await query<{ bot_instance_id: string; total_profit: string }>(
-        `SELECT bot_instance_id, COALESCE(SUM(profit_loss), 0) as total_profit
-         FROM trades
-         WHERE bot_instance_id = ANY($1) AND status = 'closed'
-         GROUP BY bot_instance_id`,
+        `SELECT t.bot_instance_id, COALESCE(SUM(t.profit_loss), 0) as total_profit
+         FROM trades t
+         INNER JOIN bot_instances b ON b.id = t.bot_instance_id
+         WHERE t.bot_instance_id = ANY($1)
+           AND t.status = 'closed'
+           AND (b.live_since IS NULL OR t.entry_time >= b.live_since)
+           AND t.trading_mode = COALESCE(b.config->>'tradingMode', 'paper')
+         GROUP BY t.bot_instance_id`,
         [botIds]
       );
 
@@ -95,6 +108,7 @@ export async function GET(_request: NextRequest) {
         isActive: bot.status === 'running',
         botStatus: bot.status,
         createdAt: bot.createdAt,
+        liveSince: bot.liveSince ?? null,
         totalTrades: tradeCounts[bot.id] || 0,
         profitLoss: botProfitLoss[bot.id] ?? 0,
         initialCapital,
@@ -552,6 +566,13 @@ export async function PATCH(request: NextRequest) {
       updates.push(`config = $${paramCount}`);
       params.push(JSON.stringify(config));
       paramCount++;
+
+      // Record the exact moment a bot goes live (one-way — never cleared)
+      if (currentTradingMode === 'paper' && tradingMode === 'live') {
+        updates.push(`live_since = $${paramCount}`);
+        params.push(new Date().toISOString());
+        paramCount++;
+      }
     }
 
     if (status !== undefined) {

@@ -181,7 +181,7 @@ export default function BillingPage() {
 
       <div className="space-y-4 sm:space-y-6">
         {/* Trial Warning Banner (if applicable) */}
-        <TrialWarningBanner />
+        <TrialWarningBanner onGoLive={() => setShowGoLiveWizard(true)} />
 
         {/* Current Plan Section - Compact on mobile */}
         <section className={`rounded-xl border p-4 sm:p-6 ${colors.bg} ${colors.border}`}>

@@ -18,6 +18,7 @@ interface Trade {
 
 interface ActivityFeedProps {
   botId: string; // Required - must be provided by parent
+  modeFilter?: 'live' | 'paper' | 'all';
 }
 
 /**
@@ -28,7 +29,7 @@ interface ActivityFeedProps {
  *
  * Smooth updates: Background polling merges new data without flicker
  */
-export function ActivityFeed({ botId }: ActivityFeedProps) {
+export function ActivityFeed({ botId, modeFilter = 'all' }: ActivityFeedProps) {
   const [isCollapsed, setIsCollapsed] = useState(true);
 
   if (!botId) {
@@ -44,7 +45,7 @@ export function ActivityFeed({ botId }: ActivityFeedProps) {
     );
   }
 
-  return <ActivityFeedContent key={botId} botId={botId} isCollapsed={isCollapsed} onCollapsedChange={setIsCollapsed} />;
+  return <ActivityFeedContent key={`${botId}-${modeFilter}`} botId={botId} modeFilter={modeFilter} isCollapsed={isCollapsed} onCollapsedChange={setIsCollapsed} />;
 }
 
 /**
@@ -58,10 +59,12 @@ export function ActivityFeed({ botId }: ActivityFeedProps) {
  */
 function ActivityFeedContent({
   botId,
+  modeFilter,
   isCollapsed,
   onCollapsedChange,
 }: {
   botId: string;
+  modeFilter: 'live' | 'paper' | 'all';
   isCollapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
 }) {
@@ -77,7 +80,7 @@ function ActivityFeedContent({
   const fetchTrades = useCallback(async (offset: number, limit: number) => {
     try {
       const cacheParam = Date.now();
-      const response = await fetch(`/api/trades?botId=${botId}&offset=${offset}&limit=${limit}&_cb=${cacheParam}`);
+      const response = await fetch(`/api/trades?botId=${botId}&offset=${offset}&limit=${limit}&mode=${modeFilter}&_cb=${cacheParam}`);
       if (!response.ok) return null;
 
       const data = await response.json();
@@ -101,7 +104,7 @@ function ActivityFeedContent({
       console.error('Failed to fetch trades:', err);
       return null;
     }
-  }, [botId]);
+  }, [botId, modeFilter]);
 
   // Initial load + background polling
   useEffect(() => {

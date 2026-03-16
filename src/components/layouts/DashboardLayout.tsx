@@ -228,6 +228,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
                 {/* Active Trial Badge - Desktop (10-day free trial, paper trading mode) */}
                 {(subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                  subscription.tradingMode !== 'live' &&
                   subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
@@ -244,6 +245,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
                 {/* Active Trial Badge - Mobile (10-day free trial) */}
                 {(subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
+                  subscription.tradingMode !== 'live' &&
                   subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
@@ -253,9 +255,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {/* Active Live Trading badge (after trial) */}
-                {subscription.tradingMode !== 'paper' &&
-                  subscription.status === 'active' && subscription.plan !== 'free' && subscription.plan !== 'live_trial' && (
+                {/* Active Live Trading badge — shown whenever tradingMode is live */}
+                {subscription.tradingMode === 'live' && (
                   <Link
                     href="/dashboard/billing"
                     className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-semibold border border-green-200 hover:bg-green-200 transition-colors flex-shrink-0"

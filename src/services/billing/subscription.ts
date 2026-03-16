@@ -405,42 +405,44 @@ export async function getPlanUsage(userId: string) {
       tradeCount = 0;
     }
 
-    // Determine actual trading mode from environment (no hardcoding)
-    // Read directly from process.env to avoid any caching issues
-    const isPaperTradingEnv = process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
-    let actualTradingMode: 'live' | 'paper' = isPaperTradingEnv ? 'paper' : 'live';
+    // Determine actual trading mode from the user's bot config (source of truth)
+    // Env vars (KRAKEN_BOT_PAPER_TRADING etc.) are system-wide defaults only —
+    // they are overridden by the per-bot config->>'tradingMode' set when the user goes live.
+    let actualTradingMode: 'live' | 'paper' = 'paper'; // safe default
 
-    // Debug logging
-    console.log('[BILLING] Trading mode detection:', {
-      KRAKEN_BOT_PAPER_TRADING: process.env.KRAKEN_BOT_PAPER_TRADING,
-      BINANCE_BOT_PAPER_TRADING: process.env.BINANCE_BOT_PAPER_TRADING,
-      isPaperTradingEnv,
-      initialMode: actualTradingMode,
-    });
-
-    // Check user's bot for exchange-specific setting
     try {
       const botConfigResult = await client.query(
-        `SELECT exchange FROM bot_instances WHERE user_id = $1 LIMIT 1`,
+        `SELECT exchange, config->>'tradingMode' as trading_mode
+         FROM bot_instances
+         WHERE user_id = $1
+         ORDER BY
+           CASE WHEN config->>'tradingMode' = 'live' THEN 0 ELSE 1 END,
+           created_at DESC
+         LIMIT 1`,
         [userId]
       );
 
-      console.log('[BILLING] Bot config query result:', botConfigResult.rows[0]);
-
       if (botConfigResult.rows[0]) {
-        const exchange = botConfigResult.rows[0].exchange?.toLowerCase() || 'kraken';
-        const isPaperTrading = exchange === 'binance'
-          ? process.env.BINANCE_BOT_PAPER_TRADING === 'true'
-          : process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
-        actualTradingMode = isPaperTrading ? 'paper' : 'live';
-        console.log('[BILLING] Exchange-specific mode:', { exchange, isPaperTrading, finalMode: actualTradingMode });
+        const botMode = botConfigResult.rows[0].trading_mode;
+        if (botMode === 'live' || botMode === 'paper') {
+          // Per-bot config is authoritative — user explicitly set this via Go Live flow
+          actualTradingMode = botMode;
+        } else {
+          // No per-bot mode set — fall back to exchange-level env var
+          const exchange = botConfigResult.rows[0].exchange?.toLowerCase() || 'kraken';
+          const isPaperTrading = exchange === 'binance'
+            ? process.env.BINANCE_BOT_PAPER_TRADING === 'true'
+            : process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
+          actualTradingMode = isPaperTrading ? 'paper' : 'live';
+        }
+      } else {
+        // No bot at all — use env default
+        const isPaperTradingEnv = process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
+        actualTradingMode = isPaperTradingEnv ? 'paper' : 'live';
       }
     } catch (err) {
-      // Use default from env
-      console.log('[BILLING] Error checking bot config:', err);
+      logger.warn('Error reading bot trading mode, defaulting to paper', { userId });
     }
-
-    console.log('[BILLING] Final trading mode:', actualTradingMode);
 
     return {
       plan,

@@ -19,9 +19,10 @@ interface RiskMetrics {
 
 interface RiskMetricsProps {
   botId?: string;
+  modeFilter?: 'live' | 'paper' | 'all';
 }
 
-export function RiskMetrics({ botId }: RiskMetricsProps) {
+export function RiskMetrics({ botId, modeFilter = 'all' }: RiskMetricsProps) {
   const bots = useLiveBots(30000); // Poll every 30 seconds (reduced from 10s)
   const [riskMetrics, setRiskMetrics] = useState<RiskMetrics>({
     maxDrawdown: 0,
@@ -53,7 +54,7 @@ export function RiskMetrics({ botId }: RiskMetricsProps) {
         }
 
         // Fetch only last 200 trades instead of 1000 for better performance
-        const tradesResponse = await fetch(`/api/trades?botId=${id}&limit=200`);
+        const tradesResponse = await fetch(`/api/trades?botId=${id}&limit=200&mode=${modeFilter}`);
         if (!tradesResponse.ok) return;
 
         const data = await tradesResponse.json();
@@ -170,7 +171,7 @@ export function RiskMetrics({ botId }: RiskMetricsProps) {
       const interval = setInterval(fetchMetrics, 30000);
       return () => clearInterval(interval);
     }
-  }, [botId, bots]);
+  }, [botId, bots, modeFilter]);
 
   if (isLoading) {
     return (

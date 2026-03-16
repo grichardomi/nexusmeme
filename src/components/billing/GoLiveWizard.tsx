@@ -314,14 +314,16 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
               </div>
 
               {/* Irreversible warning */}
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 sm:p-4">
-                <p className="text-xs sm:text-sm font-semibold text-amber-800 dark:text-amber-200 mb-1">
-                  ⚠️ This cannot be undone
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 sm:p-4 space-y-2">
+                <p className="text-xs sm:text-sm font-semibold text-amber-800 dark:text-amber-200">
+                  ⚠️ Permanent — this cannot be undone
                 </p>
-                <p className="text-xs sm:text-sm text-amber-700 dark:text-amber-300 leading-relaxed">
-                  Once you switch to live, you cannot go back to paper trading.{' '}
-                  {bots.length === 1 ? 'Your bot' : 'All your bots'} will trade with <strong>real funds</strong>.
-                </p>
+                <ul className="text-xs sm:text-sm text-amber-700 dark:text-amber-300 space-y-1.5 leading-relaxed">
+                  <li>• Your <strong>free trial ends permanently</strong> the moment you switch</li>
+                  <li>• <strong>Paper trading is gone for good</strong> — you cannot revert to it for any reason</li>
+                  <li>• {bots.length === 1 ? 'Your bot' : 'All your bots'} will trade with <strong>real funds</strong> immediately</li>
+                  <li>• To test a new strategy, use small live capital — there is no sandbox after this point</li>
+                </ul>
               </div>
 
               {/* Bot list if >1 */}

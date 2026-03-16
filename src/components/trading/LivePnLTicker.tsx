@@ -6,9 +6,10 @@ import { usePriceContext } from '@/contexts/PriceContext';
 
 interface LivePnLTickerProps {
   bot?: Bot | null;
+  modeFilter?: 'live' | 'paper' | 'all';
 }
 
-export function LivePnLTicker({ bot: providedBot }: LivePnLTickerProps) {
+export function LivePnLTicker({ bot: providedBot, modeFilter = 'all' }: LivePnLTickerProps) {
   const bots = useLiveBots(30000); // 30-second polling (reduced from 5s to prevent page jumping)
   const { prices } = usePriceContext();
   const [bot, setBot] = useState<Bot | null>(null);
@@ -20,7 +21,7 @@ export function LivePnLTicker({ bot: providedBot }: LivePnLTickerProps) {
   // Fetch and calculate unrealized P&L for open positions
   const calculateUnrealizedPnL = useCallback(async (botId: string) => {
     try {
-      const response = await fetch(`/api/trades?botId=${botId}&limit=200`);
+      const response = await fetch(`/api/trades?botId=${botId}&limit=200&mode=${modeFilter}`);
       if (!response.ok) return;
       const data = await response.json();
       const trades = data.trades || [];
@@ -54,7 +55,7 @@ export function LivePnLTicker({ bot: providedBot }: LivePnLTickerProps) {
     } catch (err) {
       console.error('Error calculating unrealized P&L:', err);
     }
-  }, [prices]);
+  }, [prices, modeFilter]);
 
   useEffect(() => {
     if (providedBot) {

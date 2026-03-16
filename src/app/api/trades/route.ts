@@ -126,6 +126,8 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') || 'list';
     const botId = searchParams.get('botId');
     const statusFilter = searchParams.get('status') || 'all';
+    // 'live' = only live trades (after live_since), 'paper' = only paper, 'all' = everything
+    const modeFilter = searchParams.get('mode') || 'all';
 
     // CSV export request
     if (type === 'export') {
@@ -197,6 +199,17 @@ export async function GET(request: NextRequest) {
       statusWhere = `AND t.status = 'archived'`;
     }
 
+    // Build WHERE clause for mode filter
+    // 'live' = only live trades after bot's live_since timestamp
+    // 'paper' = only paper trades
+    // 'all' = no filter (default)
+    let modeWhere = '';
+    if (modeFilter === 'live') {
+      modeWhere = `AND t.trading_mode = 'live' AND (b.live_since IS NULL OR t.entry_time >= b.live_since)`;
+    } else if (modeFilter === 'paper') {
+      modeWhere = `AND t.trading_mode = 'paper'`;
+    }
+
     // Fetch trades with single JOIN query (optimized - no N+1 pattern)
     // This replaces the two-query approach: SELECT bot_ids + SELECT trades
     // Now we do it in one query with a JOIN
@@ -220,14 +233,17 @@ export async function GET(request: NextRequest) {
           t.pyramid_levels,
           t.fee,
           t.exit_fee,
+          t.trading_mode,
           b.config ->> 'initialCapital' AS initial_capital,
-          b.exchange
+          b.exchange,
+          b.live_since
         FROM trades t
         INNER JOIN bot_instances b ON t.bot_instance_id = b.id
         WHERE b.user_id = $1
           AND ($2::uuid IS NULL OR t.bot_instance_id = $2)
           AND t.entry_time >= $5
           ${statusWhere}
+          ${modeWhere}
         ORDER BY t.exit_time DESC, t.entry_time DESC
         LIMIT $3 OFFSET $4`,
         [session.user.id, botId || null, limit, offset, twoYearsAgo.toISOString()]
@@ -258,14 +274,17 @@ export async function GET(request: NextRequest) {
             '[]'::jsonb AS pyramid_levels,
             NULL::numeric AS fee,
             NULL::numeric AS exit_fee,
+            'live'::text AS trading_mode,
             b.config ->> 'initialCapital' AS initial_capital,
-            b.exchange
+            b.exchange,
+            b.live_since
           FROM trades t
           INNER JOIN bot_instances b ON t.bot_instance_id = b.id
           WHERE b.user_id = $1
             AND ($2::uuid IS NULL OR t.bot_instance_id = $2)
             AND t.entry_time >= $5
             ${statusWhere}
+            ${modeWhere}
           ORDER BY t.exit_time DESC, t.entry_time DESC
           LIMIT $3 OFFSET $4`,
           [session.user.id, botId || null, limit, offset, twoYearsAgo.toISOString()]
@@ -283,7 +302,8 @@ export async function GET(request: NextRequest) {
       WHERE b.user_id = $1
         AND ($2::uuid IS NULL OR t.bot_instance_id = $2)
         AND t.entry_time >= $3
-        ${statusWhere}`,
+        ${statusWhere}
+        ${modeWhere}`,
       [session.user.id, botId || null, twoYearsAgo.toISOString()]
     );
     const total = parseInt(String(countResult[0]?.count || '0'), 10);

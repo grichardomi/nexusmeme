@@ -26,6 +26,7 @@ interface Bot {
   exchange: string;
   tradingMode: 'paper' | 'live';
   createdAt: string;
+  liveSince: string | null;
   totalTrades: number;
   profitLoss: number;
   initialCapital: number; // 0 = unlimited (uses real exchange balance)
@@ -43,6 +44,7 @@ export default function TradingPage() {
   const [isClosingAll, setIsClosingAll] = useState(false);
   const [showCloseAllConfirm, setShowCloseAllConfirm] = useState(false);
   const [isTogglingBot, setIsTogglingBot] = useState(false);
+  const [tradeViewMode, setTradeViewMode] = useState<'live' | 'paper' | 'all'>('live');
   const selectedBotIdRef = useRef<string | null>(null);
 
   // Fetch bots and refresh periodically
@@ -302,10 +304,15 @@ export default function TradingPage() {
                 </div>
               )}
               {/* Bot Status Badge */}
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
                 <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
                   {selectedBot.name}
                 </h1>
+                {selectedBot.liveSince && (
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                    Live since {new Date(selectedBot.liveSince).toLocaleDateString()}
+                  </span>
+                )}
                 <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
                   selectedBot.tradingMode === 'paper'
                     ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200'
@@ -373,6 +380,26 @@ export default function TradingPage() {
                 )}
               </div>
 
+              {/* Stats Mode Toggle — shown only for live bots that have a live_since date */}
+              {selectedBot.tradingMode === 'live' && selectedBot.liveSince && (
+                <div className="flex items-center gap-1 mt-4">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 mr-2">Stats:</span>
+                  {(['live', 'paper', 'all'] as const).map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setTradeViewMode(m)}
+                      className={`px-3 py-1 text-xs font-medium rounded transition ${
+                        tradeViewMode === m
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {m === 'live' ? '💰 Live Only' : m === 'paper' ? '📄 Paper Only' : '📊 All'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Bot Stats */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mt-4">
                 <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-900">
@@ -416,7 +443,10 @@ export default function TradingPage() {
 
               {/* Main P&L Ticker */}
               <div>
-                <LivePnLTicker bot={selectedBot} />
+                <LivePnLTicker
+                  bot={selectedBot}
+                  modeFilter={selectedBot.tradingMode === 'live' && selectedBot.liveSince ? tradeViewMode : 'all'}
+                />
               </div>
 
               {/* Risk Metrics */}
@@ -424,7 +454,10 @@ export default function TradingPage() {
                 <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-6">
                   ⚖️ Risk Metrics
                 </h2>
-                <RiskMetrics botId={selectedBot.id} />
+                <RiskMetrics
+                  botId={selectedBot.id}
+                  modeFilter={selectedBot.tradingMode === 'live' && selectedBot.liveSince ? tradeViewMode : 'all'}
+                />
               </div>
 
               {/* Market Prices */}
@@ -437,7 +470,10 @@ export default function TradingPage() {
 
               {/* Activity Feed */}
               <div>
-                <ActivityFeed botId={selectedBot.id} />
+                <ActivityFeed
+                  botId={selectedBot.id}
+                  modeFilter={selectedBot.tradingMode === 'live' && selectedBot.liveSince ? tradeViewMode : 'all'}
+                />
               </div>
 
               {/* Open and Closed Trades */}
@@ -445,7 +481,10 @@ export default function TradingPage() {
                 <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-6">
                   📊 Trade History
                 </h2>
-                <OpenClosedTrades botId={selectedBot.id} />
+                <OpenClosedTrades
+                  botId={selectedBot.id}
+                  modeFilter={selectedBot.tradingMode === 'live' && selectedBot.liveSince ? tradeViewMode : 'all'}
+                />
               </div>
 
               {/* Info Box */}

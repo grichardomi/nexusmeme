@@ -41,6 +41,7 @@ interface PositionHealth {
 
 interface OpenClosedTradesProps {
   botId: string;
+  modeFilter?: 'live' | 'paper' | 'all';
 }
 
 type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses' | 'archived';
@@ -49,7 +50,7 @@ interface CurrentPrices {
   [pair: string]: number;
 }
 
-export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
+export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTradesProps) {
   const { data: session } = useSession();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,6 +87,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
         offset: offset.toString(),
         limit: TRADES_PER_PAGE.toString(),
         status: statusFilter,
+        mode: modeFilter,
       });
 
       const response = await fetch(`/api/trades?${params}`);
@@ -114,9 +116,9 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [botId, statusFilter]);
+  }, [botId, statusFilter, modeFilter]);
 
-  // Initial load and refresh on filter change
+  // Initial load and refresh on filter/mode change
   useEffect(() => {
     setIsLoading(true);
     setTrades([]);
@@ -320,10 +322,11 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
     const params = new URLSearchParams({
       botId,
       status: statusFilter,
+      mode: modeFilter,
       type: 'export',
     });
     window.location.href = `/api/trades?${params}`;
-  }, [botId, statusFilter]);
+  }, [botId, statusFilter, modeFilter]);
 
   async function handleManualClose(trade: Trade) {
     if (!currentPrices[trade.pair]) {
