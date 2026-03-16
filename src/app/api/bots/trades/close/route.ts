@@ -357,8 +357,33 @@ export async function POST(req: NextRequest) {
         pair: data.pair,
         quantity,
       });
-      // Continue with database update anyway (trade is closing)
-      // This allows manual recovery if exchange is down
+      // Exchange API failed — compute P&L from first principles using exit price + stored entry.
+      // Do NOT fall back to data.profitLoss (stale frontend value from click time).
+      try {
+        const entryInfo = (await query(
+          `SELECT price, fee, amount FROM trades WHERE id = $1`,
+          [data.tradeId]
+        ))[0];
+        if (entryInfo) {
+          const ep = parseFloat(String(entryInfo.price));
+          const qty = parseFloat(String(entryInfo.amount)) || quantity;
+          const storedEntryFee = entryInfo.fee ? parseFloat(String(entryInfo.fee)) : 0;
+          const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
+          const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+          const dbRates = await getExchangeFeeRates(exchangeKey);
+          const feeRate = dbRates.taker_fee || (exchange.toLowerCase() === 'kraken' ? 0.0026 : 0.001);
+          exitFeeAmount = actualExitPrice * qty * feeRate;
+          totalFees = storedEntryFee + exitFeeAmount;
+          const grossPL = (actualExitPrice - ep) * qty;
+          actualProfitLoss = grossPL - totalFees;
+          actualProfitLossPercent = ep > 0 && qty > 0 ? (actualProfitLoss / (ep * qty)) * 100 : 0;
+          logger.info('P&L computed from first principles after exchange API failure', {
+            tradeId: data.tradeId, ep, exitPrice: actualExitPrice, qty, grossPL, totalFees, netPL: actualProfitLoss,
+          });
+        }
+      } catch (fallbackErr) {
+        logger.error('P&L fallback computation also failed', fallbackErr instanceof Error ? fallbackErr : null);
+      }
     }
 
     // VALIDATION: ABORT profit-protection exits that went significantly red
@@ -434,7 +459,7 @@ export async function POST(req: NextRequest) {
              status = 'closed'
          WHERE id = $8 AND bot_instance_id = $9 AND status = 'open'
          RETURNING id`,
-        [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, totalFees || null, exitFeeAmount || null, data.tradeId, data.botInstanceId]
+        [data.exitTime, actualExitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, totalFees || null, exitFeeAmount || null, data.tradeId, data.botInstanceId]
       );
     } catch (updateError) {
       // If fee column doesn't exist, try without it
@@ -450,7 +475,7 @@ export async function POST(req: NextRequest) {
                status = 'closed'
            WHERE id = $6 AND bot_instance_id = $7 AND status = 'open'
            RETURNING id`,
-          [data.exitTime, data.exitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, data.tradeId, data.botInstanceId]
+          [data.exitTime, actualExitPrice, actualProfitLoss, actualProfitLossPercent, correctedExitReason || null, data.tradeId, data.botInstanceId]
         );
       } else if ((updateError as any)?.message?.includes('exit_price') || (updateError as any)?.message?.includes('exit_reason')) {
         logger.debug('exit_price or exit_reason column not found, updating without them');

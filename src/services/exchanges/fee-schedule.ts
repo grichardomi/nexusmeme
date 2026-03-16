@@ -4,6 +4,7 @@ import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import type { ExchangeAdapter } from '@/services/exchanges/adapter';
 import { logger } from '@/lib/logger';
 import { createHmac } from 'crypto';
+import { getEnvironmentConfig } from '@/config/environment';
 
 type FeeKey = string; // `${userId}:${exchange}`
 
@@ -23,6 +24,19 @@ function key(userId: string, exchange: string): FeeKey {
 
 export async function getAccountFeeRates(userId: string, exchange: string): Promise<{ maker: number; taker: number }> {
   try {
+    // Return configured defaults immediately — no live API call needed.
+    // Fee rates are stable (Binance 0.1%, Kraken 0.16%/0.26%) and configured in env.
+    // Live API calls here cause rate limit errors and add latency to every trade close.
+    const env = getEnvironmentConfig();
+    const ex = exchange.toLowerCase();
+    if (ex === 'binance') {
+      const taker = env.BINANCE_TAKER_FEE_DEFAULT ?? 0.001;
+      return { maker: taker, taker };
+    }
+    if (ex === 'kraken') {
+      return { maker: 0.0016, taker: 0.0026 };
+    }
+
     const k = key(userId, exchange);
     const now = Date.now();
     const cached = cache.get(k);
@@ -88,10 +102,14 @@ export function computeMinExitPrice(entryPrice: number, entryFeeQuote: number, q
  */
 export async function getSymbolTakerRate(userId: string, exchange: string, pair: string): Promise<number> {
   const ex = exchange.toLowerCase();
+  // Use configured defaults — no live API call needed at trade close time
+  const env = getEnvironmentConfig();
+  if (ex === 'binance') {
+    return env.BINANCE_TAKER_FEE_DEFAULT ?? 0.001;
+  }
   if (ex !== 'binance') {
-    // Kraken typically uniform per account; fallback to account-level taker
-    const fees = await getAccountFeeRates(userId, exchange);
-    return fees.taker;
+    // Kraken: uniform taker rate
+    return 0.0026;
   }
 
   try {

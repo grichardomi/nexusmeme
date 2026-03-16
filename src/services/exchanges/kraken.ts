@@ -13,6 +13,8 @@ import { getEnvironmentConfig } from '@/config/environment';
  */
 export class KrakenAdapter extends BaseExchangeAdapter {
   private baseUrl = 'https://api.kraken.com';
+  private lastNonce: number = 0;
+  private nonceCounter: number = 0;
 
   getName(): string {
     return 'kraken';
@@ -752,9 +754,16 @@ export class KrakenAdapter extends BaseExchangeAdapter {
     this.validateKeys();
 
     try {
-      // 1. Add nonce to params (microseconds — Kraken requires strictly increasing 16-digit nonce)
-      const nonce = (Date.now() * 1000).toString();
-      const requestParams = { ...params, nonce };
+      // 1. Add nonce to params (Kraken requires strictly increasing nonce)
+      // Pattern from working nexus KrakenClient: lastNonce + counter to guarantee monotonic order
+      const now = Date.now();
+      this.nonceCounter = (this.nonceCounter + 1) % 1000;
+      let nonce = now * 1000 + this.nonceCounter;
+      if (nonce <= this.lastNonce) { nonce = this.lastNonce + 1; }
+      this.lastNonce = nonce;
+      const nonceStr = nonce.toString();
+      // nonce must be FIRST in URLSearchParams per Kraken spec
+      const requestParams = { nonce: nonceStr, ...params };
 
       // 2. Create request body (URL-encoded)
       const body = new URLSearchParams(requestParams).toString();
@@ -762,7 +771,7 @@ export class KrakenAdapter extends BaseExchangeAdapter {
       // 3. Prepare signing data
       // Kraken requires: HMAC-SHA512(path + SHA256(nonce + body), base64_secret)
       const secret = Buffer.from(this.keys!.secretKey, 'base64');
-      const message = nonce + body;
+      const message = nonceStr + body;
       const messageHash = crypto.createHash('sha256').update(message).digest();
       const pathBuffer = Buffer.from(path, 'utf-8');
       const signMessage = Buffer.concat([pathBuffer, messageHash]);

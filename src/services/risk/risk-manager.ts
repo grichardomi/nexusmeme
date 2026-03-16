@@ -437,11 +437,15 @@ class RiskManager {
       momentum4h > this.config.minMomentum4h;
     // Path 3: Volume breakout (vol > 1.3x) with positive or near-zero 1h momentum
     // In strong trends (ADX>=35), allow slight negative 1h — high volume = accumulation signal
+    // BUT block if intrabar is actively falling (price moving down at entry = bad timing)
     const isStrongTrend = adx >= 35;
     const volBreakoutMom1hMin = isStrongTrend ? -0.5 : 0;
+    const intrabarMomentum = indicators.intrabarMomentum ?? 0;
+    const intrabarNotFalling = intrabarMomentum > -0.3; // block if price actively down >0.3% intrabar
     const hasVolumeBreakout =
       volumeRatio > this.config.volumeBreakoutRatio &&
-      momentum1h > volBreakoutMom1hMin;
+      momentum1h > volBreakoutMom1hMin &&
+      intrabarNotFalling;
 
     // Path 4: TRENDING PULLBACK — Strong 4h trend with shallow 1h dip (adaptive entry)
     // In strong trends (ADX>=35), allow deeper 1h dips — a -0.5% dip in a strong trend is noise
