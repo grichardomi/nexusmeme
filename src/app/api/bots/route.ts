@@ -567,8 +567,11 @@ export async function PATCH(request: NextRequest) {
       params.push(JSON.stringify(config));
       paramCount++;
 
-      // Record the exact moment a bot goes live (one-way — never cleared)
+      // Keep trading_mode column in sync and record live_since timestamp
       if (currentTradingMode === 'paper' && tradingMode === 'live') {
+        updates.push(`trading_mode = $${paramCount}`);
+        params.push('live');
+        paramCount++;
         updates.push(`live_since = $${paramCount}`);
         params.push(new Date().toISOString());
         paramCount++;

@@ -112,9 +112,9 @@ export async function POST(req: NextRequest) {
     const tradingMode = (botConfig.tradingMode as 'paper' | 'live') || 'paper';
     const isPaperTrading = tradingMode === 'paper';
 
-    // Fetch the original trade to get quantity
+    // Fetch the original trade to get quantity and its own trading_mode
     const tradeData = await query(
-      `SELECT t.id, t.pair, t.amount, b.exchange
+      `SELECT t.id, t.pair, t.amount, t.trading_mode as trade_mode, b.exchange
        FROM trades t
        INNER JOIN bot_instances b ON t.bot_instance_id = b.id
        WHERE t.id = $1 AND t.bot_instance_id = $2`,
@@ -131,6 +131,8 @@ export async function POST(req: NextRequest) {
     const originalTrade = tradeData[0];
     const exchange = originalTrade.exchange;
     const quantity = originalTrade.amount;
+    // Use the trade's own trading_mode — bot may have gone live after this trade was opened
+    const isTradeActuallyPaper = (originalTrade.trade_mode || tradingMode) === 'paper';
 
     logger.info('Retrieved original trade info', {
       tradeId: data.tradeId,
@@ -579,8 +581,8 @@ export async function POST(req: NextRequest) {
       actualProfitLoss,
     });
 
-    // Trade close notification — live trades only, fire-and-forget
-    if (!isPaperTrading) {
+    // Trade close notification — only for live trades (check trade's own mode, not bot's current mode)
+    if (!isTradeActuallyPaper) {
       (async () => {
         try {
           const userRows = await query<{ email: string; name: string; trade_alerts: boolean }>(
@@ -601,7 +603,7 @@ export async function POST(req: NextRequest) {
             await sendTradeAlertEmail(
               user.email, user.name || 'Trader',
               botName, data.pair, 'SELL',
-              actualExitPrice, 0, dashboardUrl,
+              actualExitPrice, quantity, dashboardUrl,
               actualProfitLoss
             );
           }

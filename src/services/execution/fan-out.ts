@@ -488,7 +488,9 @@ class ExecutionFanOut {
 
     const bot = botResult[0];
     const exchange = bot.exchange;
-    const tradingMode = bot.trading_mode || 'paper';
+    // config->>'tradingMode' is the source of truth (updated by Go Live flow).
+    // trading_mode column is a legacy fallback — may not be in sync.
+    const tradingMode = (bot.config?.tradingMode as string) || bot.trading_mode || 'paper';
 
     // CRITICAL FIX (/nexus parity): Use LIVE market price at execution time, not stale signal price
     // The AI signal's entryPrice comes from candle close (can be up to 1 hour old for 1h candles)
