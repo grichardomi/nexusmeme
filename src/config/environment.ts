@@ -261,6 +261,8 @@ const envSchema = z.object({
   ADX_SLOPE_RISING_THRESHOLD: z.string().transform(Number).default('2.0'), // +2/candle = trend forming (allow entry in transition zone)
   ADX_SLOPE_FALLING_THRESHOLD: z.string().transform(Number).default('-2.0'), // -2/candle = trend exhausting (downgrade profit target)
   ADX_TRANSITION_ZONE_MIN: z.string().transform(Number).default('15'), // ADX floor for transition detection (below = deep chop, no rescue)
+  ADX_WEAK_MAX: z.string().transform(Number).default('25'),    // ADX < 25 = weak (2% target)
+  ADX_MODERATE_MAX: z.string().transform(Number).default('40'), // ADX 25-40 = moderate (5% target), >= 40 = strong (12% target)
   ADX_TRANSITION_SIZE_MULTIPLIER: z.string().transform(Number).default('0.5'), // 50% position size for transitioning regime entries
   MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
 
@@ -530,6 +532,8 @@ function getDefaultEnvironment(): Environment {
     ADX_SLOPE_RISING_THRESHOLD: 2.0,
     ADX_SLOPE_FALLING_THRESHOLD: -2.0,
     ADX_TRANSITION_ZONE_MIN: 15,
+    ADX_WEAK_MAX: 25,
+    ADX_MODERATE_MAX: 40,
     ADX_TRANSITION_SIZE_MULTIPLIER: 0.5,
     MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
     PYRAMID_L1_MIN_ADX: 35,

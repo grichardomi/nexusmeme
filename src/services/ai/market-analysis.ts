@@ -375,9 +375,9 @@ export function detectMarketRegime(
     regime = 'transitioning';
   } else if (adx < minAdxForEntry) {
     regime = 'choppy';
-  } else if (adx < 30) {
+  } else if (adx < env.ADX_WEAK_MAX) {
     regime = 'weak';
-  } else if (adx < 35) {
+  } else if (adx < env.ADX_MODERATE_MAX) {
     regime = 'moderate';
   } else {
     regime = 'strong';
