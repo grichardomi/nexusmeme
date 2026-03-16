@@ -591,6 +591,7 @@ function getDefaultEnvironment(): Environment {
     EMAIL_MAX_RETRIES: 3,
     EMAIL_JOB_PRIORITY: 7,
     EMAIL_BATCH_SIZE: 100,
+    EMAIL_TRADE_ALERTS_DEFAULT: false,
     CP_BTC_TREND_GATE_ENABLED: true,
     CP_BTC_EMA_SHORT_PERIOD: 50,
     CP_BTC_EMA_LONG_PERIOD: 200,

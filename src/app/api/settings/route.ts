@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
+import { getEnvironmentConfig } from '@/config/environment';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
 
@@ -37,10 +38,11 @@ export async function GET(_request: NextRequest) {
       : user.preferences || {};
 
     // email_preferences.trade_alerts is the authoritative source for notification preference
-    // Fall back to users.preferences.notificationsEnabled, then default false (opt-in)
+    // Fall back to users.preferences.notificationsEnabled, then env default (opt-in by default = false)
+    const env = getEnvironmentConfig();
     const tradeAlerts = user.trade_alerts !== null && user.trade_alerts !== undefined
       ? user.trade_alerts
-      : (preferences.notificationsEnabled ?? false);
+      : (preferences.notificationsEnabled ?? env.EMAIL_TRADE_ALERTS_DEFAULT);
 
     logger.info('Fetched user settings', { userId: session.user.id });
 
