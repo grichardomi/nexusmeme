@@ -16,26 +16,20 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const [formData, setFormData] = useState({
-    name: '',
-    notificationsEnabled: true,
-    dailyReports: true,
-    lossAlerts: false,
-  });
+  const [formData, setFormData] = useState<{
+    name: string;
+    notificationsEnabled: boolean;
+    dailyReports: boolean;
+    lossAlerts: boolean;
+  } | null>(null);
 
-  const [originalData, setOriginalData] = useState({
-    name: '',
-    notificationsEnabled: true,
-    dailyReports: true,
-    lossAlerts: false,
-  });
+  const [originalData, setOriginalData] = useState<typeof formData>(null);
 
   // Check if form has changed
-  const hasChanges = JSON.stringify(formData) !== JSON.stringify(originalData);
+  const hasChanges = formData !== null && JSON.stringify(formData) !== JSON.stringify(originalData);
 
   // Load initial settings when session is available
   React.useEffect(() => {
-    // Fetch user settings from API
     async function fetchSettings() {
       try {
         const response = await fetch('/api/settings');
@@ -43,7 +37,7 @@ export default function SettingsPage() {
           const data = await response.json();
           const settings = {
             name: data.name || '',
-            notificationsEnabled: data.notificationsEnabled ?? true,
+            notificationsEnabled: data.notificationsEnabled,
             dailyReports: data.dailyReports ?? true,
             lossAlerts: data.lossAlerts ?? false,
           };
@@ -74,10 +68,7 @@ export default function SettingsPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, type, value, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
+    setFormData(prev => prev ? ({ ...prev, [name]: type === 'checkbox' ? checked : value }) : prev);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -124,6 +115,22 @@ export default function SettingsPage() {
       setIsSaving(false);
     }
   };
+
+  if (!formData) {
+    return (
+      <DashboardLayout title="Settings">
+        <div className="max-w-2xl space-y-8">
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700 animate-pulse">
+            <div className="h-6 bg-slate-200 dark:bg-slate-700 rounded w-48 mb-6" />
+            <div className="space-y-4">
+              <div className="h-10 bg-slate-100 dark:bg-slate-700 rounded" />
+              <div className="h-10 bg-slate-100 dark:bg-slate-700 rounded" />
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout title="Settings">

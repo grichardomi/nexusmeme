@@ -197,8 +197,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             {!isLoadingSubscription && subscription && (
               <>
 
-                {/* Trial Expired Badge - Desktop (for ALL users) */}
-                {(subscription.status === 'payment_required' ||
+                {/* Trial Expired Badge - Desktop (only for non-live users) */}
+                {subscription.tradingMode !== 'live' &&
+                  (subscription.status === 'payment_required' ||
                   ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                     subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
                   <Link
@@ -214,8 +215,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {/* Trial Expired Badge - Mobile (for ALL users) */}
-                {(subscription.status === 'payment_required' ||
+                {/* Trial Expired Badge - Mobile (only for non-live users) */}
+                {subscription.tradingMode !== 'live' &&
+                  (subscription.status === 'payment_required' ||
                   ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                     subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
                   <Link
