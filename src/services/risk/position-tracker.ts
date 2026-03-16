@@ -218,11 +218,15 @@ class PositionTracker {
           const quantity = parseFloat(String(trade.quantity));
           const hasValidData = !isNaN(entryPrice) && entryPrice > 0 && !isNaN(quantity) && quantity > 0;
 
+          // Restore dollar peak from percentage so erosion cap works immediately after restart.
+          // peakPct is stored as percentage (e.g. 0.51 = 0.51%), compute dollars from it.
+          const restoredPeakProfit = hasValidData ? (peakPct / 100) * entryPrice * quantity : 0;
+
           this.peakProfits.set(trade.id, {
             peak: peakPct,
             peakPct: peakPct,
-            peakProfit: 0,        // Will be calculated on next update with currentPrice
-            currentProfit: 0,     // Will be calculated on next update
+            peakProfit: restoredPeakProfit,
+            currentProfit: 0,     // Will be updated on next price check
             entryPrice: hasValidData ? entryPrice : 0,
             quantity: hasValidData ? quantity : 0,
             entryTime: this.parseEntryTime(trade.entry_time),

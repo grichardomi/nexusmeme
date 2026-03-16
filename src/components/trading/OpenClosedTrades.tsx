@@ -598,7 +598,7 @@ export function OpenClosedTrades({ botId }: OpenClosedTradesProps) {
                   )}
                   <span
                     className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-200 cursor-help text-[9px] font-bold leading-none"
-                    title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ 1%. Example: peak +${(health.erosionCap > 0 ? (1 / health.erosionCap).toFixed(0) : '?')}% → exits if profit drops back to ~0%.`}
+                    title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ 0.4%. Currently ${health.peakProfitPct > 0 ? `peak is ${health.peakProfitPct.toFixed(2)}%` : 'no peak yet'}.`}
                   >?</span>
                 </span>
                 <span className="font-semibold text-slate-900 dark:text-white">
