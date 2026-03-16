@@ -63,8 +63,37 @@ export async function recordPerformanceFee(
   const isPaperTrading = tradingMode === 'paper';
   const isFeeExempt = userCheck[0]?.fee_exempt === true;
 
-  // Waive fees for: free trial OR paper trading OR admin-granted fee exemption
-  const status = (isFreeTrial || isPaperTrading || isFeeExempt) ? 'waived' : 'pending_billing';
+  // Skip billing for trial/paper/exempt — write to fee_simulation instead for visibility
+  if (isFreeTrial || isPaperTrading || isFeeExempt) {
+    const skipReason = isFreeTrial ? 'trial' : isPaperTrading ? 'paper' : 'exempt';
+
+    logger.info('Performance fee skipped (non-billable)', {
+      userId,
+      tradeId,
+      pair,
+      profitAmount,
+      wouldHaveCharged: feeAmount,
+      feePercent: feeRate * 100,
+      skipReason,
+    });
+
+    // Write to fee_simulation for admin visibility — auto-purged after 30 days
+    try {
+      await query(
+        `INSERT INTO fee_simulation
+         (user_id, trade_id, bot_instance_id, pair, profit_amount, fee_amount, fee_rate, skip_reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [userId, tradeId, botInstanceId, pair, profitAmount, feeAmount, feeRate, skipReason]
+      );
+    } catch (simError) {
+      // Non-critical — never block the trade flow for simulation writes
+      logger.warn('Failed to write fee_simulation record', { tradeId, userId });
+    }
+
+    return null;
+  }
+
+  const status = 'pending_billing';
 
   try {
     const result = await query(
