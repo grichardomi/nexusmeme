@@ -46,6 +46,9 @@ const envSchema = z.object({
 
   /* Exchange APIs */
   BINANCE_API_BASE_URL: z.string().url().default('https://api.binance.com'),
+  // Public market data URL — use api.binance.us when running from US IPs (avoids 451 geo-block)
+  // On Railway (non-US server), defaults to api.binance.com
+  BINANCE_MARKET_DATA_URL: z.string().url().default('https://api.binance.com'),
   // Comma-separated list of active exchanges. Add a name here only when its adapter is ready.
   SUPPORTED_EXCHANGES: z.string().default('binance'),
 
@@ -422,6 +425,7 @@ function getDefaultEnvironment(): Environment {
     NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: undefined,
     NEXT_PUBLIC_USDC_PAYMENT_MOCK: false,
     BINANCE_API_BASE_URL: 'https://api.binance.com',
+    BINANCE_MARKET_DATA_URL: 'https://api.binance.com',
     SUPPORTED_EXCHANGES: 'binance',
     KRAKEN_TAKER_FEE_DEFAULT: 0.0026,
     KRAKEN_MAKER_FEE_DEFAULT: 0.0016,

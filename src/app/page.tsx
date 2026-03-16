@@ -72,7 +72,7 @@ export default function Home() {
                   </h1>
 
                   <p className="text-lg sm:text-xl text-slate-600 dark:text-slate-300 leading-relaxed mb-2">
-                    AI-powered bots focused on BTC & ETH — the most liquid, profitable crypto markets. Start your {trial} free trial today.
+                    An AI-powered trading bot focused on BTC & ETH — the most liquid, profitable crypto markets. Start your {trial} free trial today.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
                     {fee} only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.

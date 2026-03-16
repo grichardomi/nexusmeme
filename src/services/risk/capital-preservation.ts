@@ -83,7 +83,7 @@ class CapitalPreservationService {
       // Get current live BTC price (more responsive than yesterday's close)
       let btcClose: number;
       try {
-        const baseUrl = getEnvironmentConfig().BINANCE_API_BASE_URL;
+        const baseUrl = getEnvironmentConfig().BINANCE_MARKET_DATA_URL;
         const tickerUrl = `${baseUrl}/api/v3/ticker/price?symbol=BTCUSDT`;
         const tickerResponse = await fetch(tickerUrl);
         if (tickerResponse.ok) {

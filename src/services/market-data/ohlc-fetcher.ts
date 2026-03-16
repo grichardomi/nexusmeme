@@ -32,7 +32,7 @@ function toKrakenInterval(timeframe: string): number {
 
 async function fetchOHLCBinance(pair: string, limit: number, timeframe: string): Promise<OHLCCandle[]> {
   const symbol = mapToBinanceSymbol(pair);
-  const baseUrl = getEnvironmentConfig().BINANCE_API_BASE_URL;
+  const baseUrl = getEnvironmentConfig().BINANCE_MARKET_DATA_URL;
   const url = `${baseUrl}/api/v3/klines?symbol=${symbol}&interval=${timeframe}&limit=${limit + 1}`;
 
   const response = await fetch(url);
