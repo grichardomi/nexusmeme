@@ -167,6 +167,18 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
             await new Promise(r => setTimeout(r, 500));
           }
 
+          // Step 1b: Cancel all open paper trades — they have no real exchange positions
+          // and must not carry over into live mode where they would try to place real sell orders
+          setProgressMessage(`Cancelling open paper trades for ${bot.name}...`);
+          try {
+            await fetch(`/api/bots/${bot.id}/cancel-paper-trades`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+          } catch {
+            console.warn(`Could not cancel paper trades for bot ${bot.id} — proceeding anyway`);
+          }
+
           // Step 2: Switch to live — server enforces balance + subscription checks
           const switchRes = await fetch('/api/bots', {
             method: 'PATCH',
