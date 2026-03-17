@@ -123,26 +123,16 @@ export class BinanceAdapter extends BaseExchangeAdapter {
             const quantity = Math.floor(order.amount / stepSize) * stepSize;
             const quantityStr = quantity.toFixed(precision);
 
-            // Sell orders use MARKET type — fills immediately at best bid, no price floor needed.
-            // Buy orders use LIMIT+GTC — price control matters for entries.
-            const isSell = order.side.toLowerCase() === 'sell';
-            const params: any = isSell
-              ? {
-                  symbol,
-                  side: 'SELL',
-                  type: 'MARKET',
-                  quantity: quantityStr,
-                  recvWindow: 5000,
-                }
-              : {
-                  symbol,
-                  side: 'BUY',
-                  type: 'LIMIT',
-                  timeInForce: 'GTC',
-                  quantity: quantityStr,
-                  price: order.price.toFixed(2),
-                  recvWindow: 5000,
-                };
+            // Both buys and sells use MARKET type — fills immediately at best price.
+            // LIMIT buys at signal price miss entries on rising markets (order sits unfilled).
+            // For small orders (<$500) slippage on MARKET is negligible (<0.01%).
+            const params: any = {
+              symbol,
+              side: order.side.toUpperCase(),
+              type: 'MARKET',
+              quantity: quantityStr,
+              recvWindow: 5000,
+            };
 
             // Make signed POST request to Binance
             return await this.privateRequest('/v3/order', params, 'POST');

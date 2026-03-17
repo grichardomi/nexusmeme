@@ -19,7 +19,6 @@ import { capitalPreservation } from '@/services/risk/capital-preservation';
 import { jobQueueManager } from '@/services/job-queue/singleton';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import { sendBotSuspendedEmail, sendLowBalanceEmail } from '@/services/email/triggers';
-import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconciler';
 import { startUserDataStreamsForAllLiveBots } from '@/services/exchanges/binance-user-data-stream';
 import { startKrakenStreamsForAllLiveBots } from '@/services/exchanges/kraken-user-data-stream';
 import type { TradeDecision } from '@/types/market';
@@ -40,7 +39,6 @@ class TradeSignalOrchestrator {
   private isRunning = false;
   private interval: NodeJS.Timer | null = null;
   private peakTrackingInterval: NodeJS.Timer | null = null;
-  private fillReconcileInterval: NodeJS.Timer | null = null;
   private lowBalanceCheckInterval: NodeJS.Timer | null = null;
 
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
@@ -110,18 +108,6 @@ class TradeSignalOrchestrator {
       logger.warn('Failed to start Kraken user data streams on startup', { error: err instanceof Error ? err.message : String(err) });
     });
 
-    // Reconcile exchange fills every 30 seconds — closes trades that filled on the
-    // exchange but weren't recorded in DB (crash during exit, manual close, etc.)
-    // Only checks trades that have been open for >2 minutes to avoid hitting the
-    // API on brand-new orders that haven't settled yet.
-    this.fillReconcileInterval = setInterval(async () => {
-      try {
-        await reconcileBinanceFills();
-      } catch (err) {
-        logger.error('Exchange fill reconcile error', err instanceof Error ? err : null);
-      }
-    }, 30_000);
-
     // PROACTIVE LOW-BALANCE ALERT: Check every 4 hours for live bots with insufficient free cash.
     // Emails user once per 24h so they know trades are paused before the next signal fires.
     this.lowBalanceCheckInterval = setInterval(() => {
@@ -170,10 +156,6 @@ class TradeSignalOrchestrator {
     if (this.peakTrackingInterval) {
       clearInterval(this.peakTrackingInterval as NodeJS.Timeout);
       this.peakTrackingInterval = null;
-    }
-    if (this.fillReconcileInterval) {
-      clearInterval(this.fillReconcileInterval as NodeJS.Timeout);
-      this.fillReconcileInterval = null;
     }
     if (this.lowBalanceCheckInterval) {
       clearInterval(this.lowBalanceCheckInterval as NodeJS.Timeout);
@@ -2198,9 +2180,8 @@ class TradeSignalOrchestrator {
   /**
    * Proactive low-balance alert: check all live bots and email users whose free cash
    * is below LIVE_TRADING_MIN_USDT_USD. Runs every 4h; at most one email per bot per 24h.
+   * Cooldown persisted in bot config so server restarts don't re-trigger emails.
    */
-  private readonly lowBalanceAlertSentAt = new Map<string, number>();
-
   private async checkLowBalanceForLiveBots(): Promise<void> {
     const { getEnvironmentConfig } = await import('@/config/environment');
     const { decrypt } = await import('@/lib/crypto');
@@ -2209,11 +2190,12 @@ class TradeSignalOrchestrator {
     const minUsdt = env.LIVE_TRADING_MIN_USDT_USD;
     const cooldownMs = 24 * 60 * 60_000;
 
-    let liveBots: Array<{ id: string; exchange: string; user_id: string; email: string; name: string; bot_name: string }>;
+    let liveBots: Array<{ id: string; exchange: string; user_id: string; email: string; name: string; bot_name: string; config: any }>;
     try {
       liveBots = await query(
         `SELECT b.id, b.exchange, b.user_id, u.email, u.name,
-                COALESCE(b.config->>'name', 'Trading Bot') AS bot_name
+                COALESCE(b.config->>'name', 'Trading Bot') AS bot_name,
+                b.config
          FROM bot_instances b
          JOIN users u ON u.id = b.user_id
          WHERE b.status IN ('running', 'paused')
@@ -2225,7 +2207,9 @@ class TradeSignalOrchestrator {
 
     for (const bot of liveBots) {
       try {
-        const lastSent = this.lowBalanceAlertSentAt.get(bot.id) ?? 0;
+        // Persist cooldown in DB so server restarts don't re-trigger emails
+        const lastSentStr = (bot.config || {}).lowBalanceAlertSentAt;
+        const lastSent = lastSentStr ? parseInt(String(lastSentStr), 10) : 0;
         if (Date.now() - lastSent < cooldownMs) continue;
 
         const keysResult = await query(
@@ -2249,41 +2233,18 @@ class TradeSignalOrchestrator {
         }
 
         if (freeStable < minUsdt) {
-          // Auto-pause the bot so status reflects reality (can't trade = shouldn't show Running)
+          // Persist timestamp in DB before sending — survives server restarts
           await query(
-            `UPDATE bot_instances SET status = 'paused',
-               config = config || jsonb_build_object('pauseReason', 'low_balance', 'pausedAt', $2::text)
-             WHERE id = $1 AND status = 'running'`,
-            [bot.id, new Date().toISOString()]
+            `UPDATE bot_instances SET config = config || jsonb_build_object('lowBalanceAlertSentAt', $2::text)
+             WHERE id = $1`,
+            [bot.id, String(Date.now())]
           );
-          logger.info('Bot auto-paused: free cash below minimum', {
-            botId: bot.id, exchange: bot.exchange, freeStable, minUsdt,
-          });
-
-          // Email user (once per 24h)
-          this.lowBalanceAlertSentAt.set(bot.id, Date.now());
           await sendLowBalanceEmail(
             bot.email, bot.name, bot.id, bot.bot_name, bot.exchange, freeStable, minUsdt
           );
-          logger.info('Proactive low-balance alert sent', {
+          logger.info('Proactive low-balance alert sent (bot still running)', {
             botId: bot.id, exchange: bot.exchange, freeStable, minUsdt,
           });
-        } else {
-          // Balance is sufficient — auto-resume if bot was paused specifically due to low balance
-          const resumed = await query<{ id: string }>(
-            `UPDATE bot_instances SET status = 'running',
-               config = config - 'pauseReason' - 'pausedAt'
-             WHERE id = $1
-               AND status = 'paused'
-               AND config->>'pauseReason' = 'low_balance'
-             RETURNING id`,
-            [bot.id]
-          );
-          if (resumed.length > 0) {
-            logger.info('Bot auto-resumed: free cash restored above minimum', {
-              botId: bot.id, exchange: bot.exchange, freeStable, minUsdt,
-            });
-          }
         }
       } catch (err) {
         logger.debug('Low balance check skipped for bot', {

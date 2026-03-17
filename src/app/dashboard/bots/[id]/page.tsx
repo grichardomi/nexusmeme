@@ -724,13 +724,31 @@ export default function BotDetailPage() {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-slate-600 dark:text-slate-400">Status</p>
-                <p className="text-2xl font-bold">
-                  {bot.isActive ? (
-                    <span className="text-green-600 dark:text-green-400">🟢 Active</span>
-                  ) : (
+                {bot.isActive ? (() => {
+                  const lowCash = bot.tradingMode === 'live'
+                    && freeStablecoin !== null
+                    && freeStablecoin < liveMinimum;
+                  return (
+                    <div>
+                      <p className="text-2xl font-bold">
+                        {lowCash
+                          ? <span className="text-yellow-500 dark:text-yellow-400">🟡 Active</span>
+                          : <span className="text-green-600 dark:text-green-400">🟢 Active</span>
+                        }
+                      </p>
+                      {lowCash && (
+                        <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                          Skipping new trades — free cash ${freeStablecoin!.toFixed(2)} is below the ${liveMinimum.toLocaleString()} minimum.
+                          Add USDT/USD to your Binance account to resume trading.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })() : (
+                  <p className="text-2xl font-bold">
                     <span className="text-gray-500 dark:text-gray-400">🔴 Inactive</span>
-                  )}
-                </p>
+                  </p>
+                )}
               </div>
 
               <div>

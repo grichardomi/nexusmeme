@@ -49,11 +49,11 @@ export function LowBalanceEmailTemplate({
                 <img src="${getLogoUrl()}" alt="NexusMeme Logo" class="logo" width="150" height="150" style="max-width: 150px; width: 150px; height: auto; display: block;" />
               </div>
             </div>
-            <h1>⚠️ Low Balance — Trades Paused</h1>
+            <h1>⚠️ Low Free Cash — Trades Skipping</h1>
           </div>
           <div class="content">
             <p>Hi ${name || 'Trader'},</p>
-            <p>Your bot <strong>${botName}</strong> attempted to open a trade but your free ${exchange.toUpperCase()} balance is too low to meet the minimum order size.</p>
+            <p>Your bot <strong>${botName}</strong> is running but skipping new trades because your free ${exchange.toUpperCase()} cash balance is below the minimum. Your BTC/ETH holdings are not affected.</p>
 
             <div class="alert-box">
               <table width="100%" cellspacing="0" cellpadding="4">
@@ -72,13 +72,13 @@ export function LowBalanceEmailTemplate({
               </table>
             </div>
 
-            <p><strong>What happened:</strong> Your bot has been automatically paused because free cash dropped below the $${minimumRequired.toFixed(0)} minimum. Crypto holdings (BTC, ETH) do not count — the bot needs free USD/USDT/USDC to open buy orders.</p>
+            <p><strong>What's happening:</strong> Free cash (USD/USDT/USDC) dropped below the $${minimumRequired.toFixed(0)} minimum needed to open a new buy order. Your bot is still running and will resume trading automatically once free cash is restored — no action needed in the dashboard.</p>
 
-            <p><strong>To resume trading:</strong></p>
+            <p><strong>To restore trading:</strong></p>
             <ol style="margin: 0 0 16px 0; padding-left: 20px; color: #374151;">
-              <li>Sell some BTC or ETH on ${exchange.toUpperCase()} to get free USD/USDT</li>
+              <li>Sell some BTC or ETH on ${exchange.toUpperCase()} to free up USD/USDT</li>
               <li>Ensure free cash balance is at least $${minimumRequired.toFixed(0)}</li>
-              <li>Go to Bot Settings and click <strong>Resume</strong></li>
+              <li>Your bot will automatically pick up the next trade signal — no need to click Resume</li>
             </ol>
 
             <table cellspacing="0" cellpadding="0" border="0" style="margin: 20px 0;">
@@ -102,16 +102,16 @@ export function LowBalanceEmailTemplate({
   `;
 
   return {
-    subject: `⚠️ Low Balance — ${botName} trades are paused`,
+    subject: `⚠️ Low Free Cash — ${botName} skipping new trades`,
     html,
     text: `
-Low Balance — Trades Paused
+Low Free Cash — Trades Skipping
 
 Hi ${name || 'Trader'},
 
-Your bot "${botName}" cannot place trades because your free ${exchange.toUpperCase()} balance ($${freeBalance.toFixed(2)}) is below the minimum required ($${minimumRequired.toFixed(2)}).
+Your bot "${botName}" is running but skipping new trades because free ${exchange.toUpperCase()} cash ($${freeBalance.toFixed(2)}) is below the minimum required ($${minimumRequired.toFixed(2)}).
 
-To resume trading, deposit USD/USDT/USDC into your ${exchange.toUpperCase()} account or sell some crypto holdings.
+Your bot will resume automatically once free cash is restored. Sell some BTC/ETH on ${exchange.toUpperCase()} to free up USD/USDT, or deposit more cash.
 
 View dashboard: ${dashboardUrl}
 

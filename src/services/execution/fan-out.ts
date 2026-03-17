@@ -172,6 +172,7 @@ class ExecutionFanOut {
     const aiConfidence = decision.signalConfidence ?? 70; // 0-100 scale
 
     let effectiveBalance = 0;
+    let totalFreeStable = 0; // Total free stablecoins across all quote currencies
     let dominantQuote = 'USDT'; // Default — overridden when we fetch real balance
 
     // UNLIMITED MODE: 0 or "unlimited" (string) means fetch real exchange balance for pyramiding
@@ -201,6 +202,7 @@ class ExecutionFanOut {
         const openTradesValueUnlimited = parseFloat(String(openTradesResultUnlimited[0]?.total_value ?? '0'));
         const freeAfterOpenUnlimited = Math.max(0, result.available - openTradesValueUnlimited);
         effectiveBalance = freeAfterOpenUnlimited * 0.95;
+        totalFreeStable = result.totalFreeStable;
         dominantQuote = result.dominantQuote;
         logger.info('Using unlimited capital with 95% buffer', {
           botId: bot.id,
@@ -235,6 +237,7 @@ class ExecutionFanOut {
           const openTradesValue = parseFloat(String(openTradesResult[0]?.total_value ?? '0'));
           const freeAfterOpenTrades = Math.max(0, result.available - openTradesValue);
           effectiveBalance = Math.min(configured, freeAfterOpenTrades * 0.95);
+          totalFreeStable = result.totalFreeStable;
           dominantQuote = result.dominantQuote;
           if (effectiveBalance < configured) {
             logger.warn('Fixed capital capped to actual exchange balance (open trades deducted)', {
@@ -293,16 +296,19 @@ class ExecutionFanOut {
     }
 
     // Live trading: enforce minimum free cash threshold before sizing.
-    // If real free balance is below LIVE_TRADING_MIN_USDT_USD, skip the trade — don't place
-    // an undersized order that can't meaningfully recover fees.
+    // Check total stablecoins (USDT + USDC + USD) — user may hold across multiple quote assets.
+    // Sizing still uses only the dominant quote; the gate just validates total liquidity.
     const isLiveMode = (bot.config?.tradingMode as string) === 'live';
     if (isLiveMode && !isUnlimitedMode) {
       const envCfg = getEnvironmentConfig();
       const minUsdt = envCfg.LIVE_TRADING_MIN_USDT_USD;
-      if (effectiveBalance < minUsdt) {
+      // Use totalFreeStable when available (fetched from exchange); fall back to effectiveBalance
+      const stableForMinCheck = totalFreeStable > 0 ? totalFreeStable : effectiveBalance;
+      if (stableForMinCheck < minUsdt) {
         logger.warn('Live trade skipped: effective balance below minimum USDT threshold', {
           botId: bot.id,
           effectiveBalance,
+          totalFreeStable,
           minUsdt,
         });
         // Email user once per 24h
@@ -912,7 +918,7 @@ class ExecutionFanOut {
     botId: string,
     userId: string,
     exchange: string
-  ): Promise<{ available: number; dominantQuote: string }> {
+  ): Promise<{ available: number; totalFreeStable: number; dominantQuote: string }> {
     try {
       // Get API keys for this exchange
       const keysResult = await query(
@@ -1012,6 +1018,8 @@ class ExecutionFanOut {
         }
       }
 
+      const totalFreeStable = freeUSDT + freeUSDC + freeUSD;
+
       logger.info('Fetched real exchange balance', {
         botId,
         exchange,
@@ -1019,10 +1027,11 @@ class ExecutionFanOut {
         freeUSDC,
         freeUSD,
         available,
+        totalFreeStable,
         dominantQuote,
       });
 
-      return { available, dominantQuote };
+      return { available, totalFreeStable, dominantQuote };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error('Failed to fetch real exchange balance', error instanceof Error ? error : null, {

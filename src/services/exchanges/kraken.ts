@@ -104,22 +104,13 @@ export class KrakenAdapter extends BaseExchangeAdapter {
 
       // Prepare order parameters for Kraken AddOrder API
       // Kraken uses 'type' for buy/sell direction and 'ordertype' for limit/market
+      // Both buys and sells use MARKET — fills immediately, no missed entries on moving markets.
       const params: Record<string, any> = {
         pair: krakenPair,
         type: order.side, // 'buy' or 'sell' - Kraken API uses 'type' not 'side'
-        ordertype: 'limit', // Limit order type
+        ordertype: 'market',
         volume: order.amount.toString(),
-        price: order.price.toString(),
       };
-      if (order.timeInForce) {
-        // Kraken expects lowercase 'timeinforce' with values like 'GTC' or 'IOC'
-        params.timeinforce = String(order.timeInForce).toUpperCase();
-      }
-
-      // Post-only flag: Kraken rejects order if it would fill as taker
-      if (order.postOnly) {
-        params.oflags = 'post';
-      }
 
       // Call Kraken API
       const result = await this.privateRequest('/0/private/AddOrder', params);

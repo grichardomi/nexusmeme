@@ -27,7 +27,6 @@ import { sendTradeAlertEmail } from '@/services/email/triggers';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { withRetry } from '@/lib/resilience';
-import { getAccountFeeRates, computeMinExitPrice } from '@/services/exchanges/fee-schedule';
 import { z } from 'zod';
 
 const tradeCloseSchema = z.object({
@@ -184,74 +183,29 @@ export async function POST(req: NextRequest) {
           secretKey: decryptedSecretKey,
         });
 
-        // Loss-cut exits (early loss, emergency stop, erosion) must exit at market regardless of
-        // profitability — enforcing a net-positive floor causes infinite IOC retry spam.
-        const lossCutReasons = ['early_loss', 'emergency_stop', 'erosion_cap', 'stale_underwater',
-          'underwater_profitable_collapse', 'stop_loss', 'max_loss', 'loss_limit'];
-        const isLossCut = lossCutReasons.some(r => (data.exitReason || '').toLowerCase().includes(r));
-
-        let minExitPrice = data.exitPrice;
+        // Always fetch entry info for accurate P&L calc
         let cachedEntryInfo: { price: any; fee: any; amount: any } | null = null;
+        try {
+          if (data.entryPrice) {
+            cachedEntryInfo = { price: data.entryPrice, fee: data.entryFee ?? null, amount: quantity };
+          } else {
+            cachedEntryInfo = (await query(
+              `SELECT price, fee, amount FROM trades WHERE id = $1`,
+              [data.tradeId]
+            ))[0] || null;
+          }
+        } catch {}
 
-        if (!isLossCut) {
-          // Only enforce net-positive floor for profit-taking exits
-          try {
-            let entryInfo: { price: any; fee: any; amount: any } | undefined;
-            if (data.entryPrice) {
-              entryInfo = { price: data.entryPrice, fee: data.entryFee ?? null, amount: quantity };
-            } else {
-              entryInfo = (await query(
-                `SELECT price, fee, amount FROM trades WHERE id = $1`,
-                [data.tradeId]
-              ))[0];
-            }
-            cachedEntryInfo = entryInfo || null;
-            const entryPrice = entryInfo?.price ? parseFloat(String(entryInfo.price)) : null;
-            const entryFeeQuote = entryInfo?.fee ? parseFloat(String(entryInfo.fee)) : 0;
-            const qty = entryInfo?.amount ? parseFloat(String(entryInfo.amount)) : quantity;
-            if (entryPrice && qty) {
-              let takerRate = 0;
-              try {
-                const { getSymbolTakerRate } = await import('@/services/exchanges/fee-schedule');
-                takerRate = await getSymbolTakerRate(userId, exchange, data.pair);
-              } catch {}
-              if (!takerRate) {
-                const { taker } = await getAccountFeeRates(userId, exchange);
-                if (taker) {
-                  takerRate = taker;
-                } else {
-                  const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
-                  const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
-                  const dbRates = await getExchangeFeeRates(exchangeKey);
-                  takerRate = dbRates.taker_fee;
-                }
-              }
-              minExitPrice = Math.max(data.exitPrice, computeMinExitPrice(entryPrice, entryFeeQuote, qty, takerRate));
-            }
-          } catch {}
-        } else {
-          // Loss-cut: fetch entry info for P&L calc only, skip price floor
-          try {
-            if (data.entryPrice) {
-              cachedEntryInfo = { price: data.entryPrice, fee: data.entryFee ?? null, amount: quantity };
-            } else {
-              cachedEntryInfo = (await query(
-                `SELECT price, fee, amount FROM trades WHERE id = $1`,
-                [data.tradeId]
-              ))[0] || null;
-            }
-          } catch {}
-        }
-
-        // Place sell order — IOC for profit exits (want specific price), GTC for loss cuts (fill at market)
+        // Always MARKET sell — fills immediately regardless of price, ensures BTC/ETH
+        // always converts back to USDT/USD. IOC with price floors caused silent order
+        // cancellations, leaving crypto unsold and draining stablecoin balance.
         const orderResult = await withRetry(
           async () => {
             return await adapter.placeOrder({
               pair: data.pair,
               side: 'sell',
               amount: quantity,
-              price: minExitPrice,
-              timeInForce: isLossCut ? 'GTC' : 'IOC',
+              price: data.exitPrice,
             });
           },
           {
@@ -271,7 +225,7 @@ export async function POST(req: NextRequest) {
         );
 
         // Market sell orders fill immediately — use fill price if available, else signal price
-        actualExitPrice = orderResult.avgPrice || orderResult.price || minExitPrice;
+        actualExitPrice = orderResult.avgPrice || orderResult.price || data.exitPrice;
 
         // Capture exit fee from order execution
         let exitFee = 0;
