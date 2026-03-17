@@ -21,7 +21,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
   const questions = [
     {
       question: 'How does the performance fee model work?',
-      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ ${fee} fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Focused on BTC & ETH\n✓ Minimum $1,000 account balance for live trading\n\nNo hidden charges, completely transparent billing. We only earn when you earn.`,
+      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ ${fee} fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Focused on BTC & ETH\n✓ Minimum $1,000 total account value for live trading\n\nNo hidden charges, completely transparent billing. We only earn when you earn.`,
     },
     {
       question: 'Do I need to pay upfront?',

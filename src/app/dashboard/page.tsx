@@ -150,10 +150,10 @@ export default function DashboardPage() {
           const res = await fetch(`/api/bots/${bot.id}/balance`);
           if (!res.ok) continue;
           const data = await res.json();
-          const free = data.real ?? 0;
+          const total = data.totalAccountValue ?? (data.real ?? 0);
           const minimum = data.minimum ?? 1000;
-          if (free < minimum) {
-            warnings.push({ id: bot.id, name: bot.name || bot.exchange, exchange: bot.exchange, free, minimum });
+          if (total < minimum) {
+            warnings.push({ id: bot.id, name: bot.name || bot.exchange, exchange: bot.exchange, free: total, minimum });
           }
         } catch { /* non-fatal */ }
       }
@@ -243,11 +243,11 @@ export default function DashboardPage() {
           <span className="text-red-500 text-xl mt-0.5 shrink-0">⚠️</span>
           <div className="flex-1 min-w-0">
             <p className="text-red-800 dark:text-red-200 font-semibold text-sm">
-              {bot.name} — Trades paused, insufficient free cash
+              {bot.name} — Trades paused, insufficient account value
             </p>
             <p className="text-red-700 dark:text-red-300 text-xs mt-1">
-              Free USD/USDT: <strong>${bot.free.toFixed(2)}</strong> · Minimum required: <strong>${bot.minimum.toLocaleString()}</strong>.
-              Convert BTC/ETH to USD or USDT on {bot.exchange.toUpperCase()} to resume live trading.
+              Total account value: <strong>${bot.free.toFixed(2)}</strong> · Minimum required: <strong>${bot.minimum.toLocaleString()}</strong>.
+              Deposit funds to your {bot.exchange.toUpperCase()} account to resume live trading.
             </p>
             <a href={`/dashboard/bots/${bot.id}`} className="inline-block mt-2 text-xs text-red-700 dark:text-red-300 underline font-medium">
               Go to Bot Settings →

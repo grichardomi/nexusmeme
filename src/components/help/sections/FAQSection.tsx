@@ -40,7 +40,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What is the minimum capital required?',
-      answer: `During your 10-day trial, you use paper trading (simulated, no real money required).\n\nFor live trading:\n- Minimum $1,000 USDT/USD in your exchange account\n- This ensures your account can absorb normal market volatility\n- The more capital you have, the more you can potentially earn\n- It's recommended to only trade with capital you can afford to lose`,
+      answer: `During your 10-day trial, you use paper trading (simulated, no real money required).\n\nFor live trading:\n- Minimum $1,000 total account value (cash + any open positions)\n- At least $100 in free USDT/USD to place new trades\n- This ensures your account can absorb normal market volatility\n- The more capital you have, the more you can potentially earn\n- It's recommended to only trade with capital you can afford to lose`,
     },
     {
       question: 'Can I run multiple bots?',

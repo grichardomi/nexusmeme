@@ -60,7 +60,7 @@ export default function PerformanceFeesPage() {
               <li>✓ Transparent {fee} fee on profits only</li>
               <li>✓ Monthly billing on the 1st</li>
               <li>✓ Pay directly with USDC on Base — no credit cards needed</li>
-              <li>✓ Minimum $1,000 account balance for live trading</li>
+              <li>✓ Minimum $1,000 total account value for live trading</li>
             </ul>
           </div>
         </section>

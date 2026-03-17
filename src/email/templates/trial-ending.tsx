@@ -82,7 +82,7 @@ export function TrialEndingEmailTemplate({
               <ul style="margin: 10px 0; padding-left: 20px;">
                 <li>Switch from paper to live trading with real capital</li>
                 <li>1 trading bot - BTC & ETH focused</li>
-                <li>Minimum $1,000 USDT in your Binance account for live trading</li>
+                <li>Minimum $1,000 total account value (cash + open positions) for live trading</li>
                 <li>Only pay when your bot makes money</li>
                 <li>No subscription fees, no setup costs</li>
                 <li>Monthly billing on the 1st</li>
@@ -140,7 +140,7 @@ To keep your trading bot active, add a payment method to continue:
 - Performance Fee Model: ${feeDisplay} on profits only
 - No subscription fees, no setup costs
 - Only pay when your bot makes money
-- Minimum $1,000 USDT in your exchange account for live trading
+- Minimum $1,000 total account value for live trading
 
 Add payment method: ${upgradePath}
 

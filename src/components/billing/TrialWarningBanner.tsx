@@ -162,7 +162,7 @@ export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBa
               ? 'text-yellow-600 dark:text-yellow-400'
               : 'text-blue-600 dark:text-blue-400'
           }`}>
-            <li>✅ Trade with your own capital ($1,000 USDT minimum)</li>
+            <li>✅ Trade with your own capital ($1,000 total account value minimum)</li>
             <li>✅ Pay only {fee} on profitable trades</li>
             <li>✅ No subscription fees, no setup costs</li>
             <li>✅ Cancel anytime</li>
