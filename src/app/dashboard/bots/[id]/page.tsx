@@ -67,6 +67,7 @@ export default function BotDetailPage() {
   const [totalAccountValue, setTotalAccountValue] = useState<number | null>(null);
   const [balanceBreakdown, setBalanceBreakdown] = useState<{ usdCash: number; btcHoldings: number; btcValue: number; ethHoldings: number; ethValue: number } | null>(null);
   const [liveMinimum, setLiveMinimum] = useState<number>(1000);
+  const [minUsdt, setMinUsdt] = useState<number>(100); // Min free USDT to place a trade
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [lastBalanceUpdate, setLastBalanceUpdate] = useState<Date | null>(null);
@@ -466,6 +467,7 @@ export default function BotDetailPage() {
       setTotalAccountValue(data.totalAccountValue ?? null);
       setBalanceBreakdown(data.breakdown ?? null);
       if (data.minimum) setLiveMinimum(data.minimum);
+      if (data.minUsdt) setMinUsdt(data.minUsdt);
 
       setBalanceError(null);
       setLastBalanceUpdate(new Date());
@@ -712,8 +714,8 @@ export default function BotDetailPage() {
                           return (
                             <>
                               <p className={`text-sm font-semibold mt-0.5 ${isLow ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
-                                ${displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">USDT</span>
+                                ${displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                                <span className="text-xs font-normal text-slate-500 dark:text-slate-400">USDT</span>
                                 {isCapped && (
                                   <span className="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">(capped — ${freeStablecoin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in account)</span>
                                 )}
@@ -764,7 +766,7 @@ export default function BotDetailPage() {
                 {bot.isActive ? (() => {
                   const lowCash = bot.tradingMode === 'live'
                     && freeStablecoin !== null
-                    && freeStablecoin < liveMinimum;
+                    && freeStablecoin < minUsdt;
                   return (
                     <div>
                       <p className="text-2xl font-bold">
@@ -775,8 +777,8 @@ export default function BotDetailPage() {
                       </p>
                       {lowCash && (
                         <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                          Skipping new trades — free cash ${freeStablecoin!.toFixed(2)} is below the ${liveMinimum.toLocaleString()} minimum.
-                          Add USDT/USD to your Binance account to resume trading.
+                          Skipping new trades — free cash ${freeStablecoin!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is below the ${minUsdt.toLocaleString()} USDT minimum to place a trade.
+                          Add USDT to your Binance account to resume trading.
                         </p>
                       )}
                     </div>
