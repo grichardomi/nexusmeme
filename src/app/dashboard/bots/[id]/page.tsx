@@ -65,6 +65,7 @@ export default function BotDetailPage() {
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
   const [freeStablecoin, setFreeStablecoin] = useState<number | null>(null);
   const [totalAccountValue, setTotalAccountValue] = useState<number | null>(null);
+  const [balanceBreakdown, setBalanceBreakdown] = useState<{ usdCash: number; btcHoldings: number; btcValue: number; ethHoldings: number; ethValue: number } | null>(null);
   const [liveMinimum, setLiveMinimum] = useState<number>(1000);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
@@ -463,6 +464,7 @@ export default function BotDetailPage() {
       setLiveBalance(data.available);
       setFreeStablecoin(data.real ?? null);
       setTotalAccountValue(data.totalAccountValue ?? null);
+      setBalanceBreakdown(data.breakdown ?? null);
       if (data.minimum) setLiveMinimum(data.minimum);
 
       setBalanceError(null);
@@ -612,9 +614,17 @@ export default function BotDetailPage() {
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {isUnlimitedCapital ? 'Available Balance' : 'Initial Capital'}
-                  </p>
+                  <div className="flex items-center gap-1">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {isUnlimitedCapital ? 'Available Balance' : (bot.tradingMode === 'live' ? 'Trading Cap' : 'Initial Capital')}
+                    </p>
+                    {!isUnlimitedCapital && bot.tradingMode === 'live' && (
+                      <span
+                        className="text-xs text-slate-400 dark:text-slate-500 cursor-help"
+                        title={`Maximum USDT the bot will deploy at one time. Your Binance account can hold more — this cap protects the rest.\n\nSet to 0 in Edit to remove the cap and use your full balance.`}
+                      >ⓘ</span>
+                    )}
+                  </div>
                   {isUnlimitedCapital && (
                     <button
                       onClick={() => fetchLiveBalance(true)}
@@ -679,16 +689,43 @@ export default function BotDetailPage() {
                   <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600 space-y-2">
                     {freeStablecoin !== null && (
                       <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Available to Trade</p>
-                        <p className={`text-sm font-semibold mt-0.5 ${bot.tradingMode === 'live' && totalAccountValue !== null && totalAccountValue < liveMinimum ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
-                          ${freeStablecoin.toFixed(2)}
-                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">USD/USDT/USDC (cash only)</span>
-                        </p>
-                        {bot.tradingMode === 'live' && totalAccountValue !== null && totalAccountValue < liveMinimum && (
-                          <div className="mt-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
-                            <strong>Trades paused.</strong> Total account value ${totalAccountValue.toFixed(0)} (cash + open positions) is below the ${liveMinimum.toLocaleString()} minimum.
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-slate-500 dark:text-slate-400">Available to Trade</p>
+                          <span
+                            className="text-xs text-slate-400 dark:text-slate-500 cursor-help"
+                            title={[
+                              `Free USDT on ${bot.exchange.charAt(0).toUpperCase() + bot.exchange.slice(1).toLowerCase()}: $${freeStablecoin.toFixed(2)}`,
+                              !isUnlimitedCapital && initialCapital && initialCapital > 0
+                                ? `Trading Cap: $${initialCapital.toLocaleString()} — bot will not deploy more than this per cycle even if account holds more.`
+                                : null,
+                              balanceBreakdown
+                                ? `\nBTC (${balanceBreakdown.btcHoldings.toFixed(6)} ≈ $${balanceBreakdown.btcValue.toFixed(0)}) and ETH (${balanceBreakdown.ethHoldings.toFixed(6)} ≈ $${balanceBreakdown.ethValue.toFixed(0)}) show in Total Holdings — count toward account minimum but cannot fund new entries until sold to USDT.`
+                                : null,
+                            ].filter(Boolean).join('\n')}
+                          >ⓘ</span>
+                        </div>
+                        {(() => {
+                          const cap = (!isUnlimitedCapital && initialCapital && initialCapital > 0) ? initialCapital : null;
+                          const displayAmount = cap !== null ? Math.min(freeStablecoin, cap) : freeStablecoin;
+                          const isCapped = cap !== null && freeStablecoin > cap;
+                          const isLow = bot.tradingMode === 'live' && totalAccountValue !== null && totalAccountValue < liveMinimum;
+                          return (
+                            <>
+                              <p className={`text-sm font-semibold mt-0.5 ${isLow ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                                ${displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">USDT</span>
+                                {isCapped && (
+                                  <span className="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">(capped — ${freeStablecoin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in account)</span>
+                                )}
+                              </p>
+                              {isLow && (
+                                <div className="mt-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
+                                  <strong>Trades paused.</strong> Total account value ${totalAccountValue!.toFixed(0)} (cash + open positions) is below the ${liveMinimum.toLocaleString()} minimum.
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
                     {totalAccountValue !== null && (
