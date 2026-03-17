@@ -21,6 +21,7 @@ import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import { sendBotSuspendedEmail, sendLowBalanceEmail } from '@/services/email/triggers';
 import { startUserDataStreamsForAllLiveBots } from '@/services/exchanges/binance-user-data-stream';
 import { startKrakenStreamsForAllLiveBots } from '@/services/exchanges/kraken-user-data-stream';
+import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconciler';
 import type { TradeDecision } from '@/types/market';
 
 interface BotInstance {
@@ -39,6 +40,7 @@ class TradeSignalOrchestrator {
   private isRunning = false;
   private interval: NodeJS.Timer | null = null;
   private peakTrackingInterval: NodeJS.Timer | null = null;
+  private reconcileInterval: NodeJS.Timer | null = null;
   // Pairs exited for stale reasons in the current cycle — block re-entry until next cycle
   private staleExitedPairsThisCycle = new Set<string>();
   private lowBalanceCheckInterval: NodeJS.Timer | null = null;
@@ -110,6 +112,18 @@ class TradeSignalOrchestrator {
       logger.warn('Failed to start Kraken user data streams on startup', { error: err instanceof Error ? err.message : String(err) });
     });
 
+    // GHOST TRADE RECONCILIATION: On every startup, scan for open DB trades that actually
+    // closed on the exchange (WebSocket missed fill during crash/restart). Runs once on
+    // startup then every 5 minutes to catch any fills missed by the WebSocket.
+    reconcileBinanceFills().catch(err => {
+      logger.warn('Startup fill reconciliation failed', { error: err instanceof Error ? err.message : String(err) });
+    });
+    this.reconcileInterval = setInterval(() => {
+      reconcileBinanceFills().catch(err => {
+        logger.warn('Periodic fill reconciliation failed', { error: err instanceof Error ? err.message : String(err) });
+      });
+    }, 5 * 60_000); // every 5 minutes
+
     // PROACTIVE LOW-BALANCE ALERT: Check every 4 hours for live bots with insufficient free cash.
     // Emails user once per 24h so they know trades are paused before the next signal fires.
     this.lowBalanceCheckInterval = setInterval(() => {
@@ -162,6 +176,10 @@ class TradeSignalOrchestrator {
     if (this.lowBalanceCheckInterval) {
       clearInterval(this.lowBalanceCheckInterval as NodeJS.Timeout);
       this.lowBalanceCheckInterval = null;
+    }
+    if (this.reconcileInterval) {
+      clearInterval(this.reconcileInterval as NodeJS.Timeout);
+      this.reconcileInterval = null;
     }
     logger.info('Trade signal orchestrator stopped');
   }

@@ -830,6 +830,18 @@ class ExecutionFanOut {
         botId: botInstanceId,
         pair,
       });
+      // If this was a live order that actually filled, the position exists on the exchange.
+      // Log the exchange order ID so it can be found and reconciled manually if needed.
+      if (tradingMode === 'live' && orderId && !orderId.startsWith('paper_')) {
+        logger.error('LIVE ORDER FILLED BUT DB RECORD CONFLICT — position may be orphaned on exchange', null, {
+          exchangeOrderId: orderId,
+          pair,
+          botId: botInstanceId,
+          executionPrice,
+          amount,
+          action: 'Check Binance order history and reconcile manually if needed',
+        });
+      }
       return { executed: false, reason: 'idempotency_conflict' };
     }
 

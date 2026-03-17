@@ -344,13 +344,23 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (exchangeError) {
-      logger.error('Failed to place sell order on exchange', exchangeError instanceof Error ? exchangeError : null, {
+      const errMsg = exchangeError instanceof Error ? exchangeError.message : String(exchangeError);
+      logger.error('Failed to place sell order on exchange — trade NOT closed in DB (position still open)', exchangeError instanceof Error ? exchangeError : null, {
         exchange,
         pair: data.pair,
         quantity,
+        tradeId: data.tradeId,
       });
-      // Exchange API failed — compute P&L from first principles using exit price + stored entry.
-      // Do NOT fall back to data.profitLoss (stale frontend value from click time).
+      // CRITICAL SAFETY RULE: If the live sell order failed, do NOT close the trade in DB.
+      // Closing the DB record without a real sell = BTC/ETH stranded in wallet permanently.
+      // The orchestrator will retry the exit on the next cycle.
+      if (!isTradeActuallyPaper) {
+        return NextResponse.json(
+          { error: 'Exchange sell order failed — trade remains open', detail: errMsg },
+          { status: 503 }
+        );
+      }
+      // Paper mode: no real sell needed, compute P&L from first principles and close normally
       try {
         const entryInfo = (await query(
           `SELECT price, fee, amount FROM trades WHERE id = $1`,
@@ -369,12 +379,9 @@ export async function POST(req: NextRequest) {
           const grossPL = (actualExitPrice - ep) * qty;
           actualProfitLoss = grossPL - totalFees;
           actualProfitLossPercent = ep > 0 && qty > 0 ? (actualProfitLoss / (ep * qty)) * 100 : 0;
-          logger.info('P&L computed from first principles after exchange API failure', {
-            tradeId: data.tradeId, ep, exitPrice: actualExitPrice, qty, grossPL, totalFees, netPL: actualProfitLoss,
-          });
         }
       } catch (fallbackErr) {
-        logger.error('P&L fallback computation also failed', fallbackErr instanceof Error ? fallbackErr : null);
+        logger.error('P&L fallback computation failed', fallbackErr instanceof Error ? fallbackErr : null);
       }
     }
 
