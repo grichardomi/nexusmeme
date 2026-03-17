@@ -696,12 +696,12 @@ export default function BotDetailPage() {
                           <span
                             className="text-xs text-slate-400 dark:text-slate-500 cursor-help"
                             title={[
-                              `Free USDT on ${bot.exchange.charAt(0).toUpperCase() + bot.exchange.slice(1).toLowerCase()}: $${freeStablecoin.toFixed(2)}`,
+                              `Free USDT on ${bot.exchange.charAt(0).toUpperCase() + bot.exchange.slice(1).toLowerCase()}: ${freeStablecoin.toFixed(2)} USDT`,
                               !isUnlimitedCapital && initialCapital && initialCapital > 0
-                                ? `Trading Cap: $${initialCapital.toLocaleString()} — bot will not deploy more than this per cycle even if account holds more.`
+                                ? `Trading Cap: ${initialCapital.toLocaleString()} USDT — bot will not deploy more than this per cycle even if account holds more.`
                                 : null,
                               balanceBreakdown
-                                ? `\nBTC (${balanceBreakdown.btcHoldings.toFixed(6)} ≈ $${balanceBreakdown.btcValue.toFixed(0)}) and ETH (${balanceBreakdown.ethHoldings.toFixed(6)} ≈ $${balanceBreakdown.ethValue.toFixed(0)}) show in Total Holdings — count toward account minimum but cannot fund new entries until sold to USDT.`
+                                ? `\nBTC (${balanceBreakdown.btcHoldings.toFixed(6)} ≈ ${balanceBreakdown.btcValue.toFixed(0)} USDT) and ETH (${balanceBreakdown.ethHoldings.toFixed(6)} ≈ ${balanceBreakdown.ethValue.toFixed(0)} USDT) show in Open Positions — count toward account minimum but cannot fund new entries until sold to USDT.`
                                 : null,
                             ].filter(Boolean).join('\n')}
                           >ⓘ</span>
@@ -714,15 +714,15 @@ export default function BotDetailPage() {
                           return (
                             <>
                               <p className={`text-sm font-semibold mt-0.5 ${isLow ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
-                                ${displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                                {displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
                                 <span className="text-xs font-normal text-slate-500 dark:text-slate-400">USDT</span>
                                 {isCapped && (
-                                  <span className="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">(capped — ${freeStablecoin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in account)</span>
+                                  <span className="text-xs font-normal text-slate-400 dark:text-slate-500 ml-1">(capped — {freeStablecoin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT in account)</span>
                                 )}
                               </p>
                               {isLow && (
                                 <div className="mt-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
-                                  <strong>Trades paused.</strong> Total account value ${totalAccountValue!.toFixed(0)} (cash + open positions) is below the ${liveMinimum.toLocaleString()} minimum.
+                                  <strong>Trades paused.</strong> Total account value {totalAccountValue!.toFixed(0)} USDT (cash + open positions) is below the {liveMinimum.toLocaleString()} USDT minimum.
                                 </div>
                               )}
                             </>
@@ -734,13 +734,14 @@ export default function BotDetailPage() {
                       <div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">Open Positions</p>
                         <p className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                          ${(balanceBreakdown.btcValue + balanceBreakdown.ethValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">
-                            {[
-                              balanceBreakdown.btcValue > 0 ? `${balanceBreakdown.btcHoldings.toFixed(5)} BTC` : null,
-                              balanceBreakdown.ethValue > 0 ? `${balanceBreakdown.ethHoldings.toFixed(4)} ETH` : null,
-                            ].filter(Boolean).join(' · ')}
-                          </span>
+                          {(balanceBreakdown.btcValue + balanceBreakdown.ethValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}{' '}
+                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400">USDT</span>
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {[
+                            balanceBreakdown.btcValue > 0 ? `${balanceBreakdown.btcHoldings.toFixed(5)} BTC` : null,
+                            balanceBreakdown.ethValue > 0 ? `${balanceBreakdown.ethHoldings.toFixed(4)} ETH` : null,
+                          ].filter(Boolean).join(' · ')}
                         </p>
                       </div>
                     )}
@@ -782,7 +783,7 @@ export default function BotDetailPage() {
                       </p>
                       {lowCash && (
                         <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                          Skipping new trades — free cash ${freeStablecoin!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} is below the ${minUsdt.toLocaleString()} USDT minimum to place a trade.
+                          Skipping new trades — free cash {freeStablecoin!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT is below the {minUsdt.toLocaleString()} USDT minimum to place a trade.
                           Add USDT to your Binance account to resume trading.
                         </p>
                       )}

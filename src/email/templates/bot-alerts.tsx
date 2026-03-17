@@ -49,21 +49,21 @@ export function LowBalanceEmailTemplate({
                 <img src="${getLogoUrl()}" alt="NexusMeme Logo" class="logo" width="150" height="150" style="max-width: 150px; width: 150px; height: auto; display: block;" />
               </div>
             </div>
-            <h1>⚠️ Low Free Cash — Trades Skipping</h1>
+            <h1>⚠️ Low USDT Balance — Trades Skipping</h1>
           </div>
           <div class="content">
             <p>Hi ${name || 'Trader'},</p>
-            <p>Your bot <strong>${botName}</strong> is running but skipping new trades because your free ${exchange.toUpperCase()} cash balance is below the minimum. Your BTC/ETH holdings are not affected.</p>
+            <p>Your bot <strong>${botName}</strong> is running but skipping new trades because your free USDT balance on ${exchange.toUpperCase()} is below the minimum. Your BTC/ETH holdings are not affected.</p>
 
             <div class="alert-box">
               <table width="100%" cellspacing="0" cellpadding="4">
                 <tr>
-                  <td class="label">Free Cash Balance</td>
-                  <td class="value-low" align="right">$${freeBalance.toFixed(2)} USD/USDT/USDC</td>
+                  <td class="label">Free USDT Balance</td>
+                  <td class="value-low" align="right">${freeBalance.toFixed(2)} USDT</td>
                 </tr>
                 <tr>
                   <td class="label">Minimum Required</td>
-                  <td class="value" align="right">$${minimumRequired.toFixed(2)}</td>
+                  <td class="value" align="right">${minimumRequired.toFixed(2)} USDT</td>
                 </tr>
                 <tr>
                   <td class="label">Exchange</td>
@@ -72,12 +72,12 @@ export function LowBalanceEmailTemplate({
               </table>
             </div>
 
-            <p><strong>What's happening:</strong> Free cash (USD/USDT/USDC) dropped below the $${minimumRequired.toFixed(0)} minimum needed to open a new buy order. Your bot is still running and will resume trading automatically once free cash is restored — no action needed in the dashboard.</p>
+            <p><strong>What's happening:</strong> Your free USDT balance dropped below the ${minimumRequired.toFixed(0)} USDT minimum needed to open a new buy order. Your bot is still running and will resume trading automatically once USDT is restored — no action needed in the dashboard.</p>
 
             <p><strong>To restore trading:</strong></p>
             <ol style="margin: 0 0 16px 0; padding-left: 20px; color: #374151;">
-              <li>Sell some BTC or ETH on ${exchange.toUpperCase()} to free up USD/USDT</li>
-              <li>Ensure free cash balance is at least $${minimumRequired.toFixed(0)}</li>
+              <li>Sell some BTC or ETH on ${exchange.toUpperCase()} to free up USDT</li>
+              <li>Ensure free USDT balance is at least ${minimumRequired.toFixed(0)} USDT</li>
               <li>Your bot will automatically pick up the next trade signal — no need to click Resume</li>
             </ol>
 
@@ -102,16 +102,16 @@ export function LowBalanceEmailTemplate({
   `;
 
   return {
-    subject: `⚠️ Low Free Cash — ${botName} skipping new trades`,
+    subject: `⚠️ Low USDT Balance — ${botName} skipping new trades`,
     html,
     text: `
-Low Free Cash — Trades Skipping
+Low USDT Balance — Trades Skipping
 
 Hi ${name || 'Trader'},
 
-Your bot "${botName}" is running but skipping new trades because free ${exchange.toUpperCase()} cash ($${freeBalance.toFixed(2)}) is below the minimum required ($${minimumRequired.toFixed(2)}).
+Your bot "${botName}" is running but skipping new trades because free USDT on ${exchange.toUpperCase()} (${freeBalance.toFixed(2)} USDT) is below the minimum required (${minimumRequired.toFixed(2)} USDT).
 
-Your bot will resume automatically once free cash is restored. Sell some BTC/ETH on ${exchange.toUpperCase()} to free up USD/USDT, or deposit more cash.
+Your bot will resume automatically once USDT balance is restored. Sell some BTC/ETH on ${exchange.toUpperCase()} to free up USDT, or deposit more USDT.
 
 View dashboard: ${dashboardUrl}
 
@@ -328,7 +328,7 @@ export function TradeAlertEmailTemplate({
               </div>
               <div class="trade-detail">
                 <div class="trade-detail-label">Price</div>
-                <div class="trade-detail-value">$${price.toFixed(2)}</div>
+                <div class="trade-detail-value">${price.toFixed(2)} USDT</div>
               </div>
               <div class="trade-detail">
                 <div class="trade-detail-label">Amount</div>
@@ -339,7 +339,7 @@ export function TradeAlertEmailTemplate({
                   ? `<div class="trade-detail">
                 <div class="trade-detail-label">Profit/Loss</div>
                 <div class="trade-detail-value ${isProfit ? 'profit' : 'loss'}">
-                  ${isProfit ? '+' : ''}$${profit.toFixed(2)}
+                  ${isProfit ? '+' : ''}${profit.toFixed(2)} USDT
                 </div>
               </div>`
                   : ''
@@ -383,9 +383,9 @@ Your bot has executed a trade:
 Bot: ${botName}
 Pair: ${pair}
 Action: ${action}
-Price: $${price.toFixed(2)}
+Price: ${price.toFixed(2)} USDT
 Amount: ${amount.toFixed(8)} ${pair.split('/')[0]}
-${profit !== undefined ? `Profit/Loss: ${isProfit ? '+' : ''}$${profit.toFixed(2)}` : ''}
+${profit !== undefined ? `Profit/Loss: ${isProfit ? '+' : ''}${profit.toFixed(2)} USDT` : ''}
 
 View your dashboard: ${dashboardUrl}
 

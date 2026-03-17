@@ -267,7 +267,7 @@ export default function TradingPage() {
                   Trades paused — insufficient account value
                 </p>
                 <p className="text-red-700 dark:text-red-300 text-xs mt-1">
-                  Total account value: <strong>${total.toFixed(2)}</strong> — minimum required: <strong>${min.toLocaleString()}</strong>.
+                  Total account value: <strong>{total.toFixed(2)} USDT</strong> — minimum required: <strong>{min.toLocaleString()} USDT</strong>.
                 </p>
                 <a
                   href={`/dashboard/bots/${selectedBot.id}`}
