@@ -40,7 +40,7 @@ export function Footer() {
               </div>
             </Link>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              Scale profitable trading bots to 5000+ users
+              AI-powered crypto trading on autopilot
             </p>
           </div>
 
