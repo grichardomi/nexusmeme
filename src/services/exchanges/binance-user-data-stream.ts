@@ -120,8 +120,6 @@ async function handleSellFill(
   const trade = openTrades[0];
   const entryPrice = parseFloat(String(trade.price));
   const quantity = parseFloat(String(trade.amount));
-  const entryFee = parseFloat(String(trade.fee ?? '0')) || 0;
-
   // Convert commission to quote if needed
   let exitFee = 0;
   if (commission > 0) {

@@ -134,8 +134,6 @@ async function handleSellFill(
   const trade = openTrades[0];
   const entryPrice = parseFloat(String(trade.price));
   const quantity = parseFloat(String(trade.amount));
-  const entryFee = parseFloat(String(trade.fee ?? '0')) || 0;
-
   // Kraken always charges fees in quote currency
   const exitFee = fee;
   const grossPL = (fillPrice - entryPrice) * quantity;
