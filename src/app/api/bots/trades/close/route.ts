@@ -196,6 +196,30 @@ export async function POST(req: NextRequest) {
           }
         } catch {}
 
+        // Resolve actual available balance for the base asset before selling.
+        // Binance deducts buy fees IN THE BASE ASSET (e.g. BTC), so the wallet holds
+        // slightly less than the DB-stored quantity. Selling the stored amount causes
+        // -2010 "insufficient balance" which silently leaves BTC/ETH unconverted.
+        let sellQuantity = quantity;
+        try {
+          const balances = await adapter.getBalances();
+          const [base] = data.pair.split('/');
+          const assetBalance = balances.find(b => b.asset.toUpperCase() === base.toUpperCase());
+          if (assetBalance && assetBalance.free > 0 && assetBalance.free < quantity) {
+            logger.info('Sell quantity adjusted to actual available balance (buy fee deducted in base asset)', {
+              pair: data.pair,
+              storedQty: quantity,
+              availableQty: assetBalance.free,
+            });
+            sellQuantity = assetBalance.free;
+          }
+        } catch (balErr) {
+          logger.warn('Could not fetch balance before sell — using stored quantity', {
+            pair: data.pair,
+            error: balErr instanceof Error ? balErr.message : String(balErr),
+          });
+        }
+
         // Always MARKET sell — fills immediately regardless of price, ensures BTC/ETH
         // always converts back to USDT/USD. IOC with price floors caused silent order
         // cancellations, leaving crypto unsold and draining stablecoin balance.
@@ -204,7 +228,7 @@ export async function POST(req: NextRequest) {
             return await adapter.placeOrder({
               pair: data.pair,
               side: 'sell',
-              amount: quantity,
+              amount: sellQuantity,
               price: data.exitPrice,
             });
           },
@@ -259,8 +283,8 @@ export async function POST(req: NextRequest) {
           const entryPrice = parseFloat(String(cachedEntryInfo.price));
           const entryFee = parseFloat(String(cachedEntryInfo.fee)) || 0;
 
-          // Calculate gross P&L before fees
-          const grossProfitLoss = (actualExitPrice - entryPrice) * quantity;
+          // Calculate gross P&L before fees (use sellQuantity — actual BTC sold after buy fee)
+          const grossProfitLoss = (actualExitPrice - entryPrice) * sellQuantity;
 
           // Deduct total fees (entry + exit)
           exitFeeAmount = exitFee;

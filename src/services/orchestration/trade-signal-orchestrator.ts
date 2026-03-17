@@ -39,6 +39,8 @@ class TradeSignalOrchestrator {
   private isRunning = false;
   private interval: NodeJS.Timer | null = null;
   private peakTrackingInterval: NodeJS.Timer | null = null;
+  // Pairs exited for stale reasons in the current cycle — block re-entry until next cycle
+  private staleExitedPairsThisCycle = new Set<string>();
   private lowBalanceCheckInterval: NodeJS.Timer | null = null;
 
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
@@ -421,6 +423,8 @@ class TradeSignalOrchestrator {
    * Main orchestration loop: fetch bots, analyze signals, execute trades, check momentum failure
    */
   private async analyzeAndExecuteSignals() {
+    // Reset stale-exit tracking at the start of each cycle
+    this.staleExitedPairsThisCycle.clear();
     try {
       // Get all active bots with enabled pairs
       const activeBots = await this.getActiveBots();
@@ -584,6 +588,14 @@ class TradeSignalOrchestrator {
       for (const pair of allPairs) {
         const pairExchange = pairExchangeMap.get(pair) || 'binance';
         try {
+          // Skip pairs that were exited for stale reasons this cycle — the signal that caused
+          // an 18-minute underwater trade is still live and would immediately re-trigger,
+          // creating fee churn. Next cycle it will be re-evaluated with fresh indicators.
+          if (this.staleExitedPairsThisCycle.has(pair)) {
+            logger.info('Skipping entry: pair had stale exit this cycle', { pair });
+            continue;
+          }
+
           // NOTE: Position duplicate prevention is handled PER-BOT in:
           // 1. fan-out.ts createExecutionPlan() - lines 122-138
           // 2. fan-out.ts executeTradesDirect() - lines 420-434
@@ -1860,6 +1872,12 @@ class TradeSignalOrchestrator {
                 });
                 // Clear position tracking when trade closes
                 positionTracker.clearPosition(trade.id);
+                // Block same-cycle re-entry for stale exits — signal that caused a stale
+                // underwater/flat trade is still live and would immediately re-trigger
+                if (exitReason === 'stale_underwater' || exitReason === 'stale_flat') {
+                  this.staleExitedPairsThisCycle.add(trade.pair);
+                  logger.info('Stale exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });
+                }
                 exitCount++;
               } else {
                 const errorText = await closeResponse.text();

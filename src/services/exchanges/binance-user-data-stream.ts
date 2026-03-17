@@ -146,12 +146,12 @@ async function handleSellFill(
          profit_loss         = $3,
          profit_loss_percent = $4,
          exit_reason         = 'fill_realtime',
-         fee                 = $5,
-         exit_fee            = $6,
+         fee                 = COALESCE(fee, 0) + $5,
+         exit_fee            = $5,
          status              = 'closed'
-     WHERE id = $7 AND status = 'open'
+     WHERE id = $6 AND status = 'open'
      RETURNING id`,
-    [fillTime, fillPrice, grossPL, grossPLPct, entryFee + exitFee, exitFee, trade.id]
+    [fillTime, fillPrice, grossPL, grossPLPct, exitFee, trade.id]
   );
 
   if (result.length > 0) {
