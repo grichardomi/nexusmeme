@@ -25,14 +25,14 @@ export function getPool(): Pool {
       connectionString: databaseUrl,
       // With Railway pooler (PgBouncer): app pool can be large — pooler multiplexes to ~20 real connections.
       // Without pooler: keep small to stay within Railway's direct Postgres connection limit.
-      max: isProduction ? (usingPooler ? 100 : 15) : 8,
+      max: isProduction ? (usingPooler ? 100 : 15) : 20,
       min: 2,
 
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 5000,  // Fail fast — don't queue for 40s
       idleTimeoutMillis: usingPooler ? 30000 : 60000,
 
-      statement_timeout: 30000,
-      query_timeout: 30000,
+      statement_timeout: 15000,
+      query_timeout: 15000,
 
       // Keepalive not needed when pooler manages connections
       keepAlive: !usingPooler,

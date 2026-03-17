@@ -221,6 +221,14 @@ export async function GET(req: NextRequest) {
       resetUrl: `${process.env.NEXT_PUBLIC_APP_URL}/auth/forgot-password`,
       ipAddress: '192.168.1.1',
     },
+    low_balance: {
+      name: 'John Trader',
+      botName: 'Binance Trading Bot',
+      exchange: 'binance',
+      freeBalance: 2.17,
+      minimumRequired: 10,
+      dashboardUrl: appUrl('/dashboard/bots/example-id'),
+    },
   };
 
   const context = contextMap[templateType];

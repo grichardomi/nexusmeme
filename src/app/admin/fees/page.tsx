@@ -469,8 +469,9 @@ export default function AdminFeesPage() {
             return (
               <div key={exchange} className="mb-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
-                  {exchange === 'binance' ? 'Binance International' : 'Kraken'}
-                  {exchange === 'kraken' && <span className="ml-2 text-blue-500">US accessible</span>}
+                  {exchange === 'binance' ? 'Binance (Global + US)' : 'Kraken'}
+                  {exchange === 'binance' && <span className="ml-2 text-slate-400 text-xs font-normal normal-case tracking-normal">binance.com &amp; binance.us · BNB discount may lower actual fee</span>}
+                  {exchange === 'kraken' && <span className="ml-2 text-blue-500">US accessible · USD/USDT/USDC</span>}
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   {rows.map(row => (

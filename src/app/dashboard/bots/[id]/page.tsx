@@ -63,7 +63,9 @@ export default function BotDetailPage() {
   const [editCapitalMode, setEditCapitalMode] = useState<'fixed' | 'unlimited'>('fixed');
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [liveBalance, setLiveBalance] = useState<number | null>(null);
+  const [freeStablecoin, setFreeStablecoin] = useState<number | null>(null);
   const [totalAccountValue, setTotalAccountValue] = useState<number | null>(null);
+  const [liveMinimum, setLiveMinimum] = useState<number>(1000);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [lastBalanceUpdate, setLastBalanceUpdate] = useState<Date | null>(null);
@@ -459,7 +461,9 @@ export default function BotDetailPage() {
 
       const data = await response.json();
       setLiveBalance(data.available);
+      setFreeStablecoin(data.real ?? null);
       setTotalAccountValue(data.totalAccountValue ?? null);
+      if (data.minimum) setLiveMinimum(data.minimum);
 
       setBalanceError(null);
       setLastBalanceUpdate(new Date());
@@ -671,13 +675,31 @@ export default function BotDetailPage() {
                     {bot.tradingMode === 'live' ? '🔴 Live' : '📄 Dry-run'} • Updated: {lastBalanceUpdate.toLocaleTimeString()}
                   </p>
                 )}
-                {totalAccountValue !== null && (
-                  <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Total Account Value</p>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                      ${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">incl. BTC + ETH</span>
-                    </p>
+                {(freeStablecoin !== null || totalAccountValue !== null) && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600 space-y-2">
+                    {freeStablecoin !== null && (
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Available to Trade</p>
+                        <p className={`text-sm font-semibold mt-0.5 ${bot.tradingMode === 'live' && freeStablecoin < liveMinimum ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                          ${freeStablecoin.toFixed(2)}
+                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">USD/USDT/USDC (cash only)</span>
+                        </p>
+                        {bot.tradingMode === 'live' && freeStablecoin < liveMinimum && (
+                          <div className="mt-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
+                            <strong>Trades paused.</strong> Free cash ${freeStablecoin.toFixed(0)} is below the ${liveMinimum.toLocaleString()} minimum. BTC/ETH holdings don&apos;t count — convert some to USD or USDT on Binance to resume trading.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {totalAccountValue !== null && (
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Total Holdings</p>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
+                          ${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">incl. BTC + ETH</span>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -816,13 +838,30 @@ export default function BotDetailPage() {
           {/* Actions */}
           <div className="mt-6 flex gap-4">
             {!bot.isActive ? (
-              <button
-                onClick={handleStartBot}
-                disabled={isStartingBot}
-                className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-6 py-3 rounded font-medium transition"
-              >
-                {isStartingBot ? 'Starting...' : '▶️ Start Bot'}
-              </button>
+              <div className="flex-1 flex flex-col gap-1">
+                {bot.tradingMode === 'live' && freeStablecoin !== null && freeStablecoin < liveMinimum ? (
+                  <>
+                    <button
+                      disabled
+                      className="w-full bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-6 py-3 rounded font-medium cursor-not-allowed"
+                      title={`Free cash $${freeStablecoin.toFixed(2)} is below the $${liveMinimum.toLocaleString()} minimum`}
+                    >
+                      ▶️ Start Bot
+                    </button>
+                    <p className="text-xs text-red-600 dark:text-red-400 text-center">
+                      Cannot start — free cash ${freeStablecoin.toFixed(0)} &lt; ${liveMinimum.toLocaleString()} minimum. Convert BTC/ETH to USD/USDT first.
+                    </p>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleStartBot}
+                    disabled={isStartingBot}
+                    className="w-full bg-green-600 hover:bg-green-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-6 py-3 rounded font-medium transition"
+                  >
+                    {isStartingBot ? 'Starting...' : '▶️ Start Bot'}
+                  </button>
+                )}
+              </div>
             ) : (
               <button
                 onClick={handleOpenStopBotConfirm}

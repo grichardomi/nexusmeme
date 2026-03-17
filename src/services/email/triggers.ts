@@ -510,6 +510,31 @@ export async function sendInvoiceExpiredEmail(
 /**
  * Notify user their performance fee rate has changed
  */
+/**
+ * Send low balance alert — bot cannot trade due to insufficient free cash.
+ * Caller is responsible for rate-limiting (once per day per bot).
+ */
+export async function sendLowBalanceEmail(
+  email: string,
+  name: string,
+  botId: string,
+  botName: string,
+  exchange: string,
+  freeBalance: number,
+  minimumRequired: number,
+): Promise<void> {
+  const env = getEnvironmentConfig();
+  const dashboardUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard/bots/${botId}`;
+  await queueEmail('low_balance', email, {
+    name,
+    botName,
+    exchange,
+    freeBalance,
+    minimumRequired,
+    dashboardUrl,
+  } as any);
+}
+
 export async function sendFeeRateChangedEmail(
   email: string,
   name: string,

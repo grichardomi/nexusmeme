@@ -40,6 +40,8 @@ export default function TradingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [liveBalances, setLiveBalances] = useState<Record<string, number>>({});
+  const [freeStablecoins, setFreeStablecoins] = useState<Record<string, number>>({});
+  const [liveMinimums, setLiveMinimums] = useState<Record<string, number>>({});
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isClosingAll, setIsClosingAll] = useState(false);
   const [showCloseAllConfirm, setShowCloseAllConfirm] = useState(false);
@@ -101,38 +103,22 @@ export default function TradingPage() {
     selectedBotIdRef.current = selectedBotId;
   }, [selectedBotId]);
 
-  // Fetch live balance for unlimited capital bots
+  // Fetch live balance for all live bots (unlimited + fixed capital)
+  // Used for both position sizing display and low-balance warnings
   useEffect(() => {
-    if (!selectedBotId) {
-      return;
-    }
-
+    if (!selectedBotId) return;
     const bot = bots.find(b => b.id === selectedBotId);
-    if (!bot) {
-      return;
-    }
-
-    // Check if bot has unlimited capital (0 = unlimited)
-    const isUnlimited = bot.initialCapital === 0;
-    if (!isUnlimited) {
-      return;
-    }
+    if (!bot || bot.tradingMode !== 'live') return;
 
     const fetchBalance = async () => {
       try {
         setIsLoadingBalance(true);
         const response = await fetch(`/api/bots/${selectedBotId}/balance`);
-
-        if (!response.ok) {
-          console.error('Failed to fetch balance:', response.status);
-          return;
-        }
-
+        if (!response.ok) return;
         const data = await response.json();
-        setLiveBalances(prev => ({
-          ...prev,
-          [selectedBotId]: data.available,
-        }));
+        setLiveBalances(prev => ({ ...prev, [selectedBotId]: data.available }));
+        if (data.real != null) setFreeStablecoins(prev => ({ ...prev, [selectedBotId]: data.real }));
+        if (data.minimum != null) setLiveMinimums(prev => ({ ...prev, [selectedBotId]: data.minimum }));
       } catch (err) {
         console.error('Error fetching balance:', err);
       } finally {
@@ -140,11 +126,8 @@ export default function TradingPage() {
       }
     };
 
-    // Fetch immediately
     fetchBalance();
-
-    // Refresh every 10 seconds
-    const interval = setInterval(fetchBalance, 10000);
+    const interval = setInterval(fetchBalance, 30000);
     return () => clearInterval(interval);
   }, [selectedBotId, bots]);
 
@@ -270,6 +253,33 @@ export default function TradingPage() {
           </div>
         )}
 
+        {/* Low Balance Warning Banner — shown when live bot free cash is below minimum */}
+        {selectedBot && selectedBot.tradingMode === 'live' && (() => {
+          const free = freeStablecoins[selectedBot.id];
+          const min = liveMinimums[selectedBot.id] ?? 1000;
+          if (free == null || free >= min) return null;
+          return (
+            <div className="bg-red-50 dark:bg-red-900/30 border border-red-400 dark:border-red-600 rounded-lg p-4 flex gap-3 items-start">
+              <span className="text-red-500 text-xl mt-0.5">⚠️</span>
+              <div>
+                <p className="text-red-800 dark:text-red-200 font-semibold text-sm">
+                  Trades paused — insufficient free cash
+                </p>
+                <p className="text-red-700 dark:text-red-300 text-xs mt-1">
+                  Free USD/USDT: <strong>${free.toFixed(2)}</strong> — minimum required: <strong>${min.toLocaleString()}</strong>.
+                  BTC and ETH holdings do not count. Convert some to USD or USDT on Binance to resume trading.
+                </p>
+                <a
+                  href={`/dashboard/bots/${selectedBot.id}`}
+                  className="inline-block mt-2 text-xs text-red-700 dark:text-red-300 underline font-medium"
+                >
+                  Go to Bot Settings →
+                </a>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Live Dashboard */}
         {selectedBot && (
           <div className="space-y-8">
@@ -336,17 +346,35 @@ export default function TradingPage() {
                   </span>
                 )}
                 {/* Pause / Resume button */}
-                <button
-                  onClick={() => handleToggleBot(selectedBot.id, selectedBot.botStatus === 'running')}
-                  disabled={isTogglingBot}
-                  className={`px-3 py-1 rounded text-sm font-semibold transition disabled:opacity-50 ${
-                    selectedBot.botStatus === 'running'
-                      ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60'
-                      : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/60'
-                  }`}
-                >
-                  {isTogglingBot ? '⟳' : selectedBot.botStatus === 'running' ? '⏸ Pause' : '▶ Resume'}
-                </button>
+                {(() => {
+                  const isResuming = selectedBot.botStatus !== 'running';
+                  const free = freeStablecoins[selectedBot.id];
+                  const min = liveMinimums[selectedBot.id] ?? 1000;
+                  const blockedByBalance = isResuming && selectedBot.tradingMode === 'live' && free != null && free < min;
+                  return (
+                    <div className="flex flex-col items-end gap-1">
+                      <button
+                        onClick={() => !blockedByBalance && handleToggleBot(selectedBot.id, selectedBot.botStatus === 'running')}
+                        disabled={isTogglingBot || blockedByBalance}
+                        title={blockedByBalance ? `Free cash $${free?.toFixed(2)} is below the $${min.toLocaleString()} minimum` : undefined}
+                        className={`px-3 py-1 rounded text-sm font-semibold transition ${
+                          blockedByBalance
+                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60'
+                            : selectedBot.botStatus === 'running'
+                              ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-800 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60 disabled:opacity-50'
+                              : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200 hover:bg-green-200 dark:hover:bg-green-900/60 disabled:opacity-50'
+                        }`}
+                      >
+                        {isTogglingBot ? '⟳' : selectedBot.botStatus === 'running' ? '⏸ Pause' : '▶ Resume'}
+                      </button>
+                      {blockedByBalance && (
+                        <p className="text-xs text-red-600 dark:text-red-400">
+                          Add funds first — free cash ${free?.toFixed(0)} &lt; ${min.toLocaleString()} min
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Close All Button */}

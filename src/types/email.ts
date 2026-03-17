@@ -33,7 +33,8 @@ export type EmailTemplateType =
   | 'trial_started'
   | 'invoice_expired'
   | 'fee_rate_changed'
-  | 'login_alert';
+  | 'login_alert'
+  | 'low_balance';
 
 export interface EmailTemplate {
   subject: string;
@@ -240,6 +241,15 @@ export interface FeeRateChangedContext {
   prevRatePct: number;
   newRatePct: number;
   reason?: string;
+}
+
+export interface LowBalanceContext {
+  name?: string;
+  botName: string;
+  exchange: string;
+  freeBalance: number;
+  minimumRequired: number;
+  dashboardUrl: string;
 }
 
 export interface LoginAlertContext {

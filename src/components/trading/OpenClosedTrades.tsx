@@ -267,6 +267,17 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
           }
         });
 
+        // Fill missing BASE/USD prices from BASE/USDT equivalents (1:1 approximation)
+        // ETH/USD → use ETH/USDT price if ETH/USD not available from market data
+        for (const pair of uniquePairs) {
+          if (!newPrices[pair] && pair.endsWith('/USD')) {
+            const usdtEquiv = pair.replace('/USD', '/USDT');
+            if (newPrices[usdtEquiv]) {
+              newPrices[pair] = newPrices[usdtEquiv];
+            }
+          }
+        }
+
         // Only update if prices actually changed (prevents unnecessary re-renders)
         setCurrentPrices(prev => {
           const keys = Object.keys(newPrices);
@@ -329,14 +340,10 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
   }, [botId, statusFilter, modeFilter]);
 
   async function handleManualClose(trade: Trade) {
-    if (!currentPrices[trade.pair]) {
-      setNotification({ type: 'error', message: 'Current price not available for this pair' });
-      return;
-    }
-
     setClosingTrade(trade.id);
     try {
-      const currentPrice = currentPrices[trade.pair];
+      // Use live price if available; fall back to entry price so manual close is never blocked
+      const currentPrice = currentPrices[trade.pair] ?? trade.entryPrice;
       // Send GROSS P&L to close endpoint - it handles fee deduction server-side
       const unrealizedPnL = (currentPrice - trade.entryPrice) * trade.quantity;
       const unrealizedPnLPercent = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100;

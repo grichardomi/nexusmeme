@@ -175,7 +175,8 @@ export class DynamicPositionSizer {
   ): PositioningResult {
     const riskPerTrade = this.calculateRiskPerTrade(aiConfidence, stopLossPct);
     const riskUSD = this.accountBalance * riskPerTrade;
-    const sizeUSD = riskUSD / stopLossPct; // How much to invest to risk exactly riskUSD
+    // Cap position to available balance — can never invest more than we have
+    const sizeUSD = Math.min(riskUSD / stopLossPct, this.accountBalance);
     const sizeAsset = sizeUSD / currentPrice;
 
     logger.debug('Position size calculated', {

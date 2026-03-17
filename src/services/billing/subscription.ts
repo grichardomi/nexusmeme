@@ -428,17 +428,12 @@ export async function getPlanUsage(userId: string) {
           // Per-bot config is authoritative — user explicitly set this via Go Live flow
           actualTradingMode = botMode;
         } else {
-          // No per-bot mode set — fall back to exchange-level env var
-          const exchange = botConfigResult.rows[0].exchange?.toLowerCase() || 'kraken';
-          const isPaperTrading = exchange === 'binance'
-            ? process.env.BINANCE_BOT_PAPER_TRADING === 'true'
-            : process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
-          actualTradingMode = isPaperTrading ? 'paper' : 'live';
+          // No per-bot mode set — default to paper (safe fallback)
+          actualTradingMode = 'paper';
         }
       } else {
-        // No bot at all — use env default
-        const isPaperTradingEnv = process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
-        actualTradingMode = isPaperTradingEnv ? 'paper' : 'live';
+        // No bot at all — default to paper (safe fallback)
+        actualTradingMode = 'paper';
       }
     } catch (err) {
       logger.warn('Error reading bot trading mode, defaulting to paper', { userId });

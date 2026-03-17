@@ -129,10 +129,13 @@ export async function GET(
         );
       }
 
-      // Build currency balance map
+      // Build currency balance map using FREE balance only (excludes locked/reserved funds).
+      // Must match fetchRealExchangeBalance in fan-out.ts which also uses balance.free.
       const currencyBalances: Record<string, number> = {};
+      const currencyTotals: Record<string, number> = {};
       for (const balance of balances) {
-        currencyBalances[balance.asset.toUpperCase()] = balance.total;
+        currencyBalances[balance.asset.toUpperCase()] = balance.free;
+        currencyTotals[balance.asset.toUpperCase()] = balance.total;
       }
 
       // Fetch BTC and ETH prices for total account valuation (non-fatal if unavailable)
@@ -149,9 +152,9 @@ export async function GET(
       // USDT/USD cash
       const usdCash = (currencyBalances['USDT'] ?? 0) + (currencyBalances['USD'] ?? 0);
 
-      // BTC and ETH converted to USD
-      const btcValue = (currencyBalances['BTC'] ?? 0) * btcPrice;
-      const ethValue = (currencyBalances['ETH'] ?? 0) * ethPrice;
+      // BTC and ETH converted to USD — use total holdings for account value display
+      const btcValue = (currencyTotals['BTC'] ?? 0) * btcPrice;
+      const ethValue = (currencyTotals['ETH'] ?? 0) * ethPrice;
 
       // Total account value in USD (for tier assignment and billing)
       const totalAccountValue = usdCash + btcValue + ethValue;
@@ -211,10 +214,10 @@ export async function GET(
         minUsdt,                          // Minimum USDT/stablecoin to place first trade (LIVE_TRADING_MIN_USDT_USD)
         totalAccountValue,                 // Full account value incl. BTC + ETH holdings
         breakdown: {
-          usdCash,
-          btcHoldings: currencyBalances['BTC'] ?? 0,
+          usdCash,                                          // free USD/USDT/USDC only
+          btcHoldings: currencyTotals['BTC'] ?? 0,
           btcValue,
-          ethHoldings: currencyBalances['ETH'] ?? 0,
+          ethHoldings: currencyTotals['ETH'] ?? 0,
           ethValue,
           btcPrice,
           ethPrice,

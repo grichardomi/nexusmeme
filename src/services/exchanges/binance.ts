@@ -20,6 +20,8 @@ export class BinanceAdapter extends BaseExchangeAdapter {
   // Thresholds: open after 10 consecutive real failures, close after 3 successes, reset after 30s.
   // Rate limit queue timeouts are NOT counted as failures (filtered in isBinanceFailure).
   private circuitBreaker = new CircuitBreaker(10, 3, 30000);
+  // Cache exchange info LOT_SIZE step sizes to avoid repeated API calls
+  private lotStepSizeCache: Map<string, number> = new Map();
   // Rate limiter is distributed (Redis-backed) - shared across all instances
   // Accessed via binanceRateLimiter singleton
 
@@ -29,13 +31,12 @@ export class BinanceAdapter extends BaseExchangeAdapter {
 
   /**
    * Normalize pair to Binance symbol format
-   * BTC/USD → BTCUSDT, ETH/USD → ETHUSDT, BTC/USDT → BTCUSDT
-   * Binance only has USDT pairs — USD must be converted to USDT
+   * BTC/USDT → BTCUSDT, BTC/USD → BTCUSD (Binance US has both)
+   * USD and USDT are kept as-is — caller chooses correct quote based on account balance
    */
   private normalizeSymbol(pair: string): string {
     const [base, quote] = pair.split('/');
-    const binanceQuote = quote === 'USD' ? 'USDT' : quote;
-    return `${base}${binanceQuote}`;
+    return `${base}${quote}`;
   }
 
   async connect(keys: ApiKeys): Promise<void> {
@@ -94,36 +95,10 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     this.validatePair(order.pair);
     this.validateAmount(order.amount);
 
-    const env = getEnvironmentConfig();
     const startTime = Date.now();
 
-    // PAPER TRADING MODE - Simulate order without hitting exchange API
-    if (env.BINANCE_BOT_PAPER_TRADING) {
-      const paperOrderId = `PAPER-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      const estimatedFee = order.amount * order.price * 0.001; // ~0.1% taker fee
-
-      logger.info('📝 PAPER TRADE: Simulating Binance order (not sent to exchange)', {
-        orderId: paperOrderId,
-        pair: order.pair,
-        side: order.side,
-        amount: order.amount,
-        price: order.price,
-        estimatedFee: estimatedFee.toFixed(4),
-        mode: 'PAPER_TRADING',
-      });
-
-      return {
-        orderId: paperOrderId,
-        pair: order.pair,
-        side: order.side,
-        amount: order.amount,
-        price: order.price,
-        avgPrice: order.price, // Paper trade fills at requested price
-        timestamp: new Date(),
-        status: 'filled', // Paper trades are instantly "filled"
-        fee: estimatedFee,
-      };
-    }
+    // NOTE: Paper trading is handled upstream in fan-out.ts (tradingMode check).
+    // placeOrder is only called for live bots — do NOT add paper simulation here.
 
     try {
       logger.info('Placing Binance order', {
@@ -141,16 +116,33 @@ export class BinanceAdapter extends BaseExchangeAdapter {
             // Convert pair format: BTC/USDT -> BTCUSDT
             const symbol = this.normalizeSymbol(order.pair);
 
-            // Build order parameters
-            const params: any = {
-              symbol,
-              side: order.side.toUpperCase(),
-              type: 'LIMIT',
-              timeInForce: order.timeInForce || 'GTC', // Allow IOC for exits
-              quantity: order.amount.toFixed(8),
-              price: order.price.toFixed(2),
-              recvWindow: 5000, // 5 second validity window
-            };
+            // Fetch LOT_SIZE step size dynamically from exchange info (cached after first call)
+            const stepSize = await this.getLotStepSize(symbol);
+            const precision = Math.round(-Math.log10(stepSize));
+            // Floor to step size (never round up — avoids insufficient balance errors)
+            const quantity = Math.floor(order.amount / stepSize) * stepSize;
+            const quantityStr = quantity.toFixed(precision);
+
+            // Sell orders use MARKET type — fills immediately at best bid, no price floor needed.
+            // Buy orders use LIMIT+GTC — price control matters for entries.
+            const isSell = order.side.toLowerCase() === 'sell';
+            const params: any = isSell
+              ? {
+                  symbol,
+                  side: 'SELL',
+                  type: 'MARKET',
+                  quantity: quantityStr,
+                  recvWindow: 5000,
+                }
+              : {
+                  symbol,
+                  side: 'BUY',
+                  type: 'LIMIT',
+                  timeInForce: 'GTC',
+                  quantity: quantityStr,
+                  price: order.price.toFixed(2),
+                  recvWindow: 5000,
+                };
 
             // Make signed POST request to Binance
             return await this.privateRequest('/v3/order', params, 'POST');
@@ -857,6 +849,45 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     }
   }
 
+  /**
+   * Fetch the most recent SELL fill for a pair after a given timestamp.
+   * Used by the fill reconciler to detect trades closed on the exchange
+   * but not yet reflected in the DB (e.g. manual close, crash during exit).
+   * Returns null if no qualifying fill found.
+   */
+  async getRecentSellFill(
+    pair: string,
+    sinceMs: number
+  ): Promise<{ price: number; qty: number; commission: number; commissionAsset: string; time: number } | null> {
+    this.validatePair(pair);
+    const symbol = this.normalizeSymbol(pair);
+    try {
+      const trades = await this.circuitBreaker.execute(() =>
+        this.privateRequest('/v3/myTrades', { symbol, limit: 50, startTime: sinceMs }, 'GET')
+      ) as Array<{
+        isBuyer: boolean; price: string; qty: string;
+        commission: string; commissionAsset: string; time: number;
+      }>;
+
+      // Find the most recent SELL (isBuyer=false) after sinceMs
+      const sells = trades
+        .filter(t => !t.isBuyer && t.time > sinceMs)
+        .sort((a, b) => b.time - a.time);
+
+      if (!sells.length) return null;
+      const t = sells[0];
+      return {
+        price: parseFloat(t.price),
+        qty: parseFloat(t.qty),
+        commission: parseFloat(t.commission),
+        commissionAsset: t.commissionAsset,
+        time: t.time,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async getStatus(): Promise<boolean> {
     try {
       const response = await this.publicRequest('/v3/ping');
@@ -864,6 +895,35 @@ export class BinanceAdapter extends BaseExchangeAdapter {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Get LOT_SIZE step size for a symbol from Binance exchange info.
+   * Cached in-memory to avoid repeated API calls per order.
+   */
+  async getLotStepSize(symbol: string): Promise<number> {
+    if (this.lotStepSizeCache.has(symbol)) {
+      return this.lotStepSizeCache.get(symbol)!;
+    }
+    try {
+      const exchangeInfo = await this.publicRequest('/v3/exchangeInfo');
+      for (const s of exchangeInfo.symbols ?? []) {
+        const lotFilter = (s.filters ?? []).find((f: any) => f.filterType === 'LOT_SIZE');
+        if (lotFilter?.stepSize) {
+          const step = parseFloat(lotFilter.stepSize);
+          if (step > 0) {
+            this.lotStepSizeCache.set(s.symbol, step);
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn('Failed to fetch exchange info for LOT_SIZE, using fallback 0.001', {
+        symbol,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    // Fallback if symbol not in response or fetch failed
+    return this.lotStepSizeCache.get(symbol) ?? 0.001;
   }
 
   /**

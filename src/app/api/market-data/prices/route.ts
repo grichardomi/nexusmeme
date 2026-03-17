@@ -43,6 +43,25 @@ export async function GET(request: NextRequest): Promise<Response> {
     // (in-process cache with TTL + Redis fallback)
     const priceData = await marketDataAggregator.getMarketData(pairs);
 
+    // For pairs not in the cache (e.g. ETH/USD when only ETH/USDT is tracked),
+    // fall back to the USDT equivalent — USD ≈ USDT on Binance US (1:1 peg).
+    const missingPairs = pairs.filter(p => !priceData.has(p));
+    if (missingPairs.length > 0) {
+      const usdtFallbacks = missingPairs
+        .filter(p => p.endsWith('/USD'))
+        .map(p => p.replace('/USD', '/USDT'));
+      if (usdtFallbacks.length > 0) {
+        const fallbackData = await marketDataAggregator.getMarketData(usdtFallbacks);
+        for (const missing of missingPairs.filter(p => p.endsWith('/USD'))) {
+          const equiv = missing.replace('/USD', '/USDT');
+          const data = fallbackData.get(equiv);
+          if (data) {
+            priceData.set(missing, data);
+          }
+        }
+      }
+    }
+
     // If no data available, return 503 (cache cold)
     if (priceData.size === 0) {
       return NextResponse.json(

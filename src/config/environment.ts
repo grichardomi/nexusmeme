@@ -94,7 +94,6 @@ const envSchema = z.object({
 
   /* Paper Trading Mode - Simulate orders without hitting exchange API */
   KRAKEN_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
-  BINANCE_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
 
   /* Creeping Uptrend Mode - Catches slow steady trends in low-volume conditions */
   CREEPING_UPTREND_ENABLED: z.string().transform(val => val === 'true').default('false'),
@@ -267,6 +266,11 @@ const envSchema = z.object({
   ADX_WEAK_MAX: z.string().transform(Number).default('25'),    // ADX < 25 = weak (2% target)
   ADX_MODERATE_MAX: z.string().transform(Number).default('40'), // ADX 25-40 = moderate (5% target), >= 40 = strong (12% target)
   ADX_TRANSITION_SIZE_MULTIPLIER: z.string().transform(Number).default('0.5'), // 50% position size for transitioning regime entries
+  REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),       // 150% position size in strong trend
+  REGIME_SIZE_MODERATE: z.string().transform(Number).default('1.0'),     // 100% position size in moderate trend
+  REGIME_SIZE_WEAK: z.string().transform(Number).default('0.75'),        // 75% position size in weak trend
+  REGIME_SIZE_CHOPPY: z.string().transform(Number).default('0.5'),       // 50% position size in choppy market
+  DEFAULT_STOP_LOSS_PCT: z.string().transform(Number).default('0.05'),   // 5% default stop loss if not in signal
   MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
   VOLUME_SURGE_ADX_OVERRIDE_RATIO: z.string().transform(Number).default('4.0'), // Volume >= 4x + positive momentum overrides low ADX in transition zone
 
@@ -444,7 +448,6 @@ function getDefaultEnvironment(): Environment {
     ENABLE_BACKTESTING: false,
     LLM_PROVIDER: 'openai',
     KRAKEN_BOT_PAPER_TRADING: false,
-    BINANCE_BOT_PAPER_TRADING: false,
     CREEPING_UPTREND_ENABLED: false,
     CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
     CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
@@ -547,6 +550,11 @@ function getDefaultEnvironment(): Environment {
     ADX_WEAK_MAX: 25,
     ADX_MODERATE_MAX: 40,
     ADX_TRANSITION_SIZE_MULTIPLIER: 0.5,
+    REGIME_SIZE_STRONG: 1.5,
+    REGIME_SIZE_MODERATE: 1.0,
+    REGIME_SIZE_WEAK: 0.75,
+    REGIME_SIZE_CHOPPY: 0.5,
+    DEFAULT_STOP_LOSS_PCT: 0.05,
     MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
     VOLUME_SURGE_ADX_OVERRIDE_RATIO: 4.0, // Volume >= 4x + positive momentum overrides low ADX in transition zone
     PYRAMID_L1_MIN_ADX: 35,

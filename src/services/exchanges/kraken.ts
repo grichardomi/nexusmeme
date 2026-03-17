@@ -362,24 +362,40 @@ export class KrakenAdapter extends BaseExchangeAdapter {
         'ZUSD': 'USD',
         'USD': 'USD',
         'USDT': 'USDT',
+        'USDC': 'USDC',
         'SOL': 'SOL',
         'XRPL': 'XRP',
         'XRP': 'XRP',
       };
 
+      // Fetch open order reserved amounts to approximate locked balance
+      let reservedByAsset: Record<string, number> = {};
+      try {
+        const openOrders = await this.privateRequest('/0/private/OpenOrders', {});
+        for (const order of Object.values(openOrders?.open ?? {})) {
+          const o = order as any;
+          // For open buy orders, quote currency is locked
+          if (o.descr?.type === 'buy') {
+            const vol = parseFloat(o.vol) || 0;
+            const price = parseFloat(o.descr?.price) || 0;
+            const [, rawQuote] = (o.descr?.pair ?? '').split('/');
+            const quote = assetMap[rawQuote] ?? rawQuote;
+            if (quote) reservedByAsset[quote] = (reservedByAsset[quote] ?? 0) + vol * price;
+          }
+        }
+      } catch {
+        // Non-critical — fall back to treating total as free (95% buffer still applies)
+        reservedByAsset = {};
+      }
+
       for (const [krakenAsset, balanceValue] of Object.entries(result)) {
         const standardAsset = assetMap[krakenAsset] || krakenAsset;
         const total = parseFloat(balanceValue as string) || 0;
+        const locked = reservedByAsset[standardAsset] ?? 0;
+        const free = Math.max(0, total - locked);
 
-        // Kraken balance endpoint returns total balance only
-        // For locked/free, we need to query open orders separately
         if (total > 0) {
-          balances.push({
-            asset: standardAsset,
-            free: total, // Simplified - Kraken doesn't separate free/locked in Balance endpoint
-            locked: 0,
-            total,
-          });
+          balances.push({ asset: standardAsset, free, locked, total });
         }
       }
 
@@ -689,6 +705,45 @@ export class KrakenAdapter extends BaseExchangeAdapter {
       logger.error('Failed to get Kraken fees', error instanceof Error ? error : null);
       // Return default fees on error
       return { maker: 0.0016, taker: 0.0026 };
+    }
+  }
+
+  /**
+   * Fetch the most recent SELL fill for a pair after a given timestamp.
+   * Uses Kraken /0/private/TradesHistory filtered by type=sell.
+   */
+  async getRecentSellFill(
+    pair: string,
+    sinceMs: number
+  ): Promise<{ price: number; qty: number; commission: number; commissionAsset: string; time: number } | null> {
+    try {
+      const sinceSeconds = Math.floor(sinceMs / 1000);
+      const result = await this.privateRequest('/0/private/TradesHistory', {
+        type: 'sell',
+        start: sinceSeconds.toString(),
+      });
+
+      const trades: Record<string, any> = result?.result?.trades ?? {};
+      const krakenPair = this.convertToPairFormat(pair);
+      const [, quote] = pair.split('/');
+
+      // Find sells for this pair after sinceMs
+      const matching = Object.values(trades)
+        .filter((t: any) => t.pair === krakenPair && t.time * 1000 > sinceMs)
+        .sort((a: any, b: any) => b.time - a.time);
+
+      if (!matching.length) return null;
+      const t = matching[0] as any;
+      // Kraken fee is in quote currency
+      return {
+        price: parseFloat(t.price),
+        qty: parseFloat(t.vol),
+        commission: parseFloat(t.fee),
+        commissionAsset: quote,
+        time: Math.round(t.time * 1000),
+      };
+    } catch {
+      return null;
     }
   }
 

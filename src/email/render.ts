@@ -8,6 +8,7 @@ import type {
   EmailTemplateType,
   EmailContext,
   LoginAlertContext,
+  LowBalanceContext,
   FeeRateChangedContext,
   WelcomeEmailContext,
   PasswordResetEmailContext,
@@ -50,7 +51,7 @@ import {
   TrialEndingSoonAddPaymentEmailTemplate,
 } from './templates/trial-ending';
 import { InvoiceEmailTemplate } from './templates/invoice';
-import { BotCreatedEmailTemplate, TradeAlertEmailTemplate } from './templates/bot-alerts';
+import { BotCreatedEmailTemplate, TradeAlertEmailTemplate, LowBalanceEmailTemplate } from './templates/bot-alerts';
 import {
   TicketCreatedEmailTemplate,
   TicketRepliedEmailTemplate,
@@ -437,6 +438,18 @@ export function renderEmailTemplate(
         lockedUntil: ctx.lockedUntil,
         resetUrl: ctx.resetUrl ?? `${process.env.NEXT_PUBLIC_APP_URL}/auth/forgot-password`,
         ipAddress: ctx.ipAddress,
+      });
+    }
+
+    case 'low_balance': {
+      const ctx = context as LowBalanceContext;
+      return LowBalanceEmailTemplate({
+        name: ctx.name,
+        botName: ctx.botName,
+        exchange: ctx.exchange,
+        freeBalance: ctx.freeBalance,
+        minimumRequired: ctx.minimumRequired,
+        dashboardUrl: ctx.dashboardUrl,
       });
     }
 

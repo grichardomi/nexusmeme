@@ -18,6 +18,9 @@ interface Bot {
   isActive: boolean;
   exchange: string;
   enabledPairs: string[];
+  tradingMode: 'paper' | 'live';
+  initialCapital: number;
+  name: string;
 }
 
 interface Trade {
@@ -58,6 +61,7 @@ export default function DashboardPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [tradesOpen, setTradesOpen] = useState(false);
+  const [lowBalanceBots, setLowBalanceBots] = useState<Array<{ id: string; name: string; exchange: string; free: number; minimum: number }>>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -134,6 +138,31 @@ export default function DashboardPage() {
     fetchData();
   }, [loadTrades]);
 
+  // Check balance for all live running bots — surface low-balance warnings on dashboard
+  useEffect(() => {
+    const liveBots = bots.filter(b => b.tradingMode === 'live' && b.isActive);
+    if (liveBots.length === 0) return;
+
+    async function checkBalances() {
+      const warnings: Array<{ id: string; name: string; exchange: string; free: number; minimum: number }> = [];
+      for (const bot of liveBots) {
+        try {
+          const res = await fetch(`/api/bots/${bot.id}/balance`);
+          if (!res.ok) continue;
+          const data = await res.json();
+          const free = data.real ?? 0;
+          const minimum = data.minimum ?? 1000;
+          if (free < minimum) {
+            warnings.push({ id: bot.id, name: bot.name || bot.exchange, exchange: bot.exchange, free, minimum });
+          }
+        } catch { /* non-fatal */ }
+      }
+      setLowBalanceBots(warnings);
+    }
+
+    checkBalances();
+  }, [bots]);
+
   // Update active bots count
   useEffect(() => {
     const activeBotCount = bots.filter(b => b.isActive).length;
@@ -207,6 +236,25 @@ export default function DashboardPage() {
       <div className="mb-6">
         <TrialWarningBanner minimal={false} />
       </div>
+
+      {/* Low Balance Warning — shown when a live bot has insufficient free cash */}
+      {lowBalanceBots.map(bot => (
+        <div key={bot.id} className="mb-4 bg-red-50 dark:bg-red-900/30 border border-red-400 dark:border-red-600 rounded-lg p-4 flex gap-3 items-start">
+          <span className="text-red-500 text-xl mt-0.5 shrink-0">⚠️</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-red-800 dark:text-red-200 font-semibold text-sm">
+              {bot.name} — Trades paused, insufficient free cash
+            </p>
+            <p className="text-red-700 dark:text-red-300 text-xs mt-1">
+              Free USD/USDT: <strong>${bot.free.toFixed(2)}</strong> · Minimum required: <strong>${bot.minimum.toLocaleString()}</strong>.
+              Convert BTC/ETH to USD or USDT on {bot.exchange.toUpperCase()} to resume live trading.
+            </p>
+            <a href={`/dashboard/bots/${bot.id}`} className="inline-block mt-2 text-xs text-red-700 dark:text-red-300 underline font-medium">
+              Go to Bot Settings →
+            </a>
+          </div>
+        </div>
+      ))}
 
       {/* Setup Banner — shown when user has a bot but no API keys connected */}
       {bots.length > 0 && hasApiKeys === false && (

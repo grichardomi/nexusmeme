@@ -18,7 +18,8 @@ import { positionTracker } from '@/services/risk/position-tracker';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
 import { jobQueueManager } from '@/services/job-queue/singleton';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
-import { sendBotSuspendedEmail } from '@/services/email/triggers';
+import { sendBotSuspendedEmail, sendLowBalanceEmail } from '@/services/email/triggers';
+import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconciler';
 import type { TradeDecision } from '@/types/market';
 
 interface BotInstance {
@@ -36,8 +37,9 @@ interface BotInstance {
 class TradeSignalOrchestrator {
   private isRunning = false;
   private interval: NodeJS.Timer | null = null;
-  // High-frequency peak tracking interval (captures peak profits quickly before they erode)
   private peakTrackingInterval: NodeJS.Timer | null = null;
+  private fillReconcileInterval: NodeJS.Timer | null = null;
+  private lowBalanceCheckInterval: NodeJS.Timer | null = null;
 
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
   // Cache structure: Map<pair:timeframe, { data: OHLCCandle[], timestamp: number }>
@@ -97,6 +99,28 @@ class TradeSignalOrchestrator {
     // Initialize position tracker from database (load peak profits from previous session)
     await positionTracker.initializeFromDatabase();
 
+    // Reconcile exchange fills every 30 seconds — closes trades that filled on the
+    // exchange but weren't recorded in DB (crash during exit, manual close, etc.)
+    // Only checks trades that have been open for >2 minutes to avoid hitting the
+    // API on brand-new orders that haven't settled yet.
+    this.fillReconcileInterval = setInterval(async () => {
+      try {
+        await reconcileBinanceFills();
+      } catch (err) {
+        logger.error('Exchange fill reconcile error', err instanceof Error ? err : null);
+      }
+    }, 30_000);
+
+    // PROACTIVE LOW-BALANCE ALERT: Check every 4 hours for live bots with insufficient free cash.
+    // Emails user once per 24h so they know trades are paused before the next signal fires.
+    this.lowBalanceCheckInterval = setInterval(() => {
+      this.checkLowBalanceForLiveBots().catch(err => {
+        logger.warn('Low balance proactive check error', { error: err instanceof Error ? err.message : String(err) });
+      });
+    }, 15 * 60_000);
+    // Run once immediately on startup so user is alerted right away
+    this.checkLowBalanceForLiveBots().catch(() => {});
+
     // HIGH-FREQUENCY PEAK TRACKING (runs every 5 seconds)
     // CRITICAL: Captures peak profits quickly so erosion protection and green-to-red
     // protection can work correctly. Without this, trades can go from +0.03% to -0.30%
@@ -135,6 +159,14 @@ class TradeSignalOrchestrator {
     if (this.peakTrackingInterval) {
       clearInterval(this.peakTrackingInterval as NodeJS.Timeout);
       this.peakTrackingInterval = null;
+    }
+    if (this.fillReconcileInterval) {
+      clearInterval(this.fillReconcileInterval as NodeJS.Timeout);
+      this.fillReconcileInterval = null;
+    }
+    if (this.lowBalanceCheckInterval) {
+      clearInterval(this.lowBalanceCheckInterval as NodeJS.Timeout);
+      this.lowBalanceCheckInterval = null;
     }
     logger.info('Trade signal orchestrator stopped');
   }
@@ -2149,6 +2181,104 @@ class TradeSignalOrchestrator {
         'Error in pyramid level check',
         error instanceof Error ? error : null
       );
+    }
+  }
+
+  /**
+   * Proactive low-balance alert: check all live bots and email users whose free cash
+   * is below LIVE_TRADING_MIN_USDT_USD. Runs every 4h; at most one email per bot per 24h.
+   */
+  private readonly lowBalanceAlertSentAt = new Map<string, number>();
+
+  private async checkLowBalanceForLiveBots(): Promise<void> {
+    const { getEnvironmentConfig } = await import('@/config/environment');
+    const { decrypt } = await import('@/lib/crypto');
+    const { getExchangeAdapter } = await import('@/services/exchanges/singleton');
+    const env = getEnvironmentConfig();
+    const minUsdt = env.LIVE_TRADING_MIN_USDT_USD;
+    const cooldownMs = 24 * 60 * 60_000;
+
+    let liveBots: Array<{ id: string; exchange: string; user_id: string; email: string; name: string; bot_name: string }>;
+    try {
+      liveBots = await query(
+        `SELECT b.id, b.exchange, b.user_id, u.email, u.name,
+                COALESCE(b.config->>'name', 'Trading Bot') AS bot_name
+         FROM bot_instances b
+         JOIN users u ON u.id = b.user_id
+         WHERE b.status IN ('running', 'paused')
+           AND COALESCE(b.config->>'tradingMode', 'paper') = 'live'`
+      );
+    } catch {
+      return;
+    }
+
+    for (const bot of liveBots) {
+      try {
+        const lastSent = this.lowBalanceAlertSentAt.get(bot.id) ?? 0;
+        if (Date.now() - lastSent < cooldownMs) continue;
+
+        const keysResult = await query(
+          `SELECT encrypted_public_key, encrypted_secret_key
+           FROM exchange_api_keys WHERE user_id = $1 AND exchange = $2 LIMIT 1`,
+          [bot.user_id, bot.exchange.toLowerCase()]
+        );
+        if (!keysResult.length) continue;
+
+        const publicKey = decrypt(keysResult[0].encrypted_public_key);
+        const secretKey = decrypt(keysResult[0].encrypted_secret_key);
+
+        const adapter = getExchangeAdapter(bot.exchange);
+        await adapter.connect({ publicKey, secretKey });
+        const balances = await adapter.getBalances();
+
+        let freeStable = 0;
+        for (const b of balances) {
+          const asset = b.asset.toUpperCase();
+          if (['USDT', 'USDC', 'USD', 'BUSD'].includes(asset)) freeStable += b.free;
+        }
+
+        if (freeStable < minUsdt) {
+          // Auto-pause the bot so status reflects reality (can't trade = shouldn't show Running)
+          await query(
+            `UPDATE bot_instances SET status = 'paused',
+               config = config || jsonb_build_object('pauseReason', 'low_balance', 'pausedAt', $2::text)
+             WHERE id = $1 AND status = 'running'`,
+            [bot.id, new Date().toISOString()]
+          );
+          logger.info('Bot auto-paused: free cash below minimum', {
+            botId: bot.id, exchange: bot.exchange, freeStable, minUsdt,
+          });
+
+          // Email user (once per 24h)
+          this.lowBalanceAlertSentAt.set(bot.id, Date.now());
+          await sendLowBalanceEmail(
+            bot.email, bot.name, bot.id, bot.bot_name, bot.exchange, freeStable, minUsdt
+          );
+          logger.info('Proactive low-balance alert sent', {
+            botId: bot.id, exchange: bot.exchange, freeStable, minUsdt,
+          });
+        } else {
+          // Balance is sufficient — auto-resume if bot was paused specifically due to low balance
+          const resumed = await query<{ id: string }>(
+            `UPDATE bot_instances SET status = 'running',
+               config = config - 'pauseReason' - 'pausedAt'
+             WHERE id = $1
+               AND status = 'paused'
+               AND config->>'pauseReason' = 'low_balance'
+             RETURNING id`,
+            [bot.id]
+          );
+          if (resumed.length > 0) {
+            logger.info('Bot auto-resumed: free cash restored above minimum', {
+              botId: bot.id, exchange: bot.exchange, freeStable, minUsdt,
+            });
+          }
+        }
+      } catch (err) {
+        logger.debug('Low balance check skipped for bot', {
+          botId: bot.id, error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 

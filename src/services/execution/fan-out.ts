@@ -1,6 +1,6 @@
 import { query, transaction } from '@/lib/db';
 import { logger, logTradeExecution } from '@/lib/logger';
-import { sendTradeAlertEmail } from '@/services/email/triggers';
+import { sendTradeAlertEmail, sendLowBalanceEmail } from '@/services/email/triggers';
 import type { TradeDecision, ExecutionPlan } from '@/types/market';
 import DynamicPositionSizer from '@/services/trading/dynamic-position-sizer';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
@@ -22,6 +22,10 @@ interface BotInstance {
  * Converts one trade decision into per-user execution plans
  * Critical: Respects user constraints (balance, limits, regime)
  */
+// Per-bot low balance email cooldown — at most once per 24h
+const lowBalanceAlertSentAt = new Map<string, number>();
+const LOW_BALANCE_ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 class ExecutionFanOut {
   /**
    * Fan out trade decision to all active bots
@@ -126,20 +130,24 @@ class ExecutionFanOut {
       return null;
     }
 
-    // Check if bot already has an open position on this pair
-    const existingPosition = await query<{ id: string }>(
-      `SELECT id FROM trades
+    // Check if bot already has an open position on this BASE asset (BTC, ETH, etc.)
+    // Match on base currency only — BTC/USD, BTC/USDT, BTC/USDC all count as "BTC position"
+    const baseAsset = decision.pair.split('/')[0];
+    const existingPosition = await query<{ id: string; pair: string }>(
+      `SELECT id, pair FROM trades
        WHERE bot_instance_id = $1
-       AND pair = $2
+       AND pair LIKE $2
        AND status = 'open'
        LIMIT 1`,
-      [bot.id, decision.pair]
+      [bot.id, `${baseAsset}/%`]
     );
 
     if (existingPosition.length > 0) {
-      logger.info('Skipping trade: bot already has open position on pair', {
+      logger.info('Skipping trade: bot already has open position on base asset', {
         botId: bot.id,
-        pair: decision.pair,
+        baseAsset,
+        existingPair: existingPosition[0].pair,
+        signalPair: decision.pair,
       });
       return null;
     }
@@ -164,6 +172,7 @@ class ExecutionFanOut {
     const aiConfidence = decision.signalConfidence ?? 70; // 0-100 scale
 
     let effectiveBalance = 0;
+    let dominantQuote = 'USDT'; // Default — overridden when we fetch real balance
 
     // UNLIMITED MODE: 0 or "unlimited" (string) means fetch real exchange balance for pyramiding
     // Backward compatible: support both new numeric 0 and legacy "unlimited" string
@@ -171,25 +180,34 @@ class ExecutionFanOut {
 
     if (isUnlimitedMode) {
       try {
-        // Fetch balance from exchange adapter (same as dashboard endpoint)
-        const realBalance = await this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange);
+        const result = await this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange);
 
-        if (realBalance <= 0) {
+        if (result.available <= 0) {
           logger.error('Failed to fetch unlimited balance - got zero or negative', null, {
             botId: bot.id,
             exchange: bot.exchange,
-            balance: realBalance,
+            balance: result.available,
           });
-          return null; // Cannot execute trade without knowing balance
+          return null;
         }
 
-        // Apply 95% buffer to prevent "insufficient balance" errors from fluctuations
-        effectiveBalance = realBalance * 0.95;
+        // Deduct open trades value to avoid over-ordering when multiple pairs fire simultaneously
+        const openTradesResultUnlimited = await query<{ total_value: string }>(
+          `SELECT COALESCE(SUM(price * amount), 0) AS total_value
+           FROM trades
+           WHERE bot_instance_id = $1 AND status = 'open'`,
+          [bot.id]
+        );
+        const openTradesValueUnlimited = parseFloat(String(openTradesResultUnlimited[0]?.total_value ?? '0'));
+        const freeAfterOpenUnlimited = Math.max(0, result.available - openTradesValueUnlimited);
+        effectiveBalance = freeAfterOpenUnlimited * 0.95;
+        dominantQuote = result.dominantQuote;
         logger.info('Using unlimited capital with 95% buffer', {
           botId: bot.id,
-          realBalance,
+          realBalance: result.available,
+          openTradesValue: openTradesValueUnlimited,
           bufferedBalance: effectiveBalance,
-          buffer: '5%',
+          dominantQuote,
           mode: typeof configuredCapital === 'string' ? 'legacy-string' : 'numeric-0',
         });
       } catch (error) {
@@ -197,11 +215,61 @@ class ExecutionFanOut {
           botId: bot.id,
           exchange: bot.exchange,
         });
-        return null; // Cannot execute trade without knowing balance
+        return null;
       }
     } else if (typeof configuredCapital === 'number' && configuredCapital > 0 && Number.isFinite(configuredCapital)) {
-      // FIXED CAPITAL MODE: Use configured amount (no balance fetch needed)
-      effectiveBalance = Number(configuredCapital);
+      // FIXED CAPITAL MODE: Cap to real free balance so we never over-order
+      const configured = Number(configuredCapital);
+      const isLive = (bot.config?.tradingMode as string) === 'live';
+      try {
+        const result = await this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange);
+        if (result.available > 0) {
+          // Deduct value of already-open trades so concurrent pair evaluations
+          // don't both claim the same free cash → -2010 insufficient balance.
+          const openTradesResult = await query<{ total_value: string }>(
+            `SELECT COALESCE(SUM(price * amount), 0) AS total_value
+             FROM trades
+             WHERE bot_instance_id = $1 AND status = 'open'`,
+            [bot.id]
+          );
+          const openTradesValue = parseFloat(String(openTradesResult[0]?.total_value ?? '0'));
+          const freeAfterOpenTrades = Math.max(0, result.available - openTradesValue);
+          effectiveBalance = Math.min(configured, freeAfterOpenTrades * 0.95);
+          dominantQuote = result.dominantQuote;
+          if (effectiveBalance < configured) {
+            logger.warn('Fixed capital capped to actual exchange balance (open trades deducted)', {
+              botId: bot.id,
+              configuredCapital: configured,
+              realBalance: result.available,
+              openTradesValue,
+              freeAfterOpenTrades,
+              effectiveBalance,
+              dominantQuote,
+            });
+          }
+        } else if (isLive) {
+          // Live mode: real balance is 0 or unavailable — skip trade, never use configured capital.
+          // Using configured capital would place orders exceeding actual funds → -2010 errors.
+          logger.warn('Live trade skipped: real exchange balance is 0 or unavailable', {
+            botId: bot.id,
+            configuredCapital: configured,
+          });
+          return null;
+        } else {
+          // Paper mode only: safe to simulate with configured capital
+          effectiveBalance = configured;
+        }
+      } catch (err) {
+        if (isLive) {
+          logger.warn('Live trade skipped: could not fetch real exchange balance', {
+            botId: bot.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        }
+        // Paper mode only: safe to simulate with configured capital
+        effectiveBalance = configured;
+      }
     } else if (typeof configuredCapital === 'string' && !isUnlimitedMode) {
       // Try to parse string number (backward compatibility for "1000" stored as string)
       const parsed = parseFloat(configuredCapital);
@@ -222,6 +290,38 @@ class ExecutionFanOut {
         type: typeof configuredCapital,
       });
       return null;
+    }
+
+    // Live trading: enforce minimum free cash threshold before sizing.
+    // If real free balance is below LIVE_TRADING_MIN_USDT_USD, skip the trade — don't place
+    // an undersized order that can't meaningfully recover fees.
+    const isLiveMode = (bot.config?.tradingMode as string) === 'live';
+    if (isLiveMode && !isUnlimitedMode) {
+      const envCfg = getEnvironmentConfig();
+      const minUsdt = envCfg.LIVE_TRADING_MIN_USDT_USD;
+      if (effectiveBalance < minUsdt) {
+        logger.warn('Live trade skipped: effective balance below minimum USDT threshold', {
+          botId: bot.id,
+          effectiveBalance,
+          minUsdt,
+        });
+        // Email user once per 24h
+        const lastSent = lowBalanceAlertSentAt.get(bot.id) ?? 0;
+        if (Date.now() - lastSent > LOW_BALANCE_ALERT_COOLDOWN_MS) {
+          lowBalanceAlertSentAt.set(bot.id, Date.now());
+          query(
+            `SELECT u.email, u.name, b.config->>'name' AS bot_name
+             FROM users u JOIN bot_instances b ON b.user_id = u.id
+             WHERE b.id = $1`,
+            [bot.id]
+          ).then(rows => {
+            if (!rows.length || !rows[0].email) return;
+            const { email, name, bot_name } = rows[0];
+            return sendLowBalanceEmail(email, name, bot.id, bot_name || 'Trading Bot', bot.exchange, effectiveBalance, minUsdt);
+          }).catch(err => logger.warn('Failed to send low balance email', { botId: bot.id, error: err instanceof Error ? err.message : String(err) }));
+        }
+        return null;
+      }
     }
 
     // Initialize position sizer with actual balance (enables pyramiding via compounding)
@@ -261,9 +361,11 @@ class ExecutionFanOut {
       // Continue anyway - position sizer will use defaults without history
     }
 
+    const env = getEnvironmentConfig();
+
     // Calculate the actual stop loss percentage from the decision
     // Decision provides stopLoss from signal generation (5% per Nexus parity)
-    let stopLossPct = 0.05; // Default to 5% stop loss (parity with Nexus)
+    let stopLossPct = env.DEFAULT_STOP_LOSS_PCT; // Default from env (5%)
     if (decision.stopLoss && Math.abs(decision.stopLoss - decision.price) > 0.01) {
       // Only override if stopLoss is meaningfully different from price
       stopLossPct = Math.abs((decision.stopLoss - decision.price) / decision.price);
@@ -310,14 +412,12 @@ class ExecutionFanOut {
     // REGIME-BASED POSITION SIZING: Scale positions based on market regime
     // Strong trends = bigger positions (ride the wave)
     // Weak/choppy = smaller positions (reduce risk in uncertain markets)
-    const env = getEnvironmentConfig();
-    const transitionSizeMultiplier = env.ADX_TRANSITION_SIZE_MULTIPLIER; // 0.5 default
     const regimeMultipliers: Record<string, number> = {
-      strong: 1.5,                          // 50% larger in strong trends
-      moderate: 1.0,                        // Normal sizing
-      weak: 0.75,                           // 25% smaller in weak trends
-      transitioning: transitionSizeMultiplier, // From env (default 50% smaller)
-      choppy: 0.5,                          // 50% smaller in choppy markets
+      strong: env.REGIME_SIZE_STRONG,
+      moderate: env.REGIME_SIZE_MODERATE,
+      weak: env.REGIME_SIZE_WEAK,
+      transitioning: env.ADX_TRANSITION_SIZE_MULTIPLIER,
+      choppy: env.REGIME_SIZE_CHOPPY,
     };
     const regimeType = decision.regime?.type || 'moderate';
     const regimeMultiplier = regimeMultipliers[regimeType] ?? 1.0;
@@ -345,6 +445,49 @@ class ExecutionFanOut {
       return null;
     }
 
+    // MIN_NOTIONAL check — order value must meet exchange minimum (typically $10 on Binance)
+    const orderValueUSD = quantity * decision.price;
+    try {
+      const adapter = getExchangeAdapter(bot.exchange);
+      const minOrderUSD = await adapter.getMinOrderSize(decision.pair);
+      if (orderValueUSD < minOrderUSD) {
+        logger.warn('Order value below MIN_NOTIONAL, skipping trade — add funds to account', {
+          botId: bot.id,
+          pair: decision.pair,
+          orderValueUSD: orderValueUSD.toFixed(2),
+          minOrderUSD,
+          effectiveBalance: effectiveBalance.toFixed(2),
+        });
+
+        // Email user once per 24h so they know trades are paused
+        const lastSent = lowBalanceAlertSentAt.get(bot.id) ?? 0;
+        if (Date.now() - lastSent > LOW_BALANCE_ALERT_COOLDOWN_MS) {
+          lowBalanceAlertSentAt.set(bot.id, Date.now());
+          query(
+            `SELECT u.email, u.name, b.config->>'name' AS bot_name
+             FROM users u
+             JOIN bot_instances b ON b.user_id = u.id
+             WHERE b.id = $1`,
+            [bot.id]
+          ).then(rows => {
+            if (!rows.length || !rows[0].email) return;
+            const { email, name, bot_name } = rows[0];
+            return sendLowBalanceEmail(
+              email, name, bot.id,
+              bot_name || 'Trading Bot',
+              bot.exchange,
+              effectiveBalance,
+              minOrderUSD,
+            );
+          }).catch(err => logger.warn('Failed to send low balance email', { botId: bot.id, error: err instanceof Error ? err.message : String(err) }));
+        }
+
+        return null;
+      }
+    } catch {
+      // Non-critical — if we can't fetch min order size, proceed and let exchange reject if needed
+    }
+
     logger.info('Position size calculated', {
       botId: bot.id,
       effectiveBalance: `$${effectiveBalance.toFixed(2)}`,
@@ -355,15 +498,54 @@ class ExecutionFanOut {
       aiConfidence: `${aiConfidence.toFixed(0)}%`,
     });
 
-    // TODO: Check user balance (Phase 3 - exchange integration)
-    // TODO: Apply pyramiding rules
+    // Adapt pair quote currency to match user's dominant balance (USD vs USDT)
+    // e.g. BTC/USDT → BTC/USD when user has USD and no USDT
+    const [pairBase, pairQuote] = decision.pair.split('/');
+    const normalizedQuote = pairQuote === 'USD' ? 'USD' : 'USDT'; // canonical form in signals
+    const effectivePair = normalizedQuote !== dominantQuote
+      ? `${pairBase}/${dominantQuote}`
+      : decision.pair;
+
+    if (effectivePair !== decision.pair) {
+      logger.info('Pair quote adapted to match account currency', {
+        botId: bot.id,
+        original: decision.pair,
+        adapted: effectivePair,
+        dominantQuote,
+      });
+    }
+
+    // Apply LOT_SIZE rounding for both paper and live — ensures paper quantities
+    // match exactly what live would execute, surfacing precision errors during free trial.
+    // Uses public /v3/exchangeInfo (no auth needed), cached after first call.
+    let roundedQuantity = quantity;
+    if (bot.exchange.toLowerCase().includes('binance')) {
+      try {
+        const binanceAdapter = getExchangeAdapter(bot.exchange) as any;
+        if (typeof binanceAdapter.getLotStepSize === 'function') {
+          const symbol = effectivePair.replace('/', '');
+          const stepSize: number = await binanceAdapter.getLotStepSize(symbol);
+          roundedQuantity = Math.floor(quantity / stepSize) * stepSize;
+          if (roundedQuantity !== quantity) {
+            logger.debug('Quantity rounded to LOT_SIZE step (paper+live parity)', {
+              botId: bot.id,
+              original: quantity.toFixed(8),
+              rounded: roundedQuantity.toFixed(8),
+              stepSize,
+            });
+          }
+        }
+      } catch {
+        // Non-critical — proceed with unrounded quantity
+      }
+    }
 
     const plan: ExecutionPlan = {
       userId: bot.user_id,
       botInstanceId: bot.id,
-      pair: decision.pair,
+      pair: effectivePair,
       side: decision.side,
-      amount: quantity, // FIX: Use calculated amount based on capital
+      amount: roundedQuantity,
       price: decision.price,
       stopLoss: decision.stopLoss, // Risk management: passed from signal
       takeProfit: decision.takeProfit, // Dynamic profit target: passed from signal
@@ -456,20 +638,23 @@ class ExecutionFanOut {
     const { userId, botInstanceId, pair, side, amount, stopLoss, takeProfit } = plan;
     // Note: plan.price is the AI signal's suggested price (may be stale from candle close)
 
-    // DUPLICATE CHECK: Verify no open trade on same bot+pair exists
-    // This runs synchronously so no race condition possible
-    const existing = await query<{ id: string }>(
-      `SELECT id FROM trades WHERE bot_instance_id = $1 AND pair = $2
+    // DUPLICATE CHECK: Verify no open trade on same bot + base asset exists
+    // BTC/USD, BTC/USDT, BTC/USDC all count as the same "BTC position"
+    const pairBase = pair.split('/')[0];
+    const existing = await query<{ id: string; pair: string }>(
+      `SELECT id, pair FROM trades WHERE bot_instance_id = $1
+       AND pair LIKE $2
        AND status = 'open'
        LIMIT 1`,
-      [botInstanceId, pair]
+      [botInstanceId, `${pairBase}/%`]
     );
 
     if (existing && existing.length > 0) {
-      console.log(`\n🚫 DUPLICATE BLOCKED: ${pair} - open position already exists (trade: ${existing[0].id})`);
+      console.log(`\n🚫 DUPLICATE BLOCKED: ${pairBase} position already exists as ${existing[0].pair} (trade: ${existing[0].id})`);
       logger.info('Skipping trade: open position already exists (direct execution)', {
         botId: botInstanceId,
-        pair,
+        signalPair: pair,
+        existingPair: existing[0].pair,
         existingTradeId: existing[0].id,
       });
       return { executed: false, reason: 'open_position_exists' };
@@ -727,7 +912,7 @@ class ExecutionFanOut {
     botId: string,
     userId: string,
     exchange: string
-  ): Promise<number> {
+  ): Promise<{ available: number; dominantQuote: string }> {
     try {
       // Get API keys for this exchange
       const keysResult = await query(
@@ -786,25 +971,58 @@ class ExecutionFanOut {
         throw new Error(`Failed to fetch balance from ${exchange}: ${errorMsg}`);
       }
 
-      // Calculate total USDT/USD value
-      let totalAvailable = 0;
+      // Tally free (unlocked) stablecoins separately — each maps to a different pair suffix
+      // Global Binance: USDT (primary) or USDC (secondary, has BTC/USDC pairs)
+      // Binance US: USDT or USD (both have BTC pairs)
+      let freeUSDT = 0;
+      let freeUSDC = 0;
+      let freeUSD = 0;
       for (const balance of balances) {
         const asset = balance.asset.toUpperCase();
+        if (asset === 'USDT') freeUSDT += balance.free;
+        else if (asset === 'USDC') freeUSDC += balance.free;
+        else if (asset === 'USD' || asset === 'ZUSD') freeUSD += balance.free;
+      }
 
-        // Sum USD and USDT (and ZUSD for Kraken)
-        if (asset === 'USD' || asset === 'USDT' || asset === 'ZUSD') {
-          totalAvailable += balance.total;
+      // Determine which exchanges support USD pairs (not just USDT/USDC)
+      // Kraken: BTC/USD, BTC/USDT, BTC/USDC all valid
+      // Binance US: BTC/USD, BTC/USDT valid
+      // Global Binance (binance.com): only BTC/USDT, BTC/USDC — no USD pairs
+      const apiBase = getEnvironmentConfig().BINANCE_API_BASE_URL;
+      const supportsUsdPairs = exchange === 'kraken' || apiBase.includes('binance.us');
+
+      // Pick dominant quote using ONLY that currency's free balance for sizing.
+      // Mixing currencies would size the order larger than what's available in the chosen pair.
+      let dominantQuote: string;
+      let available: number;
+      if (supportsUsdPairs) {
+        // USD, USDT, or USDC — pick whichever has most free balance
+        const max = Math.max(freeUSDT, freeUSDC, freeUSD);
+        if (freeUSD >= max) { dominantQuote = 'USD'; available = freeUSD; }
+        else if (freeUSDC >= max) { dominantQuote = 'USDC'; available = freeUSDC; }
+        else { dominantQuote = 'USDT'; available = freeUSDT; }
+      } else {
+        // Global Binance: no USD pairs — USDT primary, USDC fallback
+        if (freeUSDC > freeUSDT) {
+          dominantQuote = 'USDC';
+          available = freeUSDC;
+        } else {
+          dominantQuote = 'USDT';
+          available = freeUSDT;
         }
       }
 
-      logger.info('Fetched real exchange balance for unlimited capital bot', {
+      logger.info('Fetched real exchange balance', {
         botId,
         exchange,
-        available: totalAvailable,
-        currencyCount: balances.length,
+        freeUSDT,
+        freeUSDC,
+        freeUSD,
+        available,
+        dominantQuote,
       });
 
-      return totalAvailable;
+      return { available, dominantQuote };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error('Failed to fetch real exchange balance', error instanceof Error ? error : null, {
