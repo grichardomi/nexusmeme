@@ -861,31 +861,28 @@ export class BinanceAdapter extends BaseExchangeAdapter {
   ): Promise<{ price: number; qty: number; commission: number; commissionAsset: string; time: number } | null> {
     this.validatePair(pair);
     const symbol = this.normalizeSymbol(pair);
-    try {
-      const trades = await this.circuitBreaker.execute(() =>
-        this.privateRequest('/v3/myTrades', { symbol, limit: 50, startTime: sinceMs }, 'GET')
-      ) as Array<{
-        isBuyer: boolean; price: string; qty: string;
-        commission: string; commissionAsset: string; time: number;
-      }>;
+    // Let errors propagate so the reconciler can log them
+    const trades = await this.circuitBreaker.execute(() =>
+      this.privateRequest('/v3/myTrades', { symbol, limit: 50, startTime: sinceMs }, 'GET')
+    ) as Array<{
+      isBuyer: boolean; price: string; qty: string;
+      commission: string; commissionAsset: string; time: number;
+    }>;
 
-      // Find the most recent SELL (isBuyer=false) after sinceMs
-      const sells = trades
-        .filter(t => !t.isBuyer && t.time > sinceMs)
-        .sort((a, b) => b.time - a.time);
+    // Find the most recent SELL (isBuyer=false) after sinceMs
+    const sells = trades
+      .filter(t => !t.isBuyer && t.time > sinceMs)
+      .sort((a, b) => b.time - a.time);
 
-      if (!sells.length) return null;
-      const t = sells[0];
-      return {
-        price: parseFloat(t.price),
-        qty: parseFloat(t.qty),
-        commission: parseFloat(t.commission),
-        commissionAsset: t.commissionAsset,
-        time: t.time,
-      };
-    } catch {
-      return null;
-    }
+    if (!sells.length) return null;
+    const t = sells[0];
+    return {
+      price: parseFloat(t.price),
+      qty: parseFloat(t.qty),
+      commission: parseFloat(t.commission),
+      commissionAsset: t.commissionAsset,
+      time: t.time,
+    };
   }
 
   async getStatus(): Promise<boolean> {

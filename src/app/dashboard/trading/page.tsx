@@ -40,8 +40,8 @@ export default function TradingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
   const [liveBalances, setLiveBalances] = useState<Record<string, number>>({});
-  const [freeStablecoins, setFreeStablecoins] = useState<Record<string, number>>({});
   const [liveMinimums, setLiveMinimums] = useState<Record<string, number>>({});
+  const [totalAccountValues, setTotalAccountValues] = useState<Record<string, number>>({});
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isClosingAll, setIsClosingAll] = useState(false);
   const [showCloseAllConfirm, setShowCloseAllConfirm] = useState(false);
@@ -117,8 +117,9 @@ export default function TradingPage() {
         if (!response.ok) return;
         const data = await response.json();
         setLiveBalances(prev => ({ ...prev, [selectedBotId]: data.available }));
-        if (data.real != null) setFreeStablecoins(prev => ({ ...prev, [selectedBotId]: data.real }));
+
         if (data.minimum != null) setLiveMinimums(prev => ({ ...prev, [selectedBotId]: data.minimum }));
+        if (data.totalAccountValue != null) setTotalAccountValues(prev => ({ ...prev, [selectedBotId]: data.totalAccountValue }));
       } catch (err) {
         console.error('Error fetching balance:', err);
       } finally {
@@ -255,19 +256,18 @@ export default function TradingPage() {
 
         {/* Low Balance Warning Banner — shown when live bot free cash is below minimum */}
         {selectedBot && selectedBot.tradingMode === 'live' && (() => {
-          const free = freeStablecoins[selectedBot.id];
+          const total = totalAccountValues[selectedBot.id];
           const min = liveMinimums[selectedBot.id] ?? 1000;
-          if (free == null || free >= min) return null;
+          if (total == null || total >= min) return null;
           return (
             <div className="bg-red-50 dark:bg-red-900/30 border border-red-400 dark:border-red-600 rounded-lg p-4 flex gap-3 items-start">
               <span className="text-red-500 text-xl mt-0.5">⚠️</span>
               <div>
                 <p className="text-red-800 dark:text-red-200 font-semibold text-sm">
-                  Trades paused — insufficient free cash
+                  Trades paused — insufficient account value
                 </p>
                 <p className="text-red-700 dark:text-red-300 text-xs mt-1">
-                  Free USD/USDT: <strong>${free.toFixed(2)}</strong> — minimum required: <strong>${min.toLocaleString()}</strong>.
-                  BTC and ETH holdings do not count. Convert some to USD or USDT on Binance to resume trading.
+                  Total account value: <strong>${total.toFixed(2)}</strong> — minimum required: <strong>${min.toLocaleString()}</strong>.
                 </p>
                 <a
                   href={`/dashboard/bots/${selectedBot.id}`}
@@ -348,15 +348,15 @@ export default function TradingPage() {
                 {/* Pause / Resume button */}
                 {(() => {
                   const isResuming = selectedBot.botStatus !== 'running';
-                  const free = freeStablecoins[selectedBot.id];
+                  const total = totalAccountValues[selectedBot.id];
                   const min = liveMinimums[selectedBot.id] ?? 1000;
-                  const blockedByBalance = isResuming && selectedBot.tradingMode === 'live' && free != null && free < min;
+                  const blockedByBalance = isResuming && selectedBot.tradingMode === 'live' && total != null && total < min;
                   return (
                     <div className="flex flex-col items-end gap-1">
                       <button
                         onClick={() => !blockedByBalance && handleToggleBot(selectedBot.id, selectedBot.botStatus === 'running')}
                         disabled={isTogglingBot || blockedByBalance}
-                        title={blockedByBalance ? `Free cash $${free?.toFixed(2)} is below the $${min.toLocaleString()} minimum` : undefined}
+                        title={blockedByBalance ? `Total account value $${total?.toFixed(2)} is below the $${min.toLocaleString()} minimum` : undefined}
                         className={`px-3 py-1 rounded text-sm font-semibold transition ${
                           blockedByBalance
                             ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60'
@@ -369,7 +369,7 @@ export default function TradingPage() {
                       </button>
                       {blockedByBalance && (
                         <p className="text-xs text-red-600 dark:text-red-400">
-                          Add funds first — free cash ${free?.toFixed(0)} &lt; ${min.toLocaleString()} min
+                          Add funds first — account value ${total?.toFixed(0)} &lt; ${min.toLocaleString()} min
                         </p>
                       )}
                     </div>

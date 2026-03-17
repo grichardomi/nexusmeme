@@ -122,6 +122,9 @@ export default function BillingPage() {
       return 'Trial Expired';
     }
     // Show different name based on trading mode during trial
+    if (userPlan?.tradingMode === 'live') {
+      return `${trialDays ?? '…'}-Day Free Trial (Live Trading)`;
+    }
     if (userPlan?.tradingMode === 'paper') {
       return `${trialDays ?? '…'}-Day Free Trial (Paper Trading)`;
     }
@@ -147,7 +150,9 @@ export default function BillingPage() {
 
     switch (userPlan?.plan) {
       case 'live_trial':
-        return 'You are on a free trial with paper trading. Switch to live trading to trade with real money.';
+        return userPlan?.tradingMode === 'live'
+          ? `You are live trading during your free trial. ${feeDisplay}% on profitable trades only.`
+          : 'You are on a free trial with paper trading. Switch to live trading to trade with real money.';
       case 'performance_fees':
         return `${feeDisplay}% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.`;
       default:

@@ -20,6 +20,8 @@ import { jobQueueManager } from '@/services/job-queue/singleton';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import { sendBotSuspendedEmail, sendLowBalanceEmail } from '@/services/email/triggers';
 import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconciler';
+import { startUserDataStreamsForAllLiveBots } from '@/services/exchanges/binance-user-data-stream';
+import { startKrakenStreamsForAllLiveBots } from '@/services/exchanges/kraken-user-data-stream';
 import type { TradeDecision } from '@/types/market';
 
 interface BotInstance {
@@ -98,6 +100,15 @@ class TradeSignalOrchestrator {
 
     // Initialize position tracker from database (load peak profits from previous session)
     await positionTracker.initializeFromDatabase();
+
+    // Start Binance User Data Streams for all live running bots.
+    // Real-time fill detection via WebSocket (~100ms) replaces polling for external closes.
+    startUserDataStreamsForAllLiveBots().catch(err => {
+      logger.warn('Failed to start Binance user data streams on startup', { error: err instanceof Error ? err.message : String(err) });
+    });
+    startKrakenStreamsForAllLiveBots().catch(err => {
+      logger.warn('Failed to start Kraken user data streams on startup', { error: err instanceof Error ? err.message : String(err) });
+    });
 
     // Reconcile exchange fills every 30 seconds — closes trades that filled on the
     // exchange but weren't recorded in DB (crash during exit, manual close, etc.)

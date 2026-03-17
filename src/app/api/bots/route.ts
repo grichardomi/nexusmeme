@@ -8,6 +8,8 @@ import { tradingConfig, getSupportedExchanges } from '@/config/environment';
 import { checkActionAllowed } from '@/services/billing/subscription';
 import { checkMinimumBalance } from '@/services/billing/balance-guard';
 import { sendBotCreatedEmail } from '@/services/email/triggers';
+import { startUserDataStream, stopUserDataStream } from '@/services/exchanges/binance-user-data-stream';
+import { startKrakenUserDataStream, stopKrakenUserDataStream } from '@/services/exchanges/kraken-user-data-stream';
 
 /**
  * GET /api/bots
@@ -732,6 +734,31 @@ export async function PATCH(request: NextRequest) {
         status,
       },
     });
+
+    // Manage User Data Stream for live bots (real-time fill detection)
+    if (result.config?.tradingMode === 'live' && status !== undefined) {
+      const exchange = result.exchange as string;
+      const keysResult = await query<{ encrypted_public_key: string; encrypted_secret_key: string }>(
+        `SELECT encrypted_public_key, encrypted_secret_key FROM exchange_api_keys
+         WHERE user_id = $1 AND exchange = $2`,
+        [session.user.id, exchange]
+      );
+      if (keysResult.length > 0) {
+        const { encrypted_public_key, encrypted_secret_key } = keysResult[0];
+        if (status === 'running') {
+          if (exchange === 'binance') {
+            startUserDataStream(botId, encrypted_public_key, encrypted_secret_key)
+              .catch(err => logger.warn('Failed to start Binance stream', { botId, error: err instanceof Error ? err.message : String(err) }));
+          } else if (exchange === 'kraken') {
+            startKrakenUserDataStream(botId, encrypted_public_key, encrypted_secret_key)
+              .catch(err => logger.warn('Failed to start Kraken stream', { botId, error: err instanceof Error ? err.message : String(err) }));
+          }
+        } else {
+          if (exchange === 'binance') stopUserDataStream(botId);
+          else if (exchange === 'kraken') stopKrakenUserDataStream(botId);
+        }
+      }
+    }
 
     return NextResponse.json({
       message: 'Bot updated successfully',

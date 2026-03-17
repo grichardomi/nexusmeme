@@ -49,6 +49,7 @@ class RiskManager {
     pyramidL2ConfidenceMin: 90,
     entryMinIntrabarMomentumChoppy: 0.05,
     entryMinIntrabarMomentumTrending: 0,
+    exchange: 'binance' as string,
   };
 
   /**
@@ -111,6 +112,7 @@ class RiskManager {
       // Routes to correct pyramid env vars based on exchange type
       pyramidL1ConfidenceMin: parseFloat(process.env[`${exchangePrefix}_PYRAMID_L1_CONFIDENCE_MIN`] || '85'),
       pyramidL2ConfidenceMin: parseFloat(process.env[`${exchangePrefix}_PYRAMID_L2_CONFIDENCE_MIN`] || '90'),
+      exchange,
     };
     logger.debug('RiskManager initialized from bot config + environment', {
       exchange,
@@ -763,7 +765,7 @@ class RiskManager {
     // Use ADX-based profit target percentage (not dollar amount)
     const regime = this.getRegime(adx, adxSlope);
     const profitTargetPct = this.getProfitTarget(regime, adxSlope);
-    const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct);
+    const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct, this.config.exchange);
     if (!stage5.pass) {
       return stage5;
     }

@@ -68,11 +68,70 @@ export async function reconcileBinanceFills(): Promise<void> {
       }
 
       const entryMs = new Date(trade.entry_time).getTime();
-      const fill = await (adapter as any).getRecentSellFill(trade.pair, entryMs) as {
-        price: number; qty: number; commission: number; commissionAsset: string; time: number;
-      } | null;
+      const tradeQty = parseFloat(String(trade.amount));
 
-      if (!fill) continue; // No qualifying SELL fill — trade still open on exchange
+      let fill: { price: number; qty: number; commission: number; commissionAsset: string; time: number } | null = null;
+
+      try {
+        fill = await (adapter as any).getRecentSellFill(trade.pair, entryMs);
+      } catch (fillErr) {
+        logger.warn('Fill reconciler: getRecentSellFill failed — falling back to balance check', {
+          tradeId: trade.trade_id,
+          pair: trade.pair,
+          exchange: trade.exchange,
+          error: fillErr instanceof Error ? fillErr.message : String(fillErr),
+        });
+      }
+
+      if (!fill) {
+        // Fallback: check if the base asset balance is below the trade quantity.
+        // If so, the position was externally closed (sold on Binance directly).
+        try {
+          const [base] = trade.pair.split('/');
+          const balances = await adapter.getBalances();
+          const baseBalance = balances.find(b => b.asset.toUpperCase() === base.toUpperCase());
+          const freeBase = baseBalance?.free ?? 0;
+          const totalBase = baseBalance?.total ?? 0;
+          if (freeBase + totalBase < tradeQty * 0.5) {
+            // Balance is less than 50% of trade size — position is gone on exchange
+            logger.info('Fill reconciler: balance check shows position closed externally', {
+              tradeId: trade.trade_id,
+              pair: trade.pair,
+              tradeQty,
+              freeBase,
+              totalBase,
+            });
+            // Use last known price as exit price (best approximation without fill data)
+            const entryPrice = parseFloat(String(trade.price));
+            const entryFee = parseFloat(String(trade.fee ?? '0')) || 0;
+            const grossPL = 0; // Unknown exit price — record as breakeven
+            await query(
+              `UPDATE trades
+               SET exit_time           = NOW(),
+                   exit_price          = $1,
+                   profit_loss         = $2,
+                   profit_loss_percent = 0,
+                   exit_reason         = 'external_close_detected',
+                   status              = 'closed'
+               WHERE id = $3 AND status = 'open'`,
+              [entryPrice, grossPL - entryFee, trade.trade_id]
+            );
+            logger.info('Fill reconciler: trade closed via balance check', {
+              tradeId: trade.trade_id, pair: trade.pair,
+            });
+          } else {
+            logger.debug('Fill reconciler: no sell fill, position still open', {
+              tradeId: trade.trade_id, pair: trade.pair, freeBase, totalBase, tradeQty,
+            });
+          }
+        } catch (balErr) {
+          logger.warn('Fill reconciler: balance fallback failed', {
+            tradeId: trade.trade_id,
+            error: balErr instanceof Error ? balErr.message : String(balErr),
+          });
+        }
+        continue;
+      }
 
       // SELL fill found — close the trade in DB
       const entryPrice = parseFloat(String(trade.price));

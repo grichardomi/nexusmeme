@@ -716,35 +716,32 @@ export class KrakenAdapter extends BaseExchangeAdapter {
     pair: string,
     sinceMs: number
   ): Promise<{ price: number; qty: number; commission: number; commissionAsset: string; time: number } | null> {
-    try {
-      const sinceSeconds = Math.floor(sinceMs / 1000);
-      const result = await this.privateRequest('/0/private/TradesHistory', {
-        type: 'sell',
-        start: sinceSeconds.toString(),
-      });
+    // Let errors propagate so the reconciler can log them
+    const sinceSeconds = Math.floor(sinceMs / 1000);
+    const result = await this.privateRequest('/0/private/TradesHistory', {
+      type: 'sell',
+      start: sinceSeconds.toString(),
+    });
 
-      const trades: Record<string, any> = result?.result?.trades ?? {};
-      const krakenPair = this.convertToPairFormat(pair);
-      const [, quote] = pair.split('/');
+    const trades: Record<string, any> = result?.result?.trades ?? {};
+    const krakenPair = this.convertToPairFormat(pair);
+    const [, quote] = pair.split('/');
 
-      // Find sells for this pair after sinceMs
-      const matching = Object.values(trades)
-        .filter((t: any) => t.pair === krakenPair && t.time * 1000 > sinceMs)
-        .sort((a: any, b: any) => b.time - a.time);
+    // Find sells for this pair after sinceMs
+    const matching = Object.values(trades)
+      .filter((t: any) => t.pair === krakenPair && t.time * 1000 > sinceMs)
+      .sort((a: any, b: any) => b.time - a.time);
 
-      if (!matching.length) return null;
-      const t = matching[0] as any;
-      // Kraken fee is in quote currency
-      return {
-        price: parseFloat(t.price),
-        qty: parseFloat(t.vol),
-        commission: parseFloat(t.fee),
-        commissionAsset: quote,
-        time: Math.round(t.time * 1000),
-      };
-    } catch {
-      return null;
-    }
+    if (!matching.length) return null;
+    const t = matching[0] as any;
+    // Kraken fee is in quote currency
+    return {
+      price: parseFloat(t.price),
+      qty: parseFloat(t.vol),
+      commission: parseFloat(t.fee),
+      commissionAsset: quote,
+      time: Math.round(t.time * 1000),
+    };
   }
 
   async getStatus(): Promise<boolean> {

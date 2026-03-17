@@ -31,8 +31,20 @@ export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBa
   useEffect(() => {
     const fetchTrialInfo = async () => {
       try {
-        // Fetch trial info
-        const trialRes = await fetch('/api/billing/trial-info');
+        const [trialRes, subsRes] = await Promise.all([
+          fetch('/api/billing/trial-info'),
+          fetch('/api/billing/subscriptions'),
+        ]);
+
+        // If user already has a live bot, suppress the trial banner entirely —
+        // they've already switched to live trading, no need to prompt them again.
+        if (subsRes.ok) {
+          const subsData = await subsRes.json();
+          if (subsData.planUsage?.limits?.tradingMode === 'live') {
+            setLoading(false);
+            return;
+          }
+        }
 
         if (trialRes.ok) {
           const data = await trialRes.json();

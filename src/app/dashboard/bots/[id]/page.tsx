@@ -680,13 +680,13 @@ export default function BotDetailPage() {
                     {freeStablecoin !== null && (
                       <div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">Available to Trade</p>
-                        <p className={`text-sm font-semibold mt-0.5 ${bot.tradingMode === 'live' && freeStablecoin < liveMinimum ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
+                        <p className={`text-sm font-semibold mt-0.5 ${bot.tradingMode === 'live' && totalAccountValue !== null && totalAccountValue < liveMinimum ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
                           ${freeStablecoin.toFixed(2)}
                           <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">USD/USDT/USDC (cash only)</span>
                         </p>
-                        {bot.tradingMode === 'live' && freeStablecoin < liveMinimum && (
+                        {bot.tradingMode === 'live' && totalAccountValue !== null && totalAccountValue < liveMinimum && (
                           <div className="mt-1.5 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300">
-                            <strong>Trades paused.</strong> Free cash ${freeStablecoin.toFixed(0)} is below the ${liveMinimum.toLocaleString()} minimum. BTC/ETH holdings don&apos;t count — convert some to USD or USDT on Binance to resume trading.
+                            <strong>Trades paused.</strong> Total account value ${totalAccountValue.toFixed(0)} (cash + open positions) is below the ${liveMinimum.toLocaleString()} minimum.
                           </div>
                         )}
                       </div>
@@ -839,17 +839,17 @@ export default function BotDetailPage() {
           <div className="mt-6 flex gap-4">
             {!bot.isActive ? (
               <div className="flex-1 flex flex-col gap-1">
-                {bot.tradingMode === 'live' && freeStablecoin !== null && freeStablecoin < liveMinimum ? (
+                {bot.tradingMode === 'live' && totalAccountValue !== null && totalAccountValue < liveMinimum ? (
                   <>
                     <button
                       disabled
                       className="w-full bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-6 py-3 rounded font-medium cursor-not-allowed"
-                      title={`Free cash $${freeStablecoin.toFixed(2)} is below the $${liveMinimum.toLocaleString()} minimum`}
+                      title={`Total account value $${totalAccountValue.toFixed(2)} is below the $${liveMinimum.toLocaleString()} minimum`}
                     >
                       ▶️ Start Bot
                     </button>
                     <p className="text-xs text-red-600 dark:text-red-400 text-center">
-                      Cannot start — free cash ${freeStablecoin.toFixed(0)} &lt; ${liveMinimum.toLocaleString()} minimum. Convert BTC/ETH to USD/USDT first.
+                      Cannot start — total account value ${totalAccountValue.toFixed(0)} &lt; ${liveMinimum.toLocaleString()} minimum.
                     </p>
                   </>
                 ) : (
