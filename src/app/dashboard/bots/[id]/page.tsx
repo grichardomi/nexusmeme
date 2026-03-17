@@ -730,12 +730,17 @@ export default function BotDetailPage() {
                         })()}
                       </div>
                     )}
-                    {totalAccountValue !== null && (
+                    {totalAccountValue !== null && balanceBreakdown && (balanceBreakdown.btcValue > 0 || balanceBreakdown.ethValue > 0) && (
                       <div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Total Holdings</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Open Positions</p>
                         <p className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                          ${totalAccountValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">incl. BTC + ETH</span>
+                          ${(balanceBreakdown.btcValue + balanceBreakdown.ethValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          <span className="text-xs font-normal text-slate-500 dark:text-slate-400 ml-1">
+                            {[
+                              balanceBreakdown.btcValue > 0 ? `${balanceBreakdown.btcHoldings.toFixed(5)} BTC` : null,
+                              balanceBreakdown.ethValue > 0 ? `${balanceBreakdown.ethHoldings.toFixed(4)} ETH` : null,
+                            ].filter(Boolean).join(' · ')}
+                          </span>
                         </p>
                       </div>
                     )}

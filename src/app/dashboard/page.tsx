@@ -116,8 +116,8 @@ export default function DashboardPage() {
         // Load initial trades
         loadTrades();
 
-        // Fetch stats
-        const statsResponse = await fetch('/api/trades?limit=1000');
+        // Fetch stats — live mode only (after live_since) to exclude paper/trial trades
+        const statsResponse = await fetch('/api/trades?limit=1000&mode=live');
         if (statsResponse.ok) {
           const data = await statsResponse.json();
           const tradeStats = data.stats || {};
@@ -301,7 +301,7 @@ export default function DashboardPage() {
           >
             ${Math.abs(stats.totalProfit).toFixed(2)}
           </div>
-          <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">All time</div>
+          <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Live trades</div>
         </div>
 
         {/* Win Rate Card */}
