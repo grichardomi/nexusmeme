@@ -412,11 +412,13 @@ export class KrakenAdapter extends BaseExchangeAdapter {
 
       logApiCall('kraken', 'get_ticker', 'GET', Date.now() - startTime, 200);
 
-      // Kraken returns: { PAIR: { a: [ask, wholeLotAsk, askVolume], b: [bid, ...], c: [last, volume], ... } }
-      const tickerData = result[krakenPair];
+      // Kraken returns: { PAIR: { a: [ask, ...], b: [bid, ...], c: [last, volume], ... } }
+      // The response key may differ from what we sent (e.g. we send XXBTUSDT, they return XBTUSDT)
+      // so take the first key in the result rather than looking up by our sent name.
+      const tickerData = result[krakenPair] ?? result[Object.keys(result)[0]];
 
       if (!tickerData) {
-        logger.warn('No ticker data for pair', { pair, krakenPair });
+        logger.warn('No ticker data for pair', { pair, krakenPair, responseKeys: Object.keys(result) });
         throw new Error(`No data for pair ${pair}`);
       }
 
@@ -529,18 +531,32 @@ export class KrakenAdapter extends BaseExchangeAdapter {
   private convertToPairFormat(pair: string): string {
     const [base, quote] = pair.split('/');
 
-    // Map common base symbols to Kraken prefixes
-    const baseMap: Record<string, string> = {
-      'BTC': 'XXBT',  // Bitcoin
-      'ETH': 'XETH',  // Ethereum
-      'SOL': 'SOL',
+    // Kraken uses X-prefixed base names (XXBT, XETH) for fiat-quoted pairs (USD/EUR)
+    // but drops the X-prefix for stablecoin-quoted pairs (USDT/USDC).
+    // Verified against live API: XBTUSDT ✅, XXBTUSDT ❌, ETHUSDT ✅, XETHUSDT ❌
+    const isStablecoinQuote = quote === 'USDT' || quote === 'USDC';
+
+    const fiatBaseMap: Record<string, string> = {
+      'BTC': 'XXBT',
+      'ETH': 'XETH',
       'XRP': 'XXRP',
+      'LTC': 'XLTC',
+      'BCH': 'XBCH',
+      'XMR': 'XXMR',
+      'ZEC': 'XZEC',
+    };
+
+    const stableBaseMap: Record<string, string> = {
+      'BTC': 'XBT',
+      'ETH': 'ETH',
+      'XRP': 'XRP',
+      'LTC': 'LTC',
+      'BCH': 'BCH',
+      'XMR': 'XMR',
+      'ZEC': 'ZEC',
+      'SOL': 'SOL',
       'ADA': 'ADA',
       'DOT': 'DOT',
-      'LTC': 'XLTC',  // Litecoin
-      'BCH': 'XBCH',  // Bitcoin Cash
-      'XMR': 'XXMR',  // Monero
-      'ZEC': 'XZEC',  // Zcash
     };
 
     // Map common quote symbols to Kraken suffixes
@@ -551,8 +567,9 @@ export class KrakenAdapter extends BaseExchangeAdapter {
       'USDC': 'USDC',
     };
 
-    const krakenBase = baseMap[base] || base;
-    const krakenQuote = quoteMap[quote] || quote;
+    const baseMapToUse = isStablecoinQuote ? stableBaseMap : fiatBaseMap;
+    const krakenBase = baseMapToUse[base] ?? base;
+    const krakenQuote = quoteMap[quote] ?? quote;
 
     return `${krakenBase}${krakenQuote}`;
   }
