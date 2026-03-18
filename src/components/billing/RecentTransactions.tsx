@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { useLoadMore } from '@/hooks/useLoadMore';
+import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
 
 interface Transaction {
   id?: string;
@@ -36,6 +37,9 @@ interface BotOption {
 export function RecentTransactions() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [botFilter, setBotFilter] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<DateRange>('1m');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [bots, setBots] = useState<BotOption[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -57,11 +61,13 @@ export function RecentTransactions() {
       .catch(() => {});
   }, []);
 
-  // Memoize fetch function with status + bot filters
+  // Memoize fetch function with status + bot + date filters
   const fetchTransactionsData = useCallback(async (offset: number, limit: number) => {
     const params = new URLSearchParams({ type: 'transactions', offset: String(offset), limit: String(limit) });
     if (statusFilter !== 'all') params.set('status', statusFilter);
     if (botFilter !== 'all') params.set('bot', botFilter);
+    const from = getFromDate(dateRange, customFrom);
+    if (from) params.set('from', from);
     const response = await fetch(`/api/fees/performance?${params}`);
     if (!response.ok) throw new Error('Failed to fetch transactions');
 
@@ -71,7 +77,7 @@ export function RecentTransactions() {
       items: data.recentTransactions || [],
       total: data.transactionTotal || 0,
     };
-  }, [statusFilter, botFilter]);
+  }, [statusFilter, botFilter, dateRange, customFrom]);
 
   // Load more pagination
   const { items: transactions, isLoading, error, hasMore, load, loadMore, reset } = useLoadMore<Transaction>({
@@ -84,7 +90,7 @@ export function RecentTransactions() {
   useEffect(() => {
     reset();
     load();
-  }, [load, reset, statusFilter, botFilter]);
+  }, [load, reset, statusFilter, botFilter, dateRange, customFrom]);
 
   // Smooth scroll to new items after load more completes
   useEffect(() => {
@@ -184,8 +190,18 @@ export function RecentTransactions() {
         }`}
       >
         <div className="px-4 sm:px-6 pb-4 sm:pb-6">
+          {/* Date Range Tabs */}
+          <div className="pt-2 pb-3 border-t border-slate-200 dark:border-slate-700">
+            <DateRangeTabs
+              value={dateRange}
+              customFrom={customFrom}
+              customTo={customTo}
+              onChange={(range, from, to) => { setDateRange(range); setCustomFrom(from); setCustomTo(to); }}
+            />
+          </div>
+
           {/* Filter Row */}
-          <div className="flex flex-wrap items-center gap-2 mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             {/* Bot filter — only shown when user has multiple bots */}
             {bots.length > 1 && (
               <select
@@ -215,9 +231,9 @@ export function RecentTransactions() {
             </select>
 
             {/* Active filter pills */}
-            {(statusFilter !== 'all' || botFilter !== 'all') && (
+            {(statusFilter !== 'all' || botFilter !== 'all' || dateRange !== '1m') && (
               <button
-                onClick={() => { setStatusFilter('all'); setBotFilter('all'); }}
+                onClick={() => { setStatusFilter('all'); setBotFilter('all'); setDateRange('1m'); setCustomFrom(''); setCustomTo(''); }}
                 className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white underline ml-auto"
               >
                 Clear filters

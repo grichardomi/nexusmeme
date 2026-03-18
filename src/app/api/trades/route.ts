@@ -148,9 +148,11 @@ export async function GET(request: NextRequest) {
       limit = parseInt(searchParams.get('limit') || '50', 10);
     }
 
-    // 2-year viewing window
+    // Date window: use explicit 'from' param if provided, otherwise default 2-year window
+    const fromParam = searchParams.get('from');
     const twoYearsAgo = new Date();
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const windowStart = fromParam ? new Date(fromParam) : twoYearsAgo;
 
     interface CachedTrade {
       id: string;
@@ -246,7 +248,7 @@ export async function GET(request: NextRequest) {
           ${modeWhere}
         ORDER BY t.exit_time DESC, t.entry_time DESC
         LIMIT $3 OFFSET $4`,
-        [session.user.id, botId || null, limit, offset, twoYearsAgo.toISOString()]
+        [session.user.id, botId || null, limit, offset, windowStart.toISOString()]
       );
     } catch (queryError) {
       // Fallback if exit_price, exit_reason, or pyramid_levels columns don't exist yet
@@ -287,7 +289,7 @@ export async function GET(request: NextRequest) {
             ${modeWhere}
           ORDER BY t.exit_time DESC, t.entry_time DESC
           LIMIT $3 OFFSET $4`,
-          [session.user.id, botId || null, limit, offset, twoYearsAgo.toISOString()]
+          [session.user.id, botId || null, limit, offset, windowStart.toISOString()]
         );
       } else {
         throw queryError;
@@ -304,7 +306,7 @@ export async function GET(request: NextRequest) {
         AND t.entry_time >= $3
         ${statusWhere}
         ${modeWhere}`,
-      [session.user.id, botId || null, twoYearsAgo.toISOString()]
+      [session.user.id, botId || null, windowStart.toISOString()]
     );
     const total = parseInt(String(countResult[0]?.count || '0'), 10);
 

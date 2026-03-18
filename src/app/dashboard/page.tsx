@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
 import { useLoadMore } from '@/hooks/useLoadMore';
+import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
 
 /**
  * Dashboard Home Page - Mobile-First Design
@@ -63,13 +64,19 @@ export default function DashboardPage() {
   const [tradesOpen, setTradesOpen] = useState(false);
   const [lowBalanceBots, setLowBalanceBots] = useState<Array<{ id: string; name: string; exchange: string; free: number; minimum: number }>>([]);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [dateRange, setDateRange] = useState<DateRange>('1m');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
 
-  // Memoize fetch function with status filter
+  // Memoize fetch function with status + date filters
   const fetchTradesData = useCallback(async (offset: number, limit: number) => {
-    const response = await fetch(`/api/trades?offset=${offset}&limit=${limit}&status=${statusFilter}`);
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit), status: statusFilter });
+    const from = getFromDate(dateRange, customFrom);
+    if (from) params.set('from', from);
+    const response = await fetch(`/api/trades?${params}`);
     if (!response.ok) throw new Error('Failed to fetch trades');
 
     const data = await response.json();
@@ -77,7 +84,7 @@ export default function DashboardPage() {
       items: data.trades || [],
       total: data.total || 0,
     };
-  }, [statusFilter]);
+  }, [statusFilter, dateRange, customFrom]);
 
   // Use Load More hook for trades
   const { items: trades, isLoading: tradesLoading, error: tradesError, hasMore, load: loadTrades, loadMore } = useLoadMore<Trade>({
@@ -86,7 +93,7 @@ export default function DashboardPage() {
     fetchFn: fetchTradesData,
   });
 
-  // Hooks must be called before any conditional returns
+  // One-time mount effect: fetch bots, API key status, and stats
   useEffect(() => {
     async function fetchData() {
       try {
@@ -113,9 +120,6 @@ export default function DashboardPage() {
           setHasApiKeys(null); // Unknown - don't show banner
         }
 
-        // Load initial trades
-        loadTrades();
-
         // Fetch stats — live mode only (after live_since) to exclude paper/trial trades
         const statsResponse = await fetch('/api/trades?limit=1000&mode=live');
         if (statsResponse.ok) {
@@ -136,6 +140,11 @@ export default function DashboardPage() {
     }
 
     fetchData();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load trades on mount and whenever filters change (loadTrades ref changes when filters change)
+  useEffect(() => {
+    loadTrades();
   }, [loadTrades]);
 
   // Check balance for all live running bots — surface low-balance warnings on dashboard
@@ -168,13 +177,6 @@ export default function DashboardPage() {
     const activeBotCount = bots.filter(b => b.isActive).length;
     setStats(prev => ({ ...prev, activeBots: activeBotCount }));
   }, [bots]);
-
-  // Load trades when filter changes
-  useEffect(() => {
-    if (!isLoading) {
-      loadTrades();
-    }
-  }, [statusFilter]);
 
   // Smooth scroll to new items after load more completes
   useEffect(() => {
@@ -427,7 +429,7 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 dark:text-slate-400">Last 2 years</span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">{dateRange === '1m' ? 'Last month' : dateRange === '1w' ? 'Last week' : dateRange === '3m' ? 'Last 3 months' : dateRange === '1y' ? 'Last year' : 'Custom'}</span>
             <svg
               className={`w-5 h-5 text-slate-500 dark:text-slate-400 transition-transform duration-200 ${tradesOpen ? 'rotate-180' : ''}`}
               fill="none"
@@ -443,9 +445,23 @@ export default function DashboardPage() {
         {tradesOpen && (
           <div className="px-4 pb-4">
             {/* Export & Filters Row */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="pt-2 pb-3 border-t border-slate-200 dark:border-slate-700">
+              <DateRangeTabs
+                value={dateRange}
+                customFrom={customFrom}
+                customTo={customTo}
+                onChange={(range, from, to) => { setDateRange(range); setCustomFrom(from); setCustomTo(to); }}
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
               <button
-                onClick={() => (window.location.href = '/api/trades?type=export')}
+                onClick={() => {
+                  const from = getFromDate(dateRange, customFrom);
+                  const params = new URLSearchParams({ type: 'export', status: statusFilter });
+                  if (from) params.set('from', from);
+                  window.location.href = `/api/trades?${params}`;
+                }}
                 className="px-3 py-1.5 text-sm font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition"
               >
                 📥 Export CSV

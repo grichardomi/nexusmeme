@@ -195,14 +195,15 @@ export async function GET(request: Request) {
       try {
         const statusFilter = url.searchParams.get('status');
         const botFilter = url.searchParams.get('bot');
+        const fromParam = url.searchParams.get('from');
 
-        // 2-year viewing window (best practice for performance and UX)
         const twoYearsAgo = new Date();
         twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        const windowStart = fromParam ? new Date(fromParam) : twoYearsAgo;
 
-        // Get total count with optional filters and 2-year window
+        // Get total count with optional filters and window
         let countQuery = `SELECT COUNT(*) as total FROM performance_fees WHERE user_id = $1 AND created_at >= $2`;
-        let countParams: any[] = [session.user.id, twoYearsAgo.toISOString()];
+        let countParams: any[] = [session.user.id, windowStart.toISOString()];
 
         if (statusFilter && statusFilter !== 'all') {
           countQuery += ` AND status = $${countParams.length + 1}`;
@@ -237,7 +238,7 @@ export async function GET(request: Request) {
           WHERE pf.user_id = $1
             AND pf.created_at >= $2
         `;
-        let txnParams: any[] = [session.user.id, twoYearsAgo.toISOString()];
+        let txnParams: any[] = [session.user.id, windowStart.toISOString()];
 
         if (statusFilter && statusFilter !== 'all') {
           txnQuery += ` AND pf.status = $${txnParams.length + 1}`;
@@ -312,10 +313,11 @@ export async function GET(request: Request) {
     // Fetch charge history if requested or on initial load
     if (type === 'summary' || type === 'charges') {
       try {
-        // 2-year viewing window for billing history
+        const chargesFromParam = url.searchParams.get('from');
         const twoYearsAgo = new Date();
         twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-        const twoYearsAgoDate = twoYearsAgo.toISOString().split('T')[0];
+        const chargesWindowStart = chargesFromParam ? new Date(chargesFromParam) : twoYearsAgo;
+        const twoYearsAgoDate = chargesWindowStart.toISOString().split('T')[0];
 
         // Get total count with 2-year filter
         const countResult = await query(

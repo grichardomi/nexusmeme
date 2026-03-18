@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useLoadMore } from '@/hooks/useLoadMore';
+import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
 
 /**
  * Portfolio Page - Mobile-First Design
@@ -56,14 +57,20 @@ export default function PortfolioPage() {
   });
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [dateRange, setDateRange] = useState<DateRange>('1m');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [isRiskMetricsCollapsed, setIsRiskMetricsCollapsed] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
 
-  // Memoize fetch function with status filter
+  // Memoize fetch function with status + date filters
   const fetchTradesData = useCallback(async (offset: number, limit: number) => {
-    const response = await fetch(`/api/trades?offset=${offset}&limit=${limit}&status=${statusFilter}`);
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit), status: statusFilter });
+    const from = getFromDate(dateRange, customFrom);
+    if (from) params.set('from', from);
+    const response = await fetch(`/api/trades?${params}`);
     if (!response.ok) throw new Error('Failed to fetch trades');
 
     const data = await response.json();
@@ -71,7 +78,7 @@ export default function PortfolioPage() {
       items: data.trades || [],
       total: data.total || 0,
     };
-  }, [statusFilter]);
+  }, [statusFilter, dateRange, customFrom]);
 
   // Use Load More hook for trades
   const { items: trades, isLoading: tradesLoading, error, hasMore, load: loadTrades, loadMore } = useLoadMore<Trade>({
@@ -109,10 +116,10 @@ export default function PortfolioPage() {
     fetchStats();
   }, []);
 
-  // Load trades when filter changes
+  // Load trades when filters change
   useEffect(() => {
     loadTrades();
-  }, [statusFilter, loadTrades]);
+  }, [statusFilter, dateRange, customFrom, loadTrades]);
 
   // Smooth scroll to new items after load more completes
   useEffect(() => {
@@ -285,15 +292,28 @@ export default function PortfolioPage() {
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                 Recent Trades
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Showing last 2 years</p>
             </div>
             <button
-              onClick={() => (window.location.href = '/api/trades?type=export')}
+              onClick={() => {
+                const from = getFromDate(dateRange, customFrom);
+                const params = new URLSearchParams({ type: 'export', status: statusFilter });
+                if (from) params.set('from', from);
+                window.location.href = `/api/trades?${params}`;
+              }}
               className="px-4 py-2 text-sm font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition"
-              title="Download last 2 years of trades"
             >
               📥 Export CSV
             </button>
+          </div>
+
+          {/* Date Range Tabs */}
+          <div className="mb-3">
+            <DateRangeTabs
+              value={dateRange}
+              customFrom={customFrom}
+              customTo={customTo}
+              onChange={(range, from, to) => { setDateRange(range); setCustomFrom(from); setCustomTo(to); }}
+            />
           </div>
 
           {/* Status Filters - Mobile Scrollable */}

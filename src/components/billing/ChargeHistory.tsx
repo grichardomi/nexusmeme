@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useLoadMore } from '@/hooks/useLoadMore';
+import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
 
 interface ChargeRecord {
   id?: string;
@@ -26,12 +27,18 @@ export function ChargeHistory() {
   const [totalCount, setTotalCount] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange>('1y');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
 
-  // Memoize fetch function to prevent infinite re-renders
+  // Memoize fetch function with date filter
   const fetchChargesData = useCallback(async (offset: number, limit: number) => {
-    const response = await fetch(`/api/fees/performance?type=charges&offset=${offset}&limit=${limit}`);
+    const from = getFromDate(dateRange, customFrom);
+    const params = new URLSearchParams({ type: 'charges', offset: String(offset), limit: String(limit) });
+    if (from) params.set('from', from);
+    const response = await fetch(`/api/fees/performance?${params}`);
     if (!response.ok) throw new Error('Failed to fetch charge history');
 
     const data = await response.json();
@@ -40,7 +47,7 @@ export function ChargeHistory() {
       items: data.charges || [],
       total: data.chargeTotal || 0,
     };
-  }, []);
+  }, [dateRange, customFrom]);
 
   // Load more pagination
   const { items: charges, isLoading, error, hasMore, load, loadMore } = useLoadMore<ChargeRecord>({
@@ -49,7 +56,7 @@ export function ChargeHistory() {
     fetchFn: fetchChargesData,
   });
 
-  // Initialize on mount
+  // Reload on mount and when date filter changes
   useEffect(() => {
     load();
   }, [load]);
@@ -165,9 +172,19 @@ export function ChargeHistory() {
         }`}
       >
         <div className="px-4 sm:px-6 pb-4 sm:pb-6">
+          {/* Date Range Tabs */}
+          <div className="pt-2 pb-3 border-t border-slate-200 dark:border-slate-700">
+            <DateRangeTabs
+              value={dateRange}
+              customFrom={customFrom}
+              customTo={customTo}
+              onChange={(range, from, to) => { setDateRange(range); setCustomFrom(from); setCustomTo(to); }}
+            />
+          </div>
+
           {/* Export & Portal Actions */}
           {charges.length > 0 && (
-            <div className="flex flex-col sm:flex-row gap-2 justify-end mb-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row gap-2 justify-end mb-4">
               <button
                 onClick={() => (window.location.href = '/api/fees/performance?type=export-charges')}
                 className="text-sm px-4 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/40 transition font-medium"

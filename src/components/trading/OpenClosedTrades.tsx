@@ -45,6 +45,7 @@ interface OpenClosedTradesProps {
 }
 
 type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses' | 'archived';
+type DateRange = '1d' | '1w' | '1m' | '3m' | 'custom';
 
 interface CurrentPrices {
   [pair: string]: number;
@@ -63,6 +64,10 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
   const [isDeletingClosedTrades, setIsDeletingClosedTrades] = useState(false);
   const [isArchivedCollapsed, setIsArchivedCollapsed] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [dateRange, setDateRange] = useState<DateRange>('1m');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -79,15 +84,28 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
 
   const isAdmin = session?.user && (session.user as any).role === 'admin';
 
-  // Fetch trades with 2-year window, status filter, and pagination
+  // Compute 'from' date based on selected date range
+  const getFromDate = useCallback((): string | null => {
+    const now = new Date();
+    if (dateRange === '1d') { now.setDate(now.getDate() - 1); return now.toISOString(); }
+    if (dateRange === '1w') { now.setDate(now.getDate() - 7); return now.toISOString(); }
+    if (dateRange === '1m') { now.setMonth(now.getMonth() - 1); return now.toISOString(); }
+    if (dateRange === '3m') { now.setMonth(now.getMonth() - 3); return now.toISOString(); }
+    if (dateRange === 'custom' && customFrom) return new Date(customFrom).toISOString();
+    return null;
+  }, [dateRange, customFrom]);
+
+  // Fetch trades with date window, status filter, and pagination
   const fetchTrades = useCallback(async (offset: number = 0, append: boolean = false) => {
     try {
+      const from = getFromDate();
       const params = new URLSearchParams({
         botId,
         offset: offset.toString(),
         limit: TRADES_PER_PAGE.toString(),
         status: statusFilter,
         mode: modeFilter,
+        ...(from ? { from } : {}),
       });
 
       const response = await fetch(`/api/trades?${params}`);
@@ -108,20 +126,26 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
           return [...prev, ...uniqueNewTrades];
         });
       } else {
-        setTrades(newTrades);
+        setTrades(newTrades); // atomic replace — no blank flash
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
       setIsLoadingMore(false);
     }
-  }, [botId, statusFilter, modeFilter]);
+  }, [botId, statusFilter, modeFilter, getFromDate]);
 
   // Initial load and refresh on filter/mode change
+  const isFirstLoad = useRef(true);
   useEffect(() => {
-    setIsLoading(true);
-    setTrades([]);
+    if (isFirstLoad.current) {
+      setIsLoading(true);
+      isFirstLoad.current = false;
+    } else {
+      setIsRefreshing(true);
+    }
     fetchTrades(0, false);
 
     const interval = setInterval(() => fetchTrades(0, false), 10000);
@@ -330,14 +354,16 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
 
   // CSV Export Handler
   const handleCSVExport = useCallback(() => {
+    const from = getFromDate();
     const params = new URLSearchParams({
       botId,
       status: statusFilter,
       mode: modeFilter,
       type: 'export',
+      ...(from ? { from } : {}),
     });
     window.location.href = `/api/trades?${params}`;
-  }, [botId, statusFilter, modeFilter]);
+  }, [botId, statusFilter, modeFilter, getFromDate]);
 
   async function handleManualClose(trade: Trade) {
     setClosingTrade(trade.id);
@@ -679,6 +705,45 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
         </p>
       </div>
 
+      {/* Date Range Tabs */}
+      <div className="space-y-2">
+        <div className="overflow-x-auto">
+          <div className="flex gap-1.5 pb-1">
+            {(['1d', '1w', '1m', '3m', 'custom'] as DateRange[]).map((range) => (
+              <button
+                key={range}
+                onClick={() => { setDateRange(range); }}
+                className={`px-3 py-1.5 rounded text-xs font-medium whitespace-nowrap transition ${
+                  dateRange === range
+                    ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900'
+                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                }`}
+              >
+                {range === '1d' ? '1 Day' : range === '1w' ? '1 Week' : range === '1m' ? '1 Month' : range === '3m' ? '3 Months' : 'Custom'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {dateRange === 'custom' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-slate-500 dark:text-slate-400">From</label>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={e => setCustomFrom(e.target.value)}
+              className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            />
+            <label className="text-xs text-slate-500 dark:text-slate-400">To</label>
+            <input
+              type="date"
+              value={customTo}
+              onChange={e => setCustomTo(e.target.value)}
+              className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            />
+          </div>
+        )}
+      </div>
+
       {/* Filters and Export */}
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
         {/* Status Filters */}
@@ -784,10 +849,11 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
             className="flex-1 flex items-center justify-between hover:text-slate-700 dark:hover:text-slate-200 transition"
           >
             <div className="flex items-center gap-3">
-              <div className="w-3 h-3 bg-green-400 rounded-full"></div>
+              <div className={`w-3 h-3 rounded-full ${isRefreshing ? 'bg-blue-400 animate-pulse' : 'bg-green-400'}`}></div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
                 Closed Positions ({totalCount > trades.length ? totalCount : closedTrades.length})
               </h3>
+              {isRefreshing && <span className="text-xs text-slate-400 dark:text-slate-500">updating...</span>}
             </div>
             <svg className={`w-5 h-5 text-slate-500 transition-transform ${isClosedPositionsCollapsed ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
