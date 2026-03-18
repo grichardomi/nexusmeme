@@ -691,13 +691,13 @@ class TradeSignalOrchestrator {
 
           // INTRABAR MOMENTUM CHECK: Block entry when price is actively falling
           // Choppy markets: block if intrabar < +0.05% (any red/flat candle)
-          // Trending markets: block if intrabar < -0.3% (price actively dropping, not just a tick)
+          // Trending markets: block if intrabar < -0.1% (tighter — prevents entering falling knives)
           // This prevents re-entry immediately after erosion exit when momentum is still reversing
           const adx = indicators.adx ?? 0;
           {
             const minIntrabar = adx < 20
               ? (env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.05)
-              : (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING || -0.3);
+              : (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1);
             if (intrabarMomentum < minIntrabar) {
               const regime = adx < 20 ? 'choppy' : 'trending';
               console.log(`\n🔴 INTRABAR BLOCKED (${regime}): ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (ADX ${adx.toFixed(1)})`);
@@ -716,6 +716,22 @@ class TradeSignalOrchestrator {
               });
               continue;
             }
+          }
+
+          // 1H MOMENTUM GUARD: Block entry if pair's own 1h trend is negative
+          // Prevents entering longs while the pair is actively trending down on 1h timeframe
+          // ADX can be high in a downtrend — this catches direction, not just strength
+          const mom1h = indicators.momentum1h ?? 0;
+          const minMom1h = env.RISK_MIN_MOMENTUM_1H ?? 0;
+          if (mom1h < minMom1h) {
+            console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}% min`);
+            rejectedSignals.push({
+              pair,
+              reason: 'negative_1h_momentum',
+              details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${minMom1h}%`,
+              stage: 'Pre-Filter',
+            });
+            continue;
           }
 
           // Run 5-stage risk filter

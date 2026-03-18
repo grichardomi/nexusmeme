@@ -120,34 +120,46 @@ class CapitalPreservationService {
   private evaluateBtcTrend(cache: BtcTrendCache): CapitalPreservationResult {
     const { btcClose, ema50, ema200 } = cache;
 
-    // Log BTC trend for informational purposes only — no size reduction.
-    // ADX gate (<20 = blocked) already handles market quality per-signal.
-    // Size reduction here was penalizing strong individual signals (ADX 37+)
-    // just because BTC is in a broader downtrend — redundant and costly.
+    // BTC below EMA200 (daily) = sustained bear market — 25% size (still trades, just cautious)
+    // Never block completely: individual pairs can still have valid signals in a bear market
     if (btcClose < ema200) {
-      console.log(`\n📊 [BTC TREND] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) — informational only, full size trading`);
-      logger.info('Capital preservation: BTC below EMA200 (informational — ADX gate handles quality)', {
+      console.log(`\n⚠️ [BTC TREND] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) — 25% size`);
+      logger.info('Capital preservation: BTC below EMA200, reducing to 25% size', {
         btcClose: btcClose.toFixed(2),
         ema50: ema50.toFixed(2),
         ema200: ema200.toFixed(2),
       });
-    } else if (btcClose < ema50) {
-      console.log(`\n📊 [BTC TREND] BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) — informational only, full size trading`);
-      logger.info('Capital preservation: BTC below EMA50 (informational — ADX gate handles quality)', {
-        btcClose: btcClose.toFixed(2),
-        ema50: ema50.toFixed(2),
-        ema200: ema200.toFixed(2),
-      });
-    } else {
-      console.log(`\n✅ [BTC TREND] BTC above EMA50 ($${btcClose.toFixed(0)} > $${ema50.toFixed(0)}) — full trading`);
-      logger.debug('Capital preservation: BTC above EMA50, full trading', {
-        btcClose: btcClose.toFixed(2),
-        ema50: ema50.toFixed(2),
-        ema200: ema200.toFixed(2),
-      });
+      return {
+        allowTrading: true,
+        sizeMultiplier: 0.25,
+        reason: `BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) — bear market, 25% size`,
+        layer: 'btc_trend',
+      };
     }
 
-    return { allowTrading: true, sizeMultiplier: 1.0, reason: 'Full size — ADX gate handles market quality' };
+    // BTC below EMA50 but above EMA200 = weakening trend — 50% size
+    if (btcClose < ema50) {
+      console.log(`\n⚠️ [BTC TREND] BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) — 50% size`);
+      logger.info('Capital preservation: BTC below EMA50, reducing size 50%', {
+        btcClose: btcClose.toFixed(2),
+        ema50: ema50.toFixed(2),
+        ema200: ema200.toFixed(2),
+      });
+      return {
+        allowTrading: true,
+        sizeMultiplier: 0.5,
+        reason: `BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) — weakening trend, 50% size`,
+        layer: 'btc_trend',
+      };
+    }
+
+    console.log(`\n✅ [BTC TREND] BTC above EMA50 ($${btcClose.toFixed(0)} > $${ema50.toFixed(0)}) — full trading`);
+    logger.debug('Capital preservation: BTC above EMA50, full trading', {
+      btcClose: btcClose.toFixed(2),
+      ema50: ema50.toFixed(2),
+      ema200: ema200.toFixed(2),
+    });
+    return { allowTrading: true, sizeMultiplier: 1.0, reason: 'BTC above EMA50 — full trading' };
   }
 
   /**

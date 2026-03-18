@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
         b.config->>'billingTier' as billing_tier,
         (b.config->>'totalAccountValue')::numeric as total_account_value,
         b.config->>'accountValueUpdatedAt' as account_value_updated_at,
+        b.trading_mode as bot_trading_mode,
+        b.live_since as bot_live_since,
         ub.fee_exempt,
         ub.fee_exempt_reason
       FROM users u
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
         LIMIT 1
       ) s ON true
       LEFT JOIN LATERAL (
-        SELECT config
+        SELECT config, trading_mode, live_since
         FROM bot_instances
         WHERE user_id = u.id
         ORDER BY created_at DESC
@@ -101,6 +103,8 @@ export async function GET(request: NextRequest) {
         accountValueUpdatedAt: u.account_value_updated_at ?? null,
         feeExempt: u.fee_exempt === true,
         feeExemptReason: u.fee_exempt_reason ?? null,
+        botTradingMode: u.bot_trading_mode ?? null,
+        botLiveSince: u.bot_live_since ? new Date(u.bot_live_since) : null,
       })),
       total,
       page,
@@ -249,6 +253,69 @@ export async function PATCH(request: NextRequest) {
       logger.info('Admin removed fee exemption', { adminId: session.user.id, targetUserId: userId });
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'revert_to_trial') {
+      const daysNum = parseInt(String(days || 14), 10);
+      if (daysNum < 1 || daysNum > 90) {
+        return NextResponse.json({ error: 'days must be between 1 and 90' }, { status: 400 });
+      }
+
+      const subs = await query<any>(
+        `SELECT id, status, plan_tier FROM subscriptions
+         WHERE user_id = $1 AND status != 'cancelled'
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId],
+      );
+
+      if (subs.length === 0) {
+        return NextResponse.json({ error: 'No subscription found for this user' }, { status: 404 });
+      }
+
+      const newTrialEnd = new Date();
+      newTrialEnd.setDate(newTrialEnd.getDate() + daysNum);
+
+      // Reset subscription to trialing
+      await query(
+        `UPDATE subscriptions
+         SET trial_ends_at = $1,
+             plan_tier = 'live_trial',
+             status = 'trialing',
+             trial_extended = TRUE,
+             trial_extended_at = NOW(),
+             trial_extended_days = COALESCE(trial_extended_days, 0) + $3,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [newTrialEnd, subs[0].id, daysNum],
+      );
+
+      // Switch bot back to paper trading mode — update both the column AND config JSONB
+      const updatedBots = await query<any>(
+        `UPDATE bot_instances
+         SET trading_mode = 'paper',
+             live_since = NULL,
+             status = 'running',
+             config = config || '{"tradingMode":"paper"}'::jsonb,
+             updated_at = NOW()
+         WHERE user_id = $1
+         RETURNING id`,
+        [userId],
+      );
+
+      logger.info('Admin reverted user to free trial', {
+        adminId: session.user.id,
+        targetUserId: userId,
+        daysGranted: daysNum,
+        newTrialEnd,
+        botsReset: updatedBots.length,
+      });
+
+      return NextResponse.json({
+        success: true,
+        newTrialEnd,
+        daysGranted: daysNum,
+        botsReset: updatedBots.length,
+      });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

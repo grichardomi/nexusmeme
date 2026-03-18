@@ -27,6 +27,8 @@ interface User {
   accountValueUpdatedAt: string | null;
   feeExempt: boolean;
   feeExemptReason: string | null;
+  botTradingMode: 'live' | 'paper' | null;
+  botLiveSince: Date | null;
 }
 
 interface ExtendModalState {
@@ -40,6 +42,12 @@ interface WaiverModalState {
   email: string;
   isExempt: boolean;
   currentReason: string | null;
+}
+
+interface RevertTrialModalState {
+  userId: string;
+  email: string;
+  currentPlan: string;
 }
 
 export default function AdminUsersPage() {
@@ -58,6 +66,10 @@ export default function AdminUsersPage() {
   const [waiverReason, setWaiverReason] = useState('');
   const [waiverLoading, setWaiverLoading] = useState(false);
   const [waiverError, setWaiverError] = useState<string | null>(null);
+  const [revertModal, setRevertModal] = useState<RevertTrialModalState | null>(null);
+  const [revertDays, setRevertDays] = useState('14');
+  const [revertLoading, setRevertLoading] = useState(false);
+  const [revertError, setRevertError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -82,6 +94,7 @@ export default function AdminUsersPage() {
         (data.users || []).map((u: any) => ({
           ...u,
           createdAt: new Date(u.createdAt),
+          botLiveSince: u.botLiveSince ? new Date(u.botLiveSince) : null,
           subscription: u.subscription
             ? {
                 ...u.subscription,
@@ -169,6 +182,33 @@ export default function AdminUsersPage() {
       setWaiverError('Network error — please try again');
     } finally {
       setWaiverLoading(false);
+    }
+  };
+
+  const handleRevertToTrial = async () => {
+    if (!revertModal) return;
+    const days = parseInt(revertDays, 10);
+    if (!days || days < 1 || days > 90) {
+      setRevertError('Enter a value between 1 and 90 days');
+      return;
+    }
+    setRevertLoading(true);
+    setRevertError(null);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: revertModal.userId, action: 'revert_to_trial', days }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setRevertError(data.error || 'Failed to revert'); return; }
+      setSuccessMsg(`Reverted ${revertModal.email} to free trial (${days} days). ${data.botsReset} bot(s) switched to paper trading. New expiry: ${new Date(data.newTrialEnd).toLocaleDateString()}.`);
+      setRevertModal(null);
+      fetchUsers();
+    } catch {
+      setRevertError('Network error — please try again');
+    } finally {
+      setRevertLoading(false);
     }
   };
 
@@ -296,7 +336,21 @@ export default function AdminUsersPage() {
                         <span className="text-orange-600 dark:text-orange-400">Pending</span>
                       )}
                     </td>
-                    <td className="px-6 py-3 text-sm">{getTrialBadge(user.subscription)}</td>
+                    <td className="px-6 py-3 text-sm">
+                      <div className="flex flex-col gap-1">
+                        {getTrialBadge(user.subscription)}
+                        {user.botTradingMode === 'live' && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300">
+                            ● Live Trading
+                            {user.botLiveSince && (
+                              <span className="text-green-500 dark:text-green-400 font-normal">
+                                · since {new Date(user.botLiveSince).toLocaleDateString()}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-3 text-sm">
                       {user.totalAccountValue !== null ? (
                         <div>
@@ -361,6 +415,18 @@ export default function AdminUsersPage() {
                             className="px-3 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800 transition"
                           >
                             {user.subscription.planTier === 'live_trial' ? 'Extend Trial' : 'Grant Trial'}
+                          </button>
+                        )}
+                        {(user.subscription?.planTier === 'performance_fees' || user.botTradingMode === 'live') && (
+                          <button
+                            onClick={() => {
+                              setRevertModal({ userId: user.id, email: user.email, currentPlan: user.subscription!.planTier });
+                              setRevertDays('14');
+                              setRevertError(null);
+                            }}
+                            className="px-3 py-1 text-xs font-medium rounded bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 hover:bg-orange-200 dark:hover:bg-orange-800 transition"
+                          >
+                            Revert to Trial
                           </button>
                         )}
                         <button
@@ -475,6 +541,51 @@ export default function AdminUsersPage() {
                 className="px-4 py-2 text-sm font-medium rounded bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
               >
                 {extendLoading ? 'Extending...' : 'Extend Trial'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revert to Trial Modal */}
+      {revertModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-md mx-4">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Revert to Free Trial</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{revertModal.email}</p>
+            <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700 rounded-lg p-3 mb-4 text-sm text-orange-800 dark:text-orange-200">
+              <p className="font-medium mb-1">What this does:</p>
+              <ul className="list-disc list-inside space-y-1 text-xs mt-1">
+                <li>Subscription reset to <strong>live_trial / trialing</strong></li>
+                <li>Bot switched back to <strong>paper trading</strong> (no real orders)</li>
+                <li><strong>live_since</strong> cleared — trial P&L starts fresh</li>
+                <li>Bot resumed if currently stopped/paused</li>
+              </ul>
+            </div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Trial duration (days)</label>
+            <input
+              type="number"
+              min={1}
+              max={90}
+              value={revertDays}
+              onChange={e => setRevertDays(e.target.value)}
+              className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4"
+            />
+            {revertError && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{revertError}</p>}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => { setRevertModal(null); setRevertError(null); }}
+                disabled={revertLoading}
+                className="px-4 py-2 text-sm font-medium rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRevertToTrial}
+                disabled={revertLoading}
+                className="px-4 py-2 text-sm font-medium rounded bg-orange-600 hover:bg-orange-700 text-white transition disabled:opacity-50"
+              >
+                {revertLoading ? 'Reverting...' : 'Revert to Trial'}
               </button>
             </div>
           </div>
