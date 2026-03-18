@@ -17,9 +17,7 @@ export async function POST(request: NextRequest) {
   try {
     // Rate limit check - strict for forgot password
     const rateLimitResponse = await apiRateLimits.auth(request);
-    if (rateLimitResponse.status === 429) {
-      return rateLimitResponse;
-    }
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json();
 

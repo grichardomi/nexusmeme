@@ -81,7 +81,7 @@ async function sendLoginAlert(opts: {
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = await apiRateLimits.auth(request);
-  if (rateLimitResponse.status === 429) return rateLimitResponse;
+  if (rateLimitResponse) return rateLimitResponse;
 
   try {
     const body = await request.json();

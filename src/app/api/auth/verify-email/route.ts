@@ -10,7 +10,7 @@ import { apiRateLimits } from '@/middleware/rate-limit';
 
 export async function POST(request: NextRequest) {
   const rateLimitResponse = await apiRateLimits.auth(request);
-  if (rateLimitResponse.status === 429) return rateLimitResponse;
+  if (rateLimitResponse) return rateLimitResponse;
 
   try {
     const body = await request.json();
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const rateLimitResponse = await apiRateLimits.auth(request);
-  if (rateLimitResponse.status === 429) {
+  if (rateLimitResponse) {
     return NextResponse.redirect(new URL('/auth/verify-email/error?reason=rate_limited', request.url), { status: 302 });
   }
 
