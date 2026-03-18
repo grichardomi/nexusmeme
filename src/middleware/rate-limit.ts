@@ -186,19 +186,26 @@ function extractUserIdFromAuth(authHeader: string | null): string | null {
 }
 
 /**
- * Get client IP address from request
+ * Get client IP address from request.
+ * Uses the LAST entry of x-forwarded-for to prevent spoofing.
+ * x-forwarded-for is appended by each proxy in the chain — the last value
+ * is set by the closest trusted proxy (Railway/infra) and cannot be spoofed
+ * by the client. Taking [0] (leftmost) is exploitable by setting a fake IP.
  */
 function getClientIp(request: NextRequest): string {
+  // Cloudflare sets this directly — trust it if present (cannot be spoofed at CF edge)
+  const cfIp = request.headers.get('cf-connecting-ip');
+  if (cfIp) return cfIp.trim();
+
+  // x-forwarded-for: use the LAST (rightmost) entry — set by our trusted infra proxy
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) {
-    return forwarded.split(',')[0].trim();
+    const ips = forwarded.split(',').map(ip => ip.trim()).filter(Boolean);
+    if (ips.length > 0) return ips[ips.length - 1];
   }
 
   const realIp = request.headers.get('x-real-ip');
-  if (realIp) return realIp;
-
-  const cfIp = request.headers.get('cf-connecting-ip');
-  if (cfIp) return cfIp;
+  if (realIp) return realIp.trim();
 
   return 'unknown';
 }
@@ -234,5 +241,12 @@ export const apiRateLimits = {
     maxRequests: 1000,
     windowMs: 60 * 1000,
     keyPrefix: 'webhook',
+  }),
+
+  // Exchange key submission: 10 per minute (prevents key-validation DoS against exchange)
+  exchangeKeys: createRateLimiter({
+    maxRequests: 10,
+    windowMs: 60 * 1000,
+    keyPrefix: 'exchange-keys',
   }),
 };

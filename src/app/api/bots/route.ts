@@ -198,6 +198,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Enforce minimum balance for live trading (paper trading has no minimum)
+    if (tradingMode === 'live' && isAdmin) {
+      logger.warn('Admin bypassing minimum balance check for live bot creation', {
+        userId: session.user.id,
+        exchange,
+        tradingMode,
+      });
+    }
     if (tradingMode === 'live' && !isAdmin) {
       const balanceCheck = await checkMinimumBalance(session.user.id, exchange, 'live');
       if (!balanceCheck.allowed) {

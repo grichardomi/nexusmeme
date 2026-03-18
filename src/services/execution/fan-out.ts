@@ -954,17 +954,11 @@ class ExecutionFanOut {
         publicKey = decrypt(keys.encrypted_public_key);
         secretKey = decrypt(keys.encrypted_secret_key);
       } catch (decryptError) {
-        // Fallback: try base64 decoding for legacy keys
-        try {
-          logger.warn('AES decryption failed, trying base64 fallback for unlimited balance', {
-            botId,
-            exchange,
-          });
-          publicKey = Buffer.from(keys.encrypted_public_key, 'base64').toString('utf-8');
-          secretKey = Buffer.from(keys.encrypted_secret_key, 'base64').toString('utf-8');
-        } catch (fallbackError) {
-          throw new Error('Failed to decrypt API keys - they may be corrupted');
-        }
+        logger.error('AES decryption failed for API keys — user must re-save keys in Settings', decryptError instanceof Error ? decryptError : null, {
+          botId,
+          exchange,
+        });
+        throw new Error('Failed to decrypt API keys — please re-save your API keys in Settings');
       }
 
       // Connect to exchange and fetch balance

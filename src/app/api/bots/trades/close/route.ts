@@ -33,7 +33,12 @@ const tradeCloseSchema = z.object({
   botInstanceId: z.string().uuid('Bot instance ID must be a valid UUID'),
   tradeId: z.string({ required_error: 'Trade ID is required' }),
   pair: z.string({ required_error: 'Trading pair is required' }),
-  exitTime: z.string().datetime('Exit time must be ISO 8601 datetime'),
+  exitTime: z.string().datetime('Exit time must be ISO 8601 datetime').refine((val) => {
+    const t = new Date(val).getTime();
+    const now = Date.now();
+    // Must be within ±5 minutes of server time — prevents timestamp manipulation
+    return Math.abs(now - t) < 5 * 60 * 1000;
+  }, 'Exit time must be within 5 minutes of server time'),
   exitPrice: z.number().positive('Exit price must be positive'),
   profitLoss: z.number({ required_error: 'Profit/loss amount is required' }),
   profitLossPercent: z.number({ required_error: 'Profit/loss percent is required' }),

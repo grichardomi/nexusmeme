@@ -7,6 +7,7 @@ import { encrypt } from '@/lib/crypto';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { getSupportedExchanges } from '@/config/environment';
 import { z } from 'zod';
+import { apiRateLimits } from '@/middleware/rate-limit';
 
 /**
  * GET /api/exchange-keys
@@ -53,6 +54,10 @@ const addKeySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Rate limit: 10 submissions per minute to prevent exchange API DoS
+  const rateLimitResult = await apiRateLimits.exchangeKeys(request);
+  if (rateLimitResult) return rateLimitResult;
+
   try {
     const session = await getServerSession(authOptions);
 
@@ -130,9 +135,7 @@ export async function POST(request: NextRequest) {
         }
       });
     } catch (dbError) {
-      const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
-      logger.error('Database error in exchange keys', dbError instanceof Error ? dbError : null);
-      console.error('DB Error:', { exchange, userId: session.user.id, message: dbErrorMessage });
+      logger.error('Database error in exchange keys', dbError instanceof Error ? dbError : null, { exchange });
       throw dbError;
     }
 
@@ -189,9 +192,7 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : '';
     logger.error('Error adding exchange keys', error instanceof Error ? error : null);
-    console.error('Exchange keys error:', { message: errorMessage, stack: errorStack });
     return NextResponse.json(
       {
         error: 'Failed to add exchange keys',
