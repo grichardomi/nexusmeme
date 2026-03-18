@@ -136,24 +136,6 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
         return;
       }
 
-      // Keys saved — check if validation passed or failed
-      if (data.validationFailed) {
-        setError(`Keys saved but connection failed: ${data.validationError}`);
-        setIsLoading(false);
-        // Still refresh saved keys (they are stored, just not validated)
-        try {
-          const keysResponse = await fetch('/api/exchange-keys');
-          if (keysResponse.ok) {
-            const keysData = await keysResponse.json();
-            const keys = keysData.keys || [];
-            const found = keys.find((k: SavedKey) => k.exchange === exchange);
-            setSavedKey(found || null);
-          }
-        } catch (err) {
-          console.error('Failed to refresh keys:', err);
-        }
-        return;
-      }
 
       // Success! Clear form immediately
       setFormData({ publicKey: '', secretKey: '' });
@@ -230,6 +212,10 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
     binance: {
       name: 'Binance International',
       docUrl: 'https://www.binance.com/en/support/faq/360002502072',
+    },
+    binanceus: {
+      name: 'Binance US',
+      docUrl: 'https://www.binance.us/en/support/faq/how-to-create-api-keys-on-binance-us',
     },
     kraken: {
       name: 'Kraken',

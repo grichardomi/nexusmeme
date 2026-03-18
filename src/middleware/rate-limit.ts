@@ -82,16 +82,12 @@ export function createRateLimiter(config: Partial<RateLimitConfig> = {}) {
         );
       }
 
-      // Return response with rate-limit headers
-      const response = NextResponse.next();
-      response.headers.set('X-RateLimit-Limit', finalConfig.maxRequests.toString());
-      response.headers.set('X-RateLimit-Remaining', Math.max(0, remaining).toString());
-      response.headers.set('X-RateLimit-Reset', resetAt.toString());
-      return response;
+      // Allowed — return null so route handler proceeds
+      return null;
     } catch (error) {
       logger.error('Rate limit check failed', error instanceof Error ? error : null);
-      // Fail open — don't block auth on DB error (brute-force risk is low vs availability)
-      return NextResponse.next();
+      // Fail open — don't block on DB error
+      return null;
     }
   };
 }

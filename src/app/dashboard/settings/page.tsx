@@ -270,13 +270,26 @@ export default function SettingsPage() {
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Binance International</h3>
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global</span>
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global (non-US)</span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                   Available in 180+ countries. Not available to US residents.{' '}
                   <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">binance.com</a>
                 </p>
                 <ExchangeKeyForm exchange="binance" />
+              </div>
+
+              {/* Binance US */}
+              <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Binance US</h3>
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">US residents</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  For US residents. Same 0.10% fees as Binance International.{' '}
+                  <a href="https://www.binance.us" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">binance.us</a>
+                </p>
+                <ExchangeKeyForm exchange="binanceus" />
               </div>
 
               {/* Kraken */}

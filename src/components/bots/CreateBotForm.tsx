@@ -188,11 +188,18 @@ export function CreateBotForm() {
             disabled={isLoading || exchangesLoading}
             className="w-full px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
           >
-            {connectedExchanges.map(exchange => (
-              <option key={exchange.id} value={exchange.exchange}>
-                {exchange.exchange.toUpperCase()}
-              </option>
-            ))}
+            {connectedExchanges.map(exchange => {
+              const labels: Record<string, string> = {
+                binance: 'Binance International',
+                binanceus: 'Binance US',
+                kraken: 'Kraken',
+              };
+              return (
+                <option key={exchange.id} value={exchange.exchange}>
+                  {labels[exchange.exchange.toLowerCase()] ?? exchange.exchange.toUpperCase()}
+                </option>
+              );
+            })}
           </select>
         </div>
       )}

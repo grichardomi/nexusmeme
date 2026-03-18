@@ -343,12 +343,22 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
               {/* Exchange region notice — shown for Binance bots */}
               {bots[0]?.exchange?.toLowerCase() === 'binance' && (
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-blue-700 dark:text-blue-300">
-                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">🌍 Binance global account required</p>
+                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">🌍 Binance International account required</p>
                   <ul className="space-y-1 leading-relaxed">
-                    <li>• This platform connects to <strong>Binance global</strong> (binance.com)</li>
-                    <li>• <strong>USA residents</strong>: Binance.com is restricted in the US — use a supported VPN or a different exchange</li>
+                    <li>• Connects to <strong>Binance International</strong> (binance.com) — available in 180+ countries</li>
+                    <li>• <strong>US residents</strong>: use Binance US instead — connect keys in <strong>Settings → API Keys</strong></li>
                   </ul>
-                  <p className="mt-1.5 text-blue-600 dark:text-blue-400">Connect your Binance global API keys in <strong>Settings → API Keys</strong> before continuing.</p>
+                  <p className="mt-1.5 text-blue-600 dark:text-blue-400">Connect your Binance International API keys in <strong>Settings → API Keys</strong> before continuing.</p>
+                </div>
+              )}
+              {bots[0]?.exchange?.toLowerCase() === 'binanceus' && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-blue-700 dark:text-blue-300">
+                  <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">🇺🇸 Binance US account required</p>
+                  <ul className="space-y-1 leading-relaxed">
+                    <li>• Connects to <strong>Binance US</strong> (binance.us) — for US residents</li>
+                    <li>• Same 0.10% fees as Binance International</li>
+                  </ul>
+                  <p className="mt-1.5 text-blue-600 dark:text-blue-400">Connect your Binance US API keys in <strong>Settings → API Keys</strong> before continuing.</p>
                 </div>
               )}
 

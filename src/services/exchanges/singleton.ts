@@ -28,7 +28,11 @@ class AdapterRegistry {
       switch (key) {
         case 'binance':
           adapter = new BinanceAdapter();
-          logger.info('Creating singleton Binance adapter');
+          logger.info('Creating singleton Binance (global) adapter');
+          break;
+        case 'binanceus':
+          adapter = new BinanceAdapter('https://api.binance.us');
+          logger.info('Creating singleton Binance US adapter');
           break;
         case 'kraken':
           adapter = new KrakenAdapter();

@@ -15,7 +15,12 @@ import { getEnvironmentConfig } from '@/config/environment';
  * Rate limits: 1200 requests per minute (20 per second)
  */
 export class BinanceAdapter extends BaseExchangeAdapter {
-  private baseUrl = `${getEnvironmentConfig().BINANCE_API_BASE_URL}/api`;
+  private baseUrl: string;
+
+  constructor(baseUrl?: string) {
+    super();
+    this.baseUrl = `${baseUrl ?? getEnvironmentConfig().BINANCE_API_BASE_URL}/api`;
+  }
   // Circuit breaker: only trips on real Binance API failures (5xx, network down).
   // Thresholds: open after 10 consecutive real failures, close after 3 successes, reset after 30s.
   // Rate limit queue timeouts are NOT counted as failures (filtered in isBinanceFailure).
