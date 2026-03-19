@@ -180,8 +180,13 @@ class ExecutionFanOut {
     const isUnlimitedMode = configuredCapital === 0 || (typeof configuredCapital === 'string' && configuredCapital.toLowerCase() === 'unlimited');
 
     if (isUnlimitedMode) {
+      // Paper mode: never touch the exchange API — unlimited capital bots simulate with a large fixed balance.
+      if ((bot.config?.tradingMode as string) !== 'live') {
+        effectiveBalance = 100000; // Simulated unlimited balance for paper trading
+        logger.debug('Unlimited paper bot using simulated balance', { botId: bot.id });
+      } else
       try {
-        // Fetch exchange balance + open trades value in parallel (independent)
+        // Live mode only: fetch real balance from exchange
         const [result, openTradesResultUnlimited] = await Promise.all([
           this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange),
           query<{ total_value: string }>(
@@ -224,55 +229,55 @@ class ExecutionFanOut {
       // FIXED CAPITAL MODE: Cap to real free balance so we never over-order
       const configured = Number(configuredCapital);
       const isLive = (bot.config?.tradingMode as string) === 'live';
-      try {
-        // Fetch exchange balance + open trades value in parallel (independent)
-        const [result, openTradesResult] = await Promise.all([
-          this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange),
-          query<{ total_value: string }>(
-            `SELECT COALESCE(SUM(price * amount), 0) AS total_value
-             FROM trades WHERE bot_instance_id = $1 AND status = 'open'`,
-            [bot.id]
-          ),
-        ]);
-        if (result.available > 0) {
-          const openTradesValue = parseFloat(String(openTradesResult[0]?.total_value ?? '0'));
-          const freeAfterOpenTrades = Math.max(0, result.available - openTradesValue);
-          effectiveBalance = Math.min(configured, freeAfterOpenTrades * 0.95);
-          totalFreeStable = result.totalFreeStable;
-          dominantQuote = result.dominantQuote;
-          if (effectiveBalance < configured) {
-            logger.warn('Fixed capital capped to actual exchange balance (open trades deducted)', {
+
+      if (!isLive) {
+        // Paper mode: never call the exchange API — use configured capital directly.
+        // Paper trades are simulated; touching the real exchange account is outside our authority.
+        effectiveBalance = configured;
+      } else {
+        try {
+          // Live mode only: fetch real balance to prevent over-ordering
+          const [result, openTradesResult] = await Promise.all([
+            this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange),
+            query<{ total_value: string }>(
+              `SELECT COALESCE(SUM(price * amount), 0) AS total_value
+               FROM trades WHERE bot_instance_id = $1 AND status = 'open'`,
+              [bot.id]
+            ),
+          ]);
+          if (result.available > 0) {
+            const openTradesValue = parseFloat(String(openTradesResult[0]?.total_value ?? '0'));
+            const freeAfterOpenTrades = Math.max(0, result.available - openTradesValue);
+            effectiveBalance = Math.min(configured, freeAfterOpenTrades * 0.95);
+            totalFreeStable = result.totalFreeStable;
+            dominantQuote = result.dominantQuote;
+            if (effectiveBalance < configured) {
+              logger.warn('Fixed capital capped to actual exchange balance (open trades deducted)', {
+                botId: bot.id,
+                configuredCapital: configured,
+                realBalance: result.available,
+                openTradesValue,
+                freeAfterOpenTrades,
+                effectiveBalance,
+                dominantQuote,
+              });
+            }
+          } else {
+            // Live mode: real balance is 0 or unavailable — skip trade, never use configured capital.
+            // Using configured capital would place orders exceeding actual funds → -2010 errors.
+            logger.warn('Live trade skipped: real exchange balance is 0 or unavailable', {
               botId: bot.id,
               configuredCapital: configured,
-              realBalance: result.available,
-              openTradesValue,
-              freeAfterOpenTrades,
-              effectiveBalance,
-              dominantQuote,
             });
+            return null;
           }
-        } else if (isLive) {
-          // Live mode: real balance is 0 or unavailable — skip trade, never use configured capital.
-          // Using configured capital would place orders exceeding actual funds → -2010 errors.
-          logger.warn('Live trade skipped: real exchange balance is 0 or unavailable', {
-            botId: bot.id,
-            configuredCapital: configured,
-          });
-          return null;
-        } else {
-          // Paper mode only: safe to simulate with configured capital
-          effectiveBalance = configured;
-        }
-      } catch (err) {
-        if (isLive) {
+        } catch (err) {
           logger.warn('Live trade skipped: could not fetch real exchange balance', {
             botId: bot.id,
             error: err instanceof Error ? err.message : String(err),
           });
           return null;
         }
-        // Paper mode only: safe to simulate with configured capital
-        effectiveBalance = configured;
       }
     } else if (typeof configuredCapital === 'string' && !isUnlimitedMode) {
       // Try to parse string number (backward compatibility for "1000" stored as string)
