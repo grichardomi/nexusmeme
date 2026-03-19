@@ -138,6 +138,9 @@ export default function PerformanceFeesPage() {
               <p className="text-slate-700 dark:text-slate-300">
                 Live trading requires a minimum of <strong>$1,000 USDT/USD</strong> in your exchange account. Paper trading during your free trial has no minimum.
               </p>
+              <p className="text-slate-600 dark:text-slate-400 mt-2 text-sm">
+                💡 <strong>The $1,000 minimum is a floor, not a recommendation.</strong> Operating close to the minimum means each trade represents a larger share of your capital, which increases the impact of any single loss and can cause trading gaps if your balance dips below the threshold. More capital above the minimum gives the bot more room to operate consistently across all market conditions.
+              </p>
             </div>
 
             <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-6">

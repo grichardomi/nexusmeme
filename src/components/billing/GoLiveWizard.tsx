@@ -314,6 +314,9 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                     <p className="text-xs text-red-600 dark:text-red-400 mt-1">
                       Fund your {balance!.exchange.toUpperCase()} account and try again.
                     </p>
+                    <p className="text-xs text-red-500 dark:text-red-400 mt-1">
+                      💡 The ${balance!.minimum.toLocaleString()} minimum is just the floor — the more capital above the minimum, the less any single trade impacts your overall balance and the fewer trading gaps you'll experience.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -322,6 +325,9 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                       {balance!.exchange.toUpperCase()} account value:{' '}
                       <strong>${(balance!.totalAccountValue ?? balance!.real).toFixed(2)} USD equivalent</strong>
                       {' '}· minimum: ${balance!.minimum.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                      💡 The ${balance!.minimum.toLocaleString()} minimum is just the floor — more capital above the minimum means fewer trading gaps and less impact per trade on your overall balance.
                     </p>
                     {/* USDT conversion warning — shown when total passes but stablecoin is low */}
                     {balance!.real < balance!.minUsdt && (
