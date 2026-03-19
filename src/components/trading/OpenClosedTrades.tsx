@@ -22,6 +22,7 @@ interface Trade {
   status: string;
   exitReason?: string | null;
   botId?: string;
+  tradingMode?: 'live' | 'paper';
 }
 
 interface PositionHealth {
@@ -64,6 +65,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
   const [isDeletingClosedTrades, setIsDeletingClosedTrades] = useState(false);
   const [isArchivedCollapsed, setIsArchivedCollapsed] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [tradeModeFilter, setTradeModeFilter] = useState<'all' | 'live' | 'paper'>('all');
   const [dateRange, setDateRange] = useState<DateRange>('1m');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -323,9 +325,10 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
     }
   }, [trades]);
 
-  const openTrades = trades.filter(t => t.status === 'open');
-  const closedTrades = trades.filter(t => t.status === 'closed');
-  const archivedTrades = trades.filter(t => t.status === 'archived');
+  const visibleTrades = tradeModeFilter === 'all' ? trades : trades.filter(t => t.tradingMode === tradeModeFilter);
+  const openTrades = visibleTrades.filter(t => t.status === 'open');
+  const closedTrades = visibleTrades.filter(t => t.status === 'closed');
+  const archivedTrades = visibleTrades.filter(t => t.status === 'archived');
 
   // Position concentration: flag pairs more than 2x their equal-weight share,
   // only meaningful when there are 3+ distinct pairs open.
@@ -530,13 +533,24 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
               {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
-          <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
-            isOpen
-              ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200'
-              : 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300'
-          }`}>
-            {isOpen ? '◔ Open' : '✓ Closed'}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {trade.tradingMode && (
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                trade.tradingMode === 'live'
+                  ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                  : 'bg-slate-100 dark:bg-slate-600 text-slate-500 dark:text-slate-400'
+              }`}>
+                {trade.tradingMode === 'live' ? '💰 Live' : '📄 Paper'}
+              </span>
+            )}
+            <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
+              isOpen
+                ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200'
+                : 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300'
+            }`}>
+              {isOpen ? '◔ Open' : '✓ Closed'}
+            </span>
+          </div>
         </div>
 
         {/* Price Info */}
@@ -745,6 +759,23 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
       </div>
 
       {/* Filters and Export */}
+      <div className="flex flex-col gap-2">
+        {/* Trade Mode Filter */}
+        <div className="flex gap-1.5">
+          {(['all', 'live', 'paper'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setTradeModeFilter(m)}
+              className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition ${
+                tradeModeFilter === m
+                  ? m === 'live' ? 'bg-green-600 text-white' : m === 'paper' ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+              }`}
+            >
+              {m === 'live' ? '💰 Live' : m === 'paper' ? '📄 Paper' : '📊 All'}
+            </button>
+          ))}
+        </div>
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
         {/* Status Filters */}
         <div className="overflow-x-auto">
@@ -777,6 +808,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
         >
           📥 Export CSV
         </button>
+      </div>
       </div>
 
       {/* Position concentration warning */}

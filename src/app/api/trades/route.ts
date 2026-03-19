@@ -535,6 +535,7 @@ export async function GET(request: NextRequest) {
         status: t.status,
         exitReason: t.exit_reason || null,
         pyramidLevels: t.pyramid_levels || null,
+        tradingMode: (t.trading_mode as 'live' | 'paper') || 'paper',
       };
     });
 
