@@ -63,9 +63,12 @@ class RiskManager {
   initializeFromBotConfig(botConfig: Record<string, any>, exchange: string = 'kraken'): void {
     const env = getEnvironmentConfig();
     // Momentum thresholds from ENVIRONMENT (authoritative, not stale botConfig)
-    // RISK_MIN_MOMENTUM_1H is in percent form: 1.0 = 1.0%
-    // Kraken needs higher threshold (0.52% round-trip fees) to ensure trades can overcome fee drag
-    let minMomentum1h = parseFloat(env.RISK_MIN_MOMENTUM_1H?.toString() || '1.0');
+    // Exchange-aware: Binance round-trip = 0.20%, Kraken = 0.52%
+    // Threshold = 2× round-trip fees so momentum must at minimum cover fee drag
+    const isBinance = exchange.toLowerCase().startsWith('binance');
+    let minMomentum1h = isBinance
+      ? parseFloat(env.RISK_MIN_MOMENTUM_1H_BINANCE?.toString() || '0.2')
+      : parseFloat(env.RISK_MIN_MOMENTUM_1H?.toString() || '1.0');
     let minMomentum4h = parseFloat(env.RISK_MIN_MOMENTUM_4H?.toString() || '0.5');
     let volumeBreakoutRatio = parseFloat(botConfig?.volumeBreakoutRatio || '1.3');
     let priceTopThreshold = parseFloat(botConfig?.priceTopThreshold || '0.995');

@@ -753,9 +753,12 @@ class TradeSignalOrchestrator {
               return { type: 'rejected', signal: { pair, reason: 'intrabar_negative', details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (${regimeLabel} ADX ${adx.toFixed(1)})`, stage: 'Pre-Filter' } };
             }
 
-            // 1H MOMENTUM GUARD
+            // 1H MOMENTUM GUARD — exchange-aware threshold
+            // Binance round-trip: 0.20% → threshold 0.2%; Kraken round-trip: 0.52% → threshold 1.0%
             const mom1h = indicators.momentum1h ?? 0;
-            const minMom1h = env.RISK_MIN_MOMENTUM_1H ?? 0;
+            const minMom1h = pairExchange.startsWith('binance')
+              ? (env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.2)
+              : (env.RISK_MIN_MOMENTUM_1H ?? 1.0);
             if (mom1h < minMom1h) {
               console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}% min`);
               return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${minMom1h}%`, stage: 'Pre-Filter' } };

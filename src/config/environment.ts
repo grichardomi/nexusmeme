@@ -145,7 +145,8 @@ const envSchema = z.object({
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
   RISK_RSI_EXTREME_OVERBOUGHT: z.string().transform(Number).default('85'),
   RISK_RSI_OVERBOUGHT_TRENDING: z.string().transform(Number).default('92'), // ADX >= 35: RSI stays elevated in trends
-  RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // 1% minimum (percent form)
+  RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Kraken default: 1% (2× 0.52% round-trip fee)
+  RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.2'), // Binance: 0.2% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
@@ -488,7 +489,8 @@ function getDefaultEnvironment(): Environment {
     RISK_PRICE_TOP_THRESHOLD: 0.995,
     RISK_RSI_EXTREME_OVERBOUGHT: 85,
     RISK_RSI_OVERBOUGHT_TRENDING: 92,
-    RISK_MIN_MOMENTUM_1H: 1.0, // 1% minimum (percent form)
+    RISK_MIN_MOMENTUM_1H: 1.0, // Kraken default
+    RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)
