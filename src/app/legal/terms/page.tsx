@@ -23,7 +23,7 @@ export default function TermsPage() {
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-900 dark:to-blue-800 text-white py-12 px-4 sm:px-6 lg:px-8 shadow-lg">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-4xl font-bold mb-2">Terms of Service</h1>
-          <p className="text-slate-300">Last Updated: January 2026</p>
+          <p className="text-slate-300">Last Updated: March 2026</p>
         </div>
       </div>
 
@@ -38,9 +38,11 @@ export default function TermsPage() {
             <li><a href="#performance-fees" className="hover:underline">4. Performance Fees & Billing</a></li>
             <li><a href="#payment" className="hover:underline">5. Payment Methods</a></li>
             <li><a href="#user-responsibilities" className="hover:underline">6. User Responsibilities</a></li>
-            <li><a href="#liability" className="hover:underline">7. Limitation of Liability</a></li>
-            <li><a href="#termination" className="hover:underline">8. Termination</a></li>
-            <li><a href="#changes" className="hover:underline">9. Changes to Terms</a></li>
+            <li><a href="#liability" className="hover:underline">7. Limitation of Liability & Indemnification</a></li>
+            <li><a href="#force-majeure" className="hover:underline">8. Force Majeure</a></li>
+            <li><a href="#termination" className="hover:underline">9. Termination</a></li>
+            <li><a href="#governing-law" className="hover:underline">10. Governing Law & Disputes</a></li>
+            <li><a href="#changes" className="hover:underline">11. Changes to Terms</a></li>
           </ul>
         </div>
 
@@ -77,7 +79,7 @@ export default function TermsPage() {
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 mb-4">
             <h3 className="font-bold text-red-900 dark:text-red-100 mb-2">⚠️ Important Risk Warning</h3>
             <p className="text-red-900 dark:text-red-100 text-sm">
-              Cryptocurrency trading involves substantial risk of loss. NexusMeme's AI trading strategies are provided "as is" without any guarantee of profitability or success. Past performance is not indicative of future results.
+              Cryptocurrency trading involves substantial risk of loss. NexusMeme's automated trading strategies are provided "as is" without any guarantee of profitability or success. Past performance is not indicative of future results.
             </p>
           </div>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
@@ -89,6 +91,8 @@ export default function TermsPage() {
             <li>• You are solely responsible for any trading decisions and losses incurred</li>
             <li>• Market conditions can change unexpectedly, affecting bot performance</li>
             <li>• You should never invest more capital than you can afford to lose</li>
+            <li>• The $1,000 USDT minimum balance is a floor requirement only — operating close to the minimum increases the impact of any single trade on your overall account and may cause trading gaps if your balance dips below the threshold</li>
+            <li>• Paper trading performance during the free trial is simulated and does not account for real exchange spreads, slippage, partial fills, or order execution latency — live trading results will differ and may be lower than trial performance</li>
           </ul>
         </section>
 
@@ -99,6 +103,11 @@ export default function TermsPage() {
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Fee Model</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
             NexusMeme charges a <strong>performance fee on profits only</strong>. The current fee rate is displayed in your Billing Dashboard and at <a href="/help/performance-fees" className="text-blue-600 dark:text-blue-400 underline">nexusmeme.com/help/performance-fees</a>. You are charged when your trading bot generates profitable trades. Losing trades incur no fee.
+          </p>
+
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Minimum Balance Requirement</h3>
+          <p className="text-slate-700 dark:text-slate-300 mb-4">
+            Live trading requires a minimum of <strong>$1,000 USDT/USD</strong> in your exchange account. If your account balance falls below this threshold, the bot will pause trading until the balance is restored. NexusMeme is not liable for missed trading opportunities resulting from an insufficient balance.
           </p>
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Billing Schedule</h3>
@@ -149,29 +158,42 @@ export default function TermsPage() {
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
             <li>• Maintaining the confidentiality of your account credentials</li>
             <li>• All activities occurring under your account</li>
-            <li>• Ensuring your exchange API keys have appropriate permissions</li>
+            <li>• Ensuring your exchange API keys are configured with appropriate permissions for the trading mode selected (paper or live). NexusMeme is not liable for unintended exchange activity resulting from incorrectly configured or overly permissive API keys</li>
             <li>• Monitoring your trading activity and account balance</li>
-            <li>• Compliance with all applicable laws and regulations in your jurisdiction</li>
+            <li>• Maintaining sufficient exchange balance to meet the minimum live trading threshold</li>
+            <li>• Compliance with all applicable laws and regulations in your jurisdiction, including tax reporting obligations on trading profits</li>
             <li>• Understanding the risks associated with automated cryptocurrency trading</li>
           </ul>
         </section>
 
         {/* Section 7 */}
         <section id="liability">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">7. Limitation of Liability</h2>
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">7. Limitation of Liability & Indemnification</h2>
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6 mb-4">
             <p className="text-slate-700 dark:text-slate-300 mb-4">
               To the fullest extent permitted by law, NexusMeme and its owners, operators, and employees shall not be liable for any indirect, incidental, special, consequential, or punitive damages resulting from your use of or inability to use the Platform, including but not limited to trading losses, loss of profits, or loss of data.
             </p>
             <p className="text-slate-700 dark:text-slate-300">
-              This includes damages resulting from market volatility, technical failures, unauthorized access, or any cause beyond our reasonable control.
+              This includes damages resulting from market volatility, technical failures, exchange outages, unauthorized access, incorrect API key configuration, or any cause beyond our reasonable control.
             </p>
           </div>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Indemnification</h3>
+          <p className="text-slate-700 dark:text-slate-300">
+            You agree to indemnify, defend, and hold harmless NexusMeme and its owners, operators, and employees from and against any claims, liabilities, damages, losses, or expenses — including legal fees — arising out of or in any way connected with your use of the Platform, your violation of these Terms, your exchange API key configuration, or your violation of any applicable law or the rights of any third party.
+          </p>
         </section>
 
         {/* Section 8 */}
+        <section id="force-majeure">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">8. Force Majeure</h2>
+          <p className="text-slate-700 dark:text-slate-300">
+            NexusMeme shall not be held liable for any failure or delay in performance of its obligations where such failure or delay results from causes beyond its reasonable control, including but not limited to: exchange API outages or changes, blockchain network congestion or failure, internet or infrastructure outages, regulatory actions, acts of government, natural disasters, or other force majeure events. Trading opportunities missed during such periods are not compensable.
+          </p>
+        </section>
+
+        {/* Section 9 */}
         <section id="termination">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">8. Termination</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">9. Termination</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
             We reserve the right to terminate your account at any time for violation of these terms, fraudulent activity, or other reasons at our sole discretion.
           </p>
@@ -180,9 +202,20 @@ export default function TermsPage() {
           </p>
         </section>
 
-        {/* Section 9 */}
+        {/* Section 10 */}
+        <section id="governing-law">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">10. Governing Law & Disputes</h2>
+          <p className="text-slate-700 dark:text-slate-300 mb-4">
+            These Terms shall be governed by and construed in accordance with applicable law. Any dispute arising out of or in connection with these Terms that cannot be resolved informally shall first be submitted to good-faith mediation before any legal proceedings are initiated.
+          </p>
+          <p className="text-slate-700 dark:text-slate-300">
+            To initiate a dispute resolution process, contact support@nexusmeme.com with a written description of the dispute. We will respond within 10 business days to attempt an informal resolution.
+          </p>
+        </section>
+
+        {/* Section 11 */}
         <section id="changes">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">9. Changes to Terms</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">11. Changes to Terms</h2>
           <p className="text-slate-700 dark:text-slate-300">
             We may modify these terms at any time. Changes will be effective immediately upon posting. Your continued use of the Platform after modifications constitute your acceptance of the new terms. We will notify users of significant changes via email.
           </p>

@@ -378,6 +378,7 @@ export function GoLiveWizard({ onClose, onComplete }: GoLiveWizardProps) {
                   <li>• <strong>Paper trading is gone for good</strong> — you cannot revert to it for any reason</li>
                   <li>• {bots.length === 1 ? 'Your bot' : 'All your bots'} will trade with <strong>real funds</strong> immediately</li>
                   <li>• To test a new strategy, use small live capital — there is no sandbox after this point</li>
+                  <li>• <strong>Trial performance is not a guarantee of live results</strong> — paper trading does not account for real spreads, slippage, or order fill prices. Live performance may differ from what you saw during the trial</li>
                 </ul>
               </div>
 

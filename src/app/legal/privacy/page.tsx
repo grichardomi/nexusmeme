@@ -23,7 +23,7 @@ export default function PrivacyPage() {
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-900 dark:to-blue-800 text-white py-12 px-4 sm:px-6 lg:px-8 shadow-lg">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-4xl font-bold mb-2">Privacy Policy</h1>
-          <p className="text-slate-300">Last Updated: January 2026</p>
+          <p className="text-slate-300">Last Updated: March 2026</p>
         </div>
       </div>
 
@@ -63,10 +63,10 @@ export default function PrivacyPage() {
 
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Payment Information</h3>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            Payments are made via USDC on the Base network. We do not store credit card information. We store:
+            We do not store credit card information. We store:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
-            <li>• USDC wallet address used for payments</li>
+            <li>• Wallet addresses used for payments</li>
             <li>• Charge history and invoice records</li>
           </ul>
 
@@ -75,7 +75,7 @@ export default function PrivacyPage() {
             You provide exchange API keys to enable trading. These credentials are:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
-            <li>• Encrypted at rest using industry-standard AES-256 encryption</li>
+            <li>• Encrypted at rest using AES-256 encryption</li>
             <li>• Never displayed in plaintext after initial entry</li>
             <li>• Only used to execute trades on your behalf via the exchange's API</li>
             <li>• Never shared with third parties</li>
@@ -112,17 +112,17 @@ export default function PrivacyPage() {
         <section>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">3. Data Security</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            We implement industry-standard security measures to protect your data:
+            We implement security measures to protect your data:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
             <li>• SSL/TLS encryption for data in transit</li>
-            <li>• AES-256 encryption for sensitive data at rest</li>
-            <li>• Regular security audits and penetration testing</li>
+            <li>• AES-256 encryption for sensitive data at rest (including API keys)</li>
+            <li>• Periodic security reviews of platform code and infrastructure</li>
             <li>• Restricted access to personal data (need-to-know basis)</li>
             <li>• Secure password hashing with bcrypt</li>
           </ul>
           <p className="text-slate-700 dark:text-slate-300">
-            While we strive to protect your information, no method of transmission over the internet is 100% secure. You are responsible for maintaining the confidentiality of your account credentials.
+            While we strive to protect your information, no method of transmission over the internet is 100% secure. You are responsible for maintaining the confidentiality of your account credentials and exchange API keys.
           </p>
         </section>
 
@@ -133,16 +133,26 @@ export default function PrivacyPage() {
             We do not sell or rent your personal information to third parties. We may share information with:
           </p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
-            <li>• <strong>Blockchain Networks:</strong> USDC transactions on the Base network are publicly visible on-chain</li>
-            <li>• <strong>Exchanges:</strong> Only API credentials you provide to connect your exchange account</li>
+            <li>• <strong>Exchanges:</strong> Only the API credentials you provide to connect your exchange account, solely to execute trades on your behalf</li>
+            <li>• <strong>Infrastructure Providers:</strong> Cloud hosting and database providers required to operate the platform — these providers process data only as needed to deliver the service and are bound by their own privacy and security obligations</li>
             <li>• <strong>Legal Authorities:</strong> When required by law or court order</li>
-            <li>• <strong>Service Providers:</strong> Only as needed to operate the platform</li>
           </ul>
+          <p className="text-slate-700 dark:text-slate-300">
+            We do not use third-party advertising networks or sell data for marketing purposes.
+          </p>
         </section>
 
         {/* Section 5 */}
         <section>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">5. Data Retention</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">5. Data Breach Notification</h2>
+          <p className="text-slate-700 dark:text-slate-300">
+            In the event of a data breach that affects your personal data, we will notify affected users without undue delay and, where required by applicable law (including GDPR), within 72 hours of becoming aware of the breach. Notification will be sent to the email address on your account and posted on our status page.
+          </p>
+        </section>
+
+        {/* Section 6 */}
+        <section>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">6. Data Retention</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
             We retain your data for as long as your account is active or as needed to provide services. After account deletion:
           </p>
@@ -150,13 +160,13 @@ export default function PrivacyPage() {
             <li>• Account information is deleted within 30 days</li>
             <li>• Trading history is retained for 7 years for tax and regulatory purposes</li>
             <li>• Billing records are retained for 7 years as required by law</li>
-            <li>• API credentials are permanently deleted</li>
+            <li>• API credentials are permanently deleted immediately upon account deletion</li>
           </ul>
         </section>
 
-        {/* Section 6 */}
+        {/* Section 7 */}
         <section>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">6. Your Rights and Choices</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">7. Your Rights and Choices</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">You have the right to:</p>
           <ul className="space-y-2 text-slate-700 dark:text-slate-300 ml-6 mb-4">
             <li>• Access your personal data</li>
@@ -170,9 +180,9 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* Section 7 */}
+        {/* Section 8 */}
         <section>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">7. Cookies and Tracking</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">8. Cookies and Tracking</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
             We use cookies and similar technologies to:
           </p>
@@ -187,20 +197,20 @@ export default function PrivacyPage() {
           </p>
         </section>
 
-        {/* Section 8 */}
+        {/* Section 9 */}
         <section>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">8. GDPR and CCPA Compliance</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">9. GDPR and CCPA Compliance</h2>
           <p className="text-slate-700 dark:text-slate-300 mb-4">
-            <strong>For EU Residents (GDPR):</strong> We process your data based on your consent. You have rights to data portability, erasure, and objection. Our Data Protection Officer can be contacted at support@nexusmeme.com.
+            <strong>For EU Residents (GDPR):</strong> We process your data based on your consent and legitimate interest in providing the service. You have rights to data portability, erasure, restriction, and objection. To exercise your rights or submit a privacy inquiry, contact support@nexusmeme.com.
           </p>
           <p className="text-slate-700 dark:text-slate-300">
-            <strong>For California Residents (CCPA):</strong> You have rights to know, delete, and opt-out of data sales (which we don't do). To exercise these rights, contact support@nexusmeme.com.
+            <strong>For California Residents (CCPA):</strong> You have rights to know what data we collect, request deletion, and opt-out of data sales (which we do not conduct). To exercise these rights, contact support@nexusmeme.com.
           </p>
         </section>
 
-        {/* Section 9 */}
+        {/* Section 10 */}
         <section>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">9. Changes to Privacy Policy</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-4">10. Changes to Privacy Policy</h2>
           <p className="text-slate-700 dark:text-slate-300">
             We may update this privacy policy. Changes will be posted on this page with an updated "Last Updated" date. Your continued use of the Platform after changes constitute your acceptance.
           </p>
