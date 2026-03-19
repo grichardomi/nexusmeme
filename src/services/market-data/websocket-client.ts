@@ -177,7 +177,7 @@ export class BinanceWebSocketClient {
 
     // Only connect to Binance if we're the leader
     if (!this.isLeader) {
-      logger.info('Not the leader, skipping Binance WebSocket connection', { pairs: pairs.length });
+      logger.debug('Not the leader, skipping Binance WebSocket connection', { pairs: pairs.length });
       return;
     }
 
