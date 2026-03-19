@@ -197,9 +197,6 @@ const envSchema = z.object({
   EROSION_MIN_PROFIT_FLOOR_USD: z.string().transform(Number).default('2.00'), // $2 floor to avoid fee churn
   EROSION_MIN_HOLD_SECONDS: z.string().transform(Number).default('60'), // 60 seconds - minimum hold before erosion cap can fire (prevents instant exits)
 
-  /* Fee Estimation - CRITICAL: Account for BOTH entry and exit fees */
-  ESTIMATED_ENTRY_FEE_PCT: z.string().transform(Number).default('0.003'), // 0.3% entry fee
-  ESTIMATED_EXIT_FEE_PCT: z.string().transform(Number).default('0.003'), // 0.3% exit fee
 
   /* Regime-based Profit Lock (AGGRESSIVE - protect small gains) */
   /* Philosophy: Lock profits early - don't let them slip away */
@@ -521,8 +518,6 @@ function getDefaultEnvironment(): Environment {
     EROSION_MIN_PROFIT_TO_CLOSE: 0.004, // 0.4% - covers round-trip fees
     EROSION_MIN_PROFIT_FLOOR_USD: 2.00, // $2 floor
     EROSION_MIN_HOLD_SECONDS: 60, // 60 seconds minimum hold before erosion cap
-    ESTIMATED_ENTRY_FEE_PCT: 0.003, // 0.3% entry fee (total 0.6% round-trip)
-    ESTIMATED_EXIT_FEE_PCT: 0.003, // 0.3% exit fee
     PROFIT_LOCK_CHOPPY_MIN_PEAK: 0.001, // 0.1% min peak (AGGRESSIVE)
     PROFIT_LOCK_CHOPPY_LOCK_PCT: 0.60, // Lock 60%
     PROFIT_LOCK_WEAK_MIN_PEAK: 0.002, // 0.2% min peak

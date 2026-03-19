@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { getEnvironmentConfig } from '@/config/environment';
+import { getExchangeFeeRates } from '@/services/billing/fee-rate';
 
 /**
  * POST /api/bots/trades/close-all
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     // Verify bot belongs to user
     const bot = await query(
-      `SELECT id FROM bot_instances WHERE id = $1 AND user_id = $2`,
+      `SELECT id, exchange FROM bot_instances WHERE id = $1 AND user_id = $2`,
       [botId, session.user.id]
     );
 
@@ -68,8 +68,10 @@ export async function POST(request: NextRequest) {
       // Fall back to using entry prices if market data unavailable
     }
 
-    const env = getEnvironmentConfig();
-    const feeRate = env.BINANCE_TAKER_FEE_DEFAULT;
+    const botExchange = ((bot[0] as any).exchange || 'binance').toLowerCase();
+    const exchangeKey = botExchange === 'kraken' ? 'kraken' : 'binance';
+    const feeRates = await getExchangeFeeRates(exchangeKey);
+    const feeRate = feeRates.taker_fee;
 
     // Close all trades atomically
     const closedTrades: string[] = [];
