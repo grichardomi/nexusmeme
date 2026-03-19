@@ -2200,7 +2200,6 @@ class TradeSignalOrchestrator {
          WHERE bi.status = 'running'
            AND s.status IN ('active', 'trialing')
            AND NOT (s.plan_tier = 'live_trial' AND s.trial_ends_at <= NOW())
-           AND bi.config->>'tradingMode' = 'live' AND bi.trading_mode = 'live'
            ${shardFilter}
          ORDER BY bi.created_at DESC`
       );
