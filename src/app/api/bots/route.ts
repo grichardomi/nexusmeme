@@ -427,6 +427,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
     }
 
+    const patchUserRole = (session.user as any).role ?? 'user';
+    const isAdmin = patchUserRole === 'admin';
+
     // Build the update query dynamically based on what's being updated
     const updates: string[] = [];
     const params: any[] = [];
@@ -518,73 +521,96 @@ export async function PATCH(request: NextRequest) {
       const currentConfig = bot[0].config || {};
       const currentTradingMode = currentConfig.tradingMode || 'paper';
 
-      // BLOCK: Switching from LIVE to PAPER is not allowed (one-way progression)
+      // BLOCK: Switching from LIVE to PAPER is not allowed for regular users (one-way progression)
       // Paper trading is only available during the free trial. After upgrading to live,
       // users cannot switch back to avoid performance fees.
+      // Exception: admins can revert for testing — but ALL mode fields must be synced together
+      // to prevent the config/column desync that caused 46 accidental live trades (Mar 2026).
       if (currentTradingMode === 'live' && tradingMode === 'paper') {
-        logger.warn('Live to paper switch blocked - not allowed after trial', {
-          userId: session.user.id,
-          botId,
-        });
-
-        return NextResponse.json(
-          {
-            error: 'Cannot switch back to paper trading. Paper trading is only available during the free trial. Live trading is required after your trial ends.',
-            code: 'LIVE_TO_PAPER_BLOCKED',
-          },
-          { status: 403 }
-        );
-      }
-
-      // Paper to live switch requires payment method / active subscription
-      if (currentTradingMode === 'paper' && tradingMode === 'live') {
-        const liveCheck = await checkActionAllowed(session.user.id, 'startBot', {
-          tradingMode: 'live',
-          exchange: bot[0].exchange,
-        });
-
-        if (!liveCheck.allowed) {
-          logger.warn('Paper to live switch blocked - payment required', {
+        if (!isAdmin) {
+          logger.warn('Live to paper switch blocked - not allowed after trial', {
             userId: session.user.id,
             botId,
-            reason: liveCheck.reason,
           });
 
           return NextResponse.json(
             {
-              error: liveCheck.reason || `Please ensure your ${(bot[0].exchange || 'exchange').toUpperCase()} account has sufficient balance before switching to live trading.`,
-              code: liveCheck.insufficientBalance ? 'INSUFFICIENT_BALANCE'
-                  : liveCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED'
-                  : 'SUBSCRIPTION_INACTIVE',
-              requiresPaymentMethod: liveCheck.requiresPaymentMethod,
+              error: 'Cannot switch back to paper trading. Paper trading is only available during the free trial. Live trading is required after your trial ends.',
+              code: 'LIVE_TO_PAPER_BLOCKED',
             },
             { status: 403 }
           );
         }
 
-        logger.info('Paper to live switch approved', {
+        // Admin reverting live→paper: sync ALL mode fields to prevent desync.
+        // config.tradingMode, trading_mode column, and live_since must all be reset together.
+        logger.warn('Admin reverting live bot to paper mode — syncing all mode fields', {
           userId: session.user.id,
           botId,
         });
-      }
-
-      // Update config with new trading mode
-      const config = bot[0].config || {};
-      config.tradingMode = tradingMode;
-
-      updates.push(`config = $${paramCount}`);
-      params.push(JSON.stringify(config));
-      paramCount++;
-
-      // Keep trading_mode column in sync and record live_since timestamp
-      if (currentTradingMode === 'paper' && tradingMode === 'live') {
+        const config = bot[0].config || {};
+        config.tradingMode = 'paper';
+        updates.push(`config = $${paramCount}`);
+        params.push(JSON.stringify(config));
+        paramCount++;
         updates.push(`trading_mode = $${paramCount}`);
-        params.push('live');
+        params.push('paper');
         paramCount++;
         updates.push(`live_since = $${paramCount}`);
-        params.push(new Date().toISOString());
+        params.push(null);
         paramCount++;
-      }
+        // All fields already synced above — skip the normal config update path.
+      } else {
+        // Paper to live switch requires payment method / active subscription
+        if (currentTradingMode === 'paper' && tradingMode === 'live') {
+          const liveCheck = await checkActionAllowed(session.user.id, 'startBot', {
+            tradingMode: 'live',
+            exchange: bot[0].exchange,
+          });
+
+          if (!liveCheck.allowed) {
+            logger.warn('Paper to live switch blocked - payment required', {
+              userId: session.user.id,
+              botId,
+              reason: liveCheck.reason,
+            });
+
+            return NextResponse.json(
+              {
+                error: liveCheck.reason || `Please ensure your ${(bot[0].exchange || 'exchange').toUpperCase()} account has sufficient balance before switching to live trading.`,
+                code: liveCheck.insufficientBalance ? 'INSUFFICIENT_BALANCE'
+                    : liveCheck.requiresPaymentMethod ? 'PAYMENT_REQUIRED'
+                    : 'SUBSCRIPTION_INACTIVE',
+                requiresPaymentMethod: liveCheck.requiresPaymentMethod,
+              },
+              { status: 403 }
+            );
+          }
+
+          logger.info('Paper to live switch approved', {
+            userId: session.user.id,
+            botId,
+          });
+        }
+
+        // Update config with new trading mode
+        const config = bot[0].config || {};
+        config.tradingMode = tradingMode;
+
+        updates.push(`config = $${paramCount}`);
+        params.push(JSON.stringify(config));
+        paramCount++;
+
+        // Keep trading_mode column in sync and record live_since timestamp
+        if (currentTradingMode === 'paper' && tradingMode === 'live') {
+          updates.push(`trading_mode = $${paramCount}`);
+          params.push('live');
+          paramCount++;
+          updates.push(`live_since = $${paramCount}`);
+          params.push(new Date().toISOString());
+          paramCount++;
+        }
+      } // end else (non-admin live→paper path)
     }
 
     if (status !== undefined) {

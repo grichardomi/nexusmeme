@@ -1822,6 +1822,8 @@ class TradeSignalOrchestrator {
     try {
       // Get all open trades — optionally scoped to specific pairs (main cycle passes active pairs;
       // dedicated pyramid interval passes [] to process ALL open trades regardless of pair)
+      // Only pyramid live trades — paper trades must never trigger real exchange orders.
+      // t.trading_mode is set at entry time and is the immutable source of truth.
       const openTrades = await query<any>(
         allPairs.length > 0
           ? `SELECT
@@ -1830,7 +1832,7 @@ class TradeSignalOrchestrator {
               b.user_id, b.config, b.exchange
             FROM trades t
             INNER JOIN bot_instances b ON t.bot_instance_id = b.id
-            WHERE t.status = 'open' AND t.pair = ANY($1)
+            WHERE t.status = 'open' AND t.trading_mode = 'live' AND t.pair = ANY($1)
             ORDER BY t.entry_time ASC`
           : `SELECT
               t.id, t.bot_instance_id, t.pair, t.entry_price, t.quantity, t.entry_time,
@@ -1838,7 +1840,7 @@ class TradeSignalOrchestrator {
               b.user_id, b.config, b.exchange
             FROM trades t
             INNER JOIN bot_instances b ON t.bot_instance_id = b.id
-            WHERE t.status = 'open'
+            WHERE t.status = 'open' AND t.trading_mode = 'live'
             ORDER BY t.entry_time ASC`,
         allPairs.length > 0 ? [allPairs] : []
       );
@@ -2115,7 +2117,8 @@ class TradeSignalOrchestrator {
          FROM bot_instances b
          JOIN users u ON u.id = b.user_id
          WHERE b.status IN ('running', 'paused')
-           AND COALESCE(b.config->>'tradingMode', 'paper') = 'live'`
+           AND b.config->>'tradingMode' = 'live'
+           AND b.trading_mode = 'live'`
       );
     } catch {
       return;
@@ -2197,6 +2200,7 @@ class TradeSignalOrchestrator {
          WHERE bi.status = 'running'
            AND s.status IN ('active', 'trialing')
            AND NOT (s.plan_tier = 'live_trial' AND s.trial_ends_at <= NOW())
+           AND bi.config->>'tradingMode' = 'live' AND bi.trading_mode = 'live'
            ${shardFilter}
          ORDER BY bi.created_at DESC`
       );

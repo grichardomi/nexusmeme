@@ -920,6 +920,19 @@ export class JobQueueManager {
       const originalAmount = parseFloat(String(trade.amount));
       const originalEntryPrice = parseFloat(String(trade.price));
 
+      // SAFETY GATE: Never place real pyramid orders for paper trades.
+      // trade.trading_mode is the source of truth — set at entry time and immutable.
+      const tradeMode = trade.trading_mode || 'paper';
+      if (tradeMode === 'paper') {
+        logger.info('Pyramid order skipped — paper trade', { tradeId, pair, level, tradeMode });
+        return {
+          jobId: job.id,
+          success: true,
+          data: { skipped: true, reason: 'paper_trade' },
+          duration: Date.now() - startTime,
+        };
+      }
+
       // Get user's API keys for this exchange (exchange-agnostic!)
       const keysResult = await query(
         `SELECT encrypted_public_key, encrypted_secret_key FROM exchange_api_keys

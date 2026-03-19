@@ -88,7 +88,7 @@ export async function closeTrade(data: CloseTradeParams): Promise<CloseTradeResu
 
   // STEP 1: Place sell order on exchange (live) or estimate fees (paper)
   try {
-    if (keys) {
+    if (keys && !isTradeActuallyPaper) {
       const decryptedPublicKey = decrypt(keys.encrypted_public_key);
       const decryptedSecretKey = decrypt(keys.encrypted_secret_key);
       const adapter = getExchangeAdapter(exchange);

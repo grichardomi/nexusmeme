@@ -670,9 +670,13 @@ class ExecutionFanOut {
 
     const bot = botResult[0];
     const exchange = bot.exchange;
-    // config->>'tradingMode' is the source of truth (updated by Go Live flow).
-    // trading_mode column is a legacy fallback — may not be in sync.
-    const tradingMode = (bot.config?.tradingMode as string) || bot.trading_mode || 'paper';
+    // SAFETY: Both sources must agree on 'live' before placing real orders.
+    // config.tradingMode and trading_mode column can desync if a bot is reverted via DB
+    // or admin tooling without updating both fields. Requiring agreement prevents accidental
+    // live orders when one field lags behind the other.
+    const configMode = (bot.config?.tradingMode as string) || 'paper';
+    const columnMode = bot.trading_mode || 'paper';
+    const tradingMode = (configMode === 'live' && columnMode === 'live') ? 'live' : 'paper';
 
     // CRITICAL FIX (/nexus parity): Use LIVE market price at execution time, not stale signal price
     // The AI signal's entryPrice comes from candle close (can be up to 1 hour old for 1h candles)
