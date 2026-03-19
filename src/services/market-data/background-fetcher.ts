@@ -19,6 +19,8 @@
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
 import { marketDataAggregator } from './aggregator';
+import { getBinanceWebSocketClient } from './websocket-client';
+import { WebSocketState } from '@/types/market-data';
 
 interface BackgroundFetcherStats {
   lastFetchTime: number | null;
@@ -141,10 +143,39 @@ class BackgroundMarketDataFetcher {
         return;
       }
 
-      // Fetch fresh prices for each exchange independently
+      // Keep Binance WebSocket in sync with active pairs.
+      // The WS leader publishes real-time prices to Redis; aggregator reads them
+      // as a fast-path before falling back to REST.  This replaces REST polling
+      // at scale: one persistent connection → zero per-pair request weight.
+      const binancePairs = pairsByExchange.get('binance') ?? [];
+      if (binancePairs.length > 0) {
+        const wsClient = getBinanceWebSocketClient();
+        const wsState = wsClient.getState();
+        if (wsState !== WebSocketState.CONNECTED && wsState !== WebSocketState.CONNECTING) {
+          wsClient.connect(binancePairs).catch(err => {
+            logger.warn('WebSocket connect failed — REST fallback active', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        } else {
+          // Add any new pairs that appeared since last connect
+          wsClient.addPairs(binancePairs).catch(() => { /* non-fatal */ });
+        }
+      }
+
+      // REST fetch as fallback: keeps Redis warm for Kraken (no WS) and during WS cold-start
       let totalPairs = 0;
       let totalRetrieved = 0;
       for (const [exchange, pairs] of pairsByExchange.entries()) {
+        // Skip Binance REST fetch when WebSocket is connected and serving prices
+        if (exchange === 'binance') {
+          const wsClient = getBinanceWebSocketClient();
+          if (wsClient.getState() === WebSocketState.CONNECTED) {
+            totalPairs += pairs.length;
+            totalRetrieved += pairs.length; // WS serves all pairs live
+            continue;
+          }
+        }
         const data = await marketDataAggregator.fetchFresh(pairs, exchange);
         totalPairs += pairs.length;
         totalRetrieved += data.size;

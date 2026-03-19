@@ -174,11 +174,13 @@ class RiskManager {
       const hasSlope = slope >= slopeRisingThreshold;
       const hasMomentum = mom1h >= momentumOverrideMin;
 
-      // Volume surge override: extraordinary volume (>= 4x) with positive momentum confirms breakout
+      // Volume surge override: extraordinary volume (>= 4x) with minimum momentum confirms breakout
       // ADX is lagging — 4x+ volume is a leading indicator that the trend is real
-      const hasVolumeSurge = vol >= volumeSurgeRatio && mom1h > 0;
+      // CRITICAL: Volume confirms direction only when momentum is real (>= RISK_MIN_MOMENTUM_1H)
+      // Allowing mom1h > 0 (near-zero) = volume confirming noise, not a breakout
+      const hasVolumeSurge = vol >= volumeSurgeRatio && mom1h >= this.config.minMomentum1h;
       if (hasVolumeSurge && !hasSlope && !hasMomentum) {
-        console.log(`\n🚀 VOLUME SURGE OVERRIDE: ADX=${adx.toFixed(1)} in transition zone but volume=${vol.toFixed(2)}x >= ${volumeSurgeRatio}x + mom1h=${mom1h.toFixed(2)}% > 0 → ALLOW at reduced size`);
+        console.log(`\n🚀 VOLUME SURGE OVERRIDE: ADX=${adx.toFixed(1)} in transition zone but volume=${vol.toFixed(2)}x >= ${volumeSurgeRatio}x + mom1h=${mom1h.toFixed(2)}% >= ${this.config.minMomentum1h}% → ALLOW at reduced size`);
         logger.info('RiskManager: Volume surge override - extraordinary volume confirms breakout despite low ADX', {
           adx, volumeRatio: vol, volumeSurgeRatio, momentum1h: mom1h,
           note: 'ADX lags price; 4x+ volume is leading indicator',
@@ -334,7 +336,7 @@ class RiskManager {
     // Volume surge override: extraordinary volume with positive momentum = breakout (being near high is correct)
     const isTrending = adx >= this.config.minADXForEntry;
     const volumeSurgeRatio = env.VOLUME_SURGE_ADX_OVERRIDE_RATIO;
-    const isVolumeSurge = volumeRatio >= volumeSurgeRatio && momentum1h > 0;
+    const isVolumeSurge = volumeRatio >= volumeSurgeRatio && momentum1h >= this.config.minMomentum1h;
 
     if (this.hasCreepingUptrend || isTrending || isVolumeSurge) {
       // TRENDING MODE: Allow entries near highs (trends make new highs!)
@@ -459,7 +461,10 @@ class RiskManager {
     const isStrongTrend = adx >= 35;
     const volBreakoutMom1hMin = isStrongTrend ? -0.5 : 0;
     const intrabarMomentum = indicators.intrabarMomentum ?? 0;
-    const intrabarNotFalling = intrabarMomentum > -0.3; // block if price actively down >0.3% intrabar
+    // Unified intrabar guard: block entry if price is actively falling beyond threshold
+    // Applied to ALL paths — volume or trend context does not override a falling-knife entry
+    const intrabarThreshold = this.config.entryMinIntrabarMomentumTrending; // -0.1% from env
+    const intrabarNotFalling = intrabarMomentum > intrabarThreshold;
     const hasVolumeBreakout =
       volumeRatio > this.config.volumeBreakoutRatio &&
       momentum1h > volBreakoutMom1hMin &&
@@ -472,7 +477,8 @@ class RiskManager {
     const has4hTrend = momentum4h > trendingPullback4hMin;
     const shallowDipThreshold = isStrongTrend ? -0.5 : -0.3; // -0.5% for strong trend, -0.3% otherwise
     const isShallowDip = momentum1h > shallowDipThreshold;
-    const hasTrendingPullback = isTrending && has4hTrend && isShallowDip;
+    // Also gate on intrabar: even in a valid pullback, don't enter while price is actively dropping
+    const hasTrendingPullback = isTrending && has4hTrend && isShallowDip && intrabarNotFalling;
 
     // Entry gate: 4 paths
     // 1. Strong 1h momentum (> 0.5%)

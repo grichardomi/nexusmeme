@@ -181,7 +181,15 @@ class ExecutionFanOut {
 
     if (isUnlimitedMode) {
       try {
-        const result = await this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange);
+        // Fetch exchange balance + open trades value in parallel (independent)
+        const [result, openTradesResultUnlimited] = await Promise.all([
+          this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange),
+          query<{ total_value: string }>(
+            `SELECT COALESCE(SUM(price * amount), 0) AS total_value
+             FROM trades WHERE bot_instance_id = $1 AND status = 'open'`,
+            [bot.id]
+          ),
+        ]);
 
         if (result.available <= 0) {
           logger.error('Failed to fetch unlimited balance - got zero or negative', null, {
@@ -192,13 +200,6 @@ class ExecutionFanOut {
           return null;
         }
 
-        // Deduct open trades value to avoid over-ordering when multiple pairs fire simultaneously
-        const openTradesResultUnlimited = await query<{ total_value: string }>(
-          `SELECT COALESCE(SUM(price * amount), 0) AS total_value
-           FROM trades
-           WHERE bot_instance_id = $1 AND status = 'open'`,
-          [bot.id]
-        );
         const openTradesValueUnlimited = parseFloat(String(openTradesResultUnlimited[0]?.total_value ?? '0'));
         const freeAfterOpenUnlimited = Math.max(0, result.available - openTradesValueUnlimited);
         effectiveBalance = freeAfterOpenUnlimited * 0.95;
@@ -224,16 +225,16 @@ class ExecutionFanOut {
       const configured = Number(configuredCapital);
       const isLive = (bot.config?.tradingMode as string) === 'live';
       try {
-        const result = await this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange);
-        if (result.available > 0) {
-          // Deduct value of already-open trades so concurrent pair evaluations
-          // don't both claim the same free cash → -2010 insufficient balance.
-          const openTradesResult = await query<{ total_value: string }>(
+        // Fetch exchange balance + open trades value in parallel (independent)
+        const [result, openTradesResult] = await Promise.all([
+          this.fetchRealExchangeBalance(bot.id, bot.user_id, bot.exchange),
+          query<{ total_value: string }>(
             `SELECT COALESCE(SUM(price * amount), 0) AS total_value
-             FROM trades
-             WHERE bot_instance_id = $1 AND status = 'open'`,
+             FROM trades WHERE bot_instance_id = $1 AND status = 'open'`,
             [bot.id]
-          );
+          ),
+        ]);
+        if (result.available > 0) {
           const openTradesValue = parseFloat(String(openTradesResult[0]?.total_value ?? '0'));
           const freeAfterOpenTrades = Math.max(0, result.available - openTradesValue);
           effectiveBalance = Math.min(configured, freeAfterOpenTrades * 0.95);
@@ -333,63 +334,54 @@ class ExecutionFanOut {
     // Initialize position sizer with actual balance (enables pyramiding via compounding)
     const positionSizer = new DynamicPositionSizer(effectiveBalance);
 
-    // Update position sizer with actual trade history for Kelly Criterion calibration
-    // This enables aggressive pyramiding on proven strategies and conservative sizing on untested strategies
-    try {
-      const closedTrades = await query<{ profit_loss: number; status: string }>(
+    // Fetch closed trade history + capital preservation in parallel (independent)
+    const env = getEnvironmentConfig();
+    let stopLossPct = env.DEFAULT_STOP_LOSS_PCT;
+    if (decision.stopLoss && Math.abs(decision.stopLoss - decision.price) > 0.01) {
+      stopLossPct = Math.abs((decision.stopLoss - decision.price) / decision.price);
+    }
+
+    const [closedTrades, botCpResult] = await Promise.allSettled([
+      query<{ profit_loss: number; status: string }>(
         `SELECT profit_loss, status FROM trades
          WHERE bot_instance_id = $1 AND status = 'closed'
          ORDER BY exit_time DESC LIMIT 100`,
         [bot.id]
-      );
+      ),
+      capitalPreservation.evaluateBot(bot.id, effectiveBalance),
+    ]);
 
-      if (closedTrades && closedTrades.length > 0) {
-        const totalTrades = closedTrades.length;
-        const winningTrades = closedTrades.filter(t => (Number(t.profit_loss) || 0) > 0);
-        const losingTrades = closedTrades.filter(t => (Number(t.profit_loss) || 0) < 0);
+    // Update position sizer with trade history for Kelly Criterion calibration
+    if (closedTrades.status === 'fulfilled' && closedTrades.value.length > 0) {
+      try {
+        const trades = closedTrades.value;
+        const totalTrades = trades.length;
+        const winningTrades = trades.filter(t => (Number(t.profit_loss) || 0) > 0);
+        const losingTrades = trades.filter(t => (Number(t.profit_loss) || 0) < 0);
         const totalProfit = winningTrades.reduce((sum, t) => sum + (Number(t.profit_loss) || 0), 0);
         const totalLoss = Math.abs(losingTrades.reduce((sum, t) => sum + (Number(t.profit_loss) || 0), 0));
-
         positionSizer.updatePerformance(totalTrades, winningTrades.length, losingTrades.length, totalProfit, totalLoss);
-
         logger.debug('Position sizer updated with trade history', {
           botId: bot.id,
           totalTrades,
           winRate: `${((winningTrades.length / totalTrades) * 100).toFixed(1)}%`,
           totalProfit: `$${totalProfit.toFixed(2)}`,
         });
+      } catch (error) {
+        logger.warn('Failed to update position sizer with trade history', {
+          botId: bot.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
-    } catch (error) {
-      logger.warn('Failed to update position sizer with trade history', {
-        botId: bot.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // Continue anyway - position sizer will use defaults without history
-    }
-
-    const env = getEnvironmentConfig();
-
-    // Calculate the actual stop loss percentage from the decision
-    // Decision provides stopLoss from signal generation (5% per Nexus parity)
-    let stopLossPct = env.DEFAULT_STOP_LOSS_PCT; // Default from env (5%)
-    if (decision.stopLoss && Math.abs(decision.stopLoss - decision.price) > 0.01) {
-      // Only override if stopLoss is meaningfully different from price
-      stopLossPct = Math.abs((decision.stopLoss - decision.price) / decision.price);
     }
 
     // Calculate position size using Kelly Criterion + AI confidence
-    // This is what makes pyramiding work: as balance grows, positions grow automatically
-    const positionSize = positionSizer.calculatePositionSize(
-      aiConfidence,
-      decision.price,
-      stopLossPct // Use actual stop loss from decision, not hardcoded 2%
-    );
+    const positionSize = positionSizer.calculatePositionSize(aiConfidence, decision.price, stopLossPct);
 
     // CAPITAL PRESERVATION: Per-bot Layer 2 (drawdown) + Layer 3 (loss streak)
-    // Layer 1 (BTC trend gate) is already in decision.capitalPreservationMultiplier from orchestrator
     let cpMultiplier = decision.capitalPreservationMultiplier ?? 1.0;
     try {
-      const botCp = await capitalPreservation.evaluateBot(bot.id, effectiveBalance);
+      const botCp = botCpResult.status === 'fulfilled' ? botCpResult.value : await capitalPreservation.evaluateBot(bot.id, effectiveBalance);
       if (!botCp.allowTrading) {
         logger.info('Capital preservation: bot paused, skipping trade', {
           botId: bot.id,
@@ -644,16 +636,21 @@ class ExecutionFanOut {
     const { userId, botInstanceId, pair, side, amount, stopLoss, takeProfit } = plan;
     // Note: plan.price is the AI signal's suggested price (may be stale from candle close)
 
-    // DUPLICATE CHECK: Verify no open trade on same bot + base asset exists
-    // BTC/USD, BTC/USDT, BTC/USDC all count as the same "BTC position"
+    // DUPLICATE CHECK + BOT LOOKUP in parallel (independent queries)
     const pairBase = pair.split('/')[0];
-    const existing = await query<{ id: string; pair: string }>(
-      `SELECT id, pair FROM trades WHERE bot_instance_id = $1
-       AND pair LIKE $2
-       AND status = 'open'
-       LIMIT 1`,
-      [botInstanceId, `${pairBase}/%`]
-    );
+    const [existing, botResult] = await Promise.all([
+      query<{ id: string; pair: string }>(
+        `SELECT id, pair FROM trades WHERE bot_instance_id = $1
+         AND pair LIKE $2
+         AND status = 'open'
+         LIMIT 1`,
+        [botInstanceId, `${pairBase}/%`]
+      ),
+      query<{ user_id: string; exchange: string; config: any; trading_mode: string }>(
+        `SELECT user_id, exchange, config, trading_mode FROM bot_instances WHERE id = $1`,
+        [botInstanceId]
+      ),
+    ]);
 
     if (existing && existing.length > 0) {
       console.log(`\n🚫 DUPLICATE BLOCKED: ${pairBase} position already exists as ${existing[0].pair} (trade: ${existing[0].id})`);
@@ -665,12 +662,6 @@ class ExecutionFanOut {
       });
       return { executed: false, reason: 'open_position_exists' };
     }
-
-    // Get bot instance to determine exchange and trading mode
-    const botResult = await query<{ user_id: string; exchange: string; config: any; trading_mode: string }>(
-      `SELECT user_id, exchange, config, trading_mode FROM bot_instances WHERE id = $1`,
-      [botInstanceId]
-    );
 
     if (!botResult || botResult.length === 0) {
       logger.error('Bot instance not found for direct execution', null, { botId: botInstanceId });

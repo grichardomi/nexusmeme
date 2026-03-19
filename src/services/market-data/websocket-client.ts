@@ -16,6 +16,22 @@ import type { PriceUpdate, BinanceTickerEvent, PriceSubscriber, WebSocketState }
 import { WebSocketState as StateEnum } from '@/types/market-data';
 import { publishPriceToRedis } from './redis-price-distribution';
 import { getPriceLeaderElection } from './leader-election';
+import { getEnvironmentConfig } from '@/config/environment';
+
+/**
+ * Derive WebSocket base URL from the REST market data URL.
+ * api.binance.us  → wss://stream.binance.us:9443
+ * api.binance.com → wss://stream.binance.com:9443
+ */
+function getBinanceWsBaseUrl(): string {
+  try {
+    const restBase = getEnvironmentConfig().BINANCE_MARKET_DATA_URL;
+    if (restBase.includes('binance.us')) return 'wss://stream.binance.us:9443';
+  } catch {
+    // env not ready (e.g. build time) — safe default
+  }
+  return 'wss://stream.binance.com:9443';
+}
 
 /**
  * Maps trading pairs to Binance stream names
@@ -75,7 +91,7 @@ export class BinanceWebSocketClient {
   private connectionAttempts = 0;
   private lastSuccessfulConnectionTime = 0;
   private consecutiveErrors = 0;
-  private readonly binanceWsUrl = 'wss://stream.binance.com:9443';
+  private readonly binanceWsUrl = getBinanceWsBaseUrl();
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isLeader = false;
   private leaderElection: any; // Lazy loaded

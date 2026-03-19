@@ -2,6 +2,14 @@ import { marketDataConfig, getEnvironmentConfig } from '@/config/environment';
 import { logger, logApiCall } from '@/lib/logger';
 import type { MarketData } from '@/types/market';
 import { getCachedMultiple, setCached } from '@/lib/redis';
+import { getPricesFromRedis } from './redis-price-distribution';
+
+/**
+ * Maximum age for WebSocket-sourced prices before falling back to REST.
+ * Binance 24hrTicker streams fire every ~250ms on change, so 2s gives
+ * 8× margin before we consider the price stale.
+ */
+const WS_MAX_PRICE_AGE_MS = 2000;
 
 interface CachedMarketData {
   data: Map<string, MarketData>;
@@ -47,8 +55,43 @@ class MarketDataAggregator {
   private isFetching: Map<string, boolean> = new Map();
 
   /**
+   * Read prices published by the Binance WebSocket leader from Redis.
+   * Returns only entries fresh enough for trading decisions (< WS_MAX_PRICE_AGE_MS).
+   * Kraken has no WebSocket feeder — returns empty map for non-Binance exchanges.
+   */
+  private async getFromWebSocketCache(pairs: string[]): Promise<Map<string, MarketData>> {
+    const result = new Map<string, MarketData>();
+    try {
+      const wsPrices = await getPricesFromRedis(pairs);
+      const now = Date.now();
+      for (const [pair, update] of wsPrices) {
+        if (now - update.timestamp <= WS_MAX_PRICE_AGE_MS) {
+          result.set(pair, {
+            pair,
+            price: update.price,
+            bid: update.bid,
+            ask: update.ask,
+            volume: update.volume24h,
+            timestamp: new Date(update.timestamp),
+            change24h: update.changePercent24h,
+            high24h: update.high24h,
+            low24h: update.low24h,
+          });
+        }
+      }
+    } catch {
+      // Non-fatal — fall through to REST
+    }
+    return result;
+  }
+
+  /**
    * Get market data for pairs from the given exchange (default: binance).
-   * Returns cached data if fresh, otherwise fetches and caches.
+   *
+   * Resolution order (fastest → slowest):
+   *   1. In-process cache (10s TTL) — zero I/O
+   *   2. WebSocket Redis cache (< 2s age, Binance only) — one Redis round-trip, real-time price
+   *   3. REST polling + Redis/in-process cache — full fetch, used on cold start or WS outage
    */
   async getMarketData(
     pairs: string[],
@@ -59,12 +102,36 @@ class MarketDataAggregator {
     const cacheTtl = marketDataConfig.cacheTtlMs;
     const cache = this.caches.get(ex);
 
+    // Layer 1: in-process cache (10s TTL)
     if (cache && now - cache.fetchedAt < cacheTtl) {
       return new Map(
         Array.from(cache.data.entries()).filter(([pair]) => pairs.includes(pair))
       );
     }
 
+    // Layer 2: WebSocket Redis cache (Binance only, < 2s age)
+    // One Redis round-trip serves ALL pairs — zero REST weight consumed.
+    // Scales to thousands of pairs without hitting Binance rate limits.
+    if (ex === 'binance') {
+      const wsData = await this.getFromWebSocketCache(pairs);
+      if (wsData.size === pairs.length) {
+        // Full coverage from WebSocket — update in-process cache and return immediately
+        const merged = new Map([...(cache?.data ?? new Map()), ...wsData]);
+        this.caches.set(ex, { data: merged, fetchedAt: now });
+        return wsData;
+      }
+      // Partial/no WS coverage: fall through to REST for the missing pairs.
+      // This handles cold start (WS just connected) and WS outage gracefully.
+      if (wsData.size > 0) {
+        logger.debug('WS cache partial hit — falling back to REST for missing pairs', {
+          wsCovered: wsData.size,
+          total: pairs.length,
+          missing: pairs.filter(p => !wsData.has(p)),
+        });
+      }
+    }
+
+    // Layer 3: REST polling + Redis/in-process cache
     if (this.isFetching.get(ex)) {
       await this.waitForFetch(ex);
       return this.getMarketData(pairs, exchange);
