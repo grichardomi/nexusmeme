@@ -1,6 +1,6 @@
 /**
  * AI Inference Service
- * Handles AI model inference for market analysis using OpenAI
+ * Handles AI model inference for market analysis using Claude (primary) or OpenAI (fallback)
  */
 
 import { logger } from '@/lib/logger';
@@ -158,6 +158,67 @@ async function callOpenAI(
     });
     throw error;
   }
+}
+
+/**
+ * Call Claude API (Haiku) for market analysis
+ * Primary LLM provider — cost-effective at ~$0.30/month for buy-signal-only calls
+ */
+async function callClaude(prompt: string, maxTokens = 300): Promise<string> {
+  const ANTHROPIC_API_KEY = aiConfig.anthropicApiKey;
+  const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001';
+
+  if (!ANTHROPIC_API_KEY) {
+    logger.error('🚫 Anthropic API key not configured');
+    throw new Error('ANTHROPIC_API_KEY not configured');
+  }
+
+  const startTime = Date.now();
+  logger.info('🤖 Claude API call starting', { model: CLAUDE_MODEL, maxTokens });
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const durationMs = Date.now() - startTime;
+
+    if (!response.ok) {
+      logger.error('🚫 Claude API error', null, { status: response.status, statusText: response.statusText, durationMs });
+      throw new Error(`Claude API error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '';
+
+    logger.info('✅ Claude API call completed', { model: CLAUDE_MODEL, durationMs, chars: text.length });
+    return text;
+  } catch (error) {
+    const durationMs = Date.now() - startTime;
+    logger.error('🚫 Claude inference error', error instanceof Error ? error : null, { durationMs, model: CLAUDE_MODEL });
+    throw error;
+  }
+}
+
+/**
+ * Route LLM call to configured provider (Claude or OpenAI)
+ */
+async function callLLM(prompt: string, maxTokens = 300): Promise<string> {
+  const provider = aiConfig.provider;
+  if (provider === 'claude') {
+    return callClaude(prompt, maxTokens);
+  }
+  return callOpenAI(prompt, maxTokens);
 }
 
 /**
@@ -653,6 +714,12 @@ export async function aiConfidenceBoost(
 ): Promise<AIConfidenceBoostResult> {
   const startTime = Date.now();
   const maxAdj = aiConfig.confidenceBoostMaxAdjustment;
+  const provider = aiConfig.provider;
+
+  // Only call AI for buy signals — hold signals don't need confidence adjustment
+  if (deterministicSignal !== 'buy') {
+    return { adjustment: 0, reasoning: 'No adjustment needed for hold signal', provider, latencyMs: 0 };
+  }
 
   // Take last 10 candles for context
   const recentCandles = candles.slice(-10);
@@ -688,13 +755,13 @@ Rules:
 - Stay within -${maxAdj} to +${maxAdj} range`;
 
   try {
-    const responseText = await callOpenAI(prompt, 200);
+    const responseText = await callLLM(prompt, 200);
 
     // Parse JSON response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      logger.warn('AI confidence boost: no JSON in response', { pair, response: responseText.slice(0, 200) });
-      return { adjustment: 0, reasoning: 'No valid response', provider: 'openai', latencyMs: Date.now() - startTime };
+      logger.warn('AI confidence boost: no JSON in response', { pair, provider, response: responseText.slice(0, 200) });
+      return { adjustment: 0, reasoning: 'No valid response', provider, latencyMs: Date.now() - startTime };
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
@@ -707,6 +774,7 @@ Rules:
 
     logger.info('AI confidence boost result', {
       pair,
+      provider,
       deterministicSignal,
       deterministicConfidence,
       adjustment,
@@ -714,7 +782,7 @@ Rules:
       latencyMs,
     });
 
-    return { adjustment, reasoning, provider: 'openai', latencyMs };
+    return { adjustment, reasoning, provider, latencyMs };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -722,10 +790,11 @@ Rules:
     // Safe fallback: 0 adjustment (no impact on trading)
     logger.warn('AI confidence boost failed, using 0 adjustment (safe fallback)', {
       pair,
+      provider,
       error: errorMsg,
       latencyMs,
     });
 
-    return { adjustment: 0, reasoning: `Fallback: ${errorMsg}`, provider: 'openai', latencyMs };
+    return { adjustment: 0, reasoning: `Fallback: ${errorMsg}`, provider, latencyMs };
   }
 }

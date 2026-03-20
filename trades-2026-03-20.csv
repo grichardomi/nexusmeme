@@ -1,0 +1,4 @@
+Pair,Entry Time,Exit Time,Entry Price,Exit Price,Quantity,Gross P&L,Fees,Net P&L,Net P&L %,Status,Exit Reason
+"ETH/USDT","3/19/2026, 10:16:22 PM","3/19/2026, 10:32:56 PM","$2151.03","$2148.63","0.116200","$-0.28","$0.50","$-0.78","-0.31%","closed","stale_underwater"
+"ETH/USDT","3/19/2026, 9:30:38 PM","3/19/2026, 10:06:41 PM","$2146.43","$2144.23","0.116400","$-0.26","$0.50","$-0.76","-0.30%","closed","stale_underwater"
+"BTC/USDT","3/19/2026, 9:27:45 PM","3/19/2026, 9:48:51 PM","$70514.42","$70432.22","0.003540","$-0.29","$0.50","$-0.79","-0.32%","closed","stale_underwater"

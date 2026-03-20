@@ -90,7 +90,8 @@ const envSchema = z.object({
   /* Feature Flags */
   ENABLE_TRADE_ALERTS: z.string().transform(val => val === 'true').default('true'),
   ENABLE_BACKTESTING: z.string().transform(val => val === 'true').default('false'),
-  LLM_PROVIDER: z.enum(['openai', 'claude']).default('openai'),
+  LLM_PROVIDER: z.enum(['openai', 'claude']).default('claude'),
+  ANTHROPIC_API_KEY: z.string().optional(),
 
   /* Paper Trading Mode - Simulate orders without hitting exchange API */
   KRAKEN_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
@@ -108,8 +109,8 @@ const envSchema = z.object({
 
   /* AI Confidence Boost - Hybrid AI layer for entry decisions */
   /* Deterministic 3-path gate remains primary. AI adjusts confidence ±15 as advisor. */
-  /* Uses existing OPENAI_API_KEY - no additional API key needed */
-  AI_CONFIDENCE_BOOST_ENABLED: z.string().transform(val => val === 'true').default('false'),
+  /* Uses Claude Haiku — ~$0.30/month at typical call volume (buy signals only) */
+  AI_CONFIDENCE_BOOST_ENABLED: z.string().transform(val => val === 'true').default('true'),
   AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: z.string().transform(Number).default('15'), // Max ±15 confidence adjustment
   AI_CONFIDENCE_BOOST_TIMEOUT_MS: z.string().transform(Number).default('5000'), // 5s timeout for AI call
 
@@ -234,7 +235,7 @@ const envSchema = z.object({
   BREAKEVEN_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.10'), // Require +0.10% P&L to execute breakeven exit (covers fees/slip)
 
   /* Intrabar momentum guard (no-entry-on-red) */
-  ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.05'), // +0.05% min 1h momentum for choppy/weak
+  ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.10'), // +0.10% min intrabar momentum for choppy/weak (ADX < 20) — filters slow drift entries without chasing
   ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('-0.1'), // -0.1% threshold for trending (tighter — block falling knives)
 
   /* Green-to-Red Protection - Safeguards against entry noise */
@@ -444,7 +445,7 @@ function getDefaultEnvironment(): Environment {
     BOT_API_PORT_END: 39999,
     ENABLE_TRADE_ALERTS: true,
     ENABLE_BACKTESTING: false,
-    LLM_PROVIDER: 'openai',
+    LLM_PROVIDER: 'claude',
     KRAKEN_BOT_PAPER_TRADING: false,
     CREEPING_UPTREND_ENABLED: false,
     CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
@@ -453,7 +454,7 @@ function getDefaultEnvironment(): Environment {
     CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
     CREEPING_UPTREND_PULLBACK_THRESHOLD: 0.95,
     AI_MIN_CONFIDENCE_THRESHOLD: 70,
-    AI_CONFIDENCE_BOOST_ENABLED: false,
+    AI_CONFIDENCE_BOOST_ENABLED: true,
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
     ENCRYPTION_KEY: 'build-phase-encryption-key-1234567890',
@@ -535,7 +536,7 @@ function getDefaultEnvironment(): Environment {
     TRAILING_STOP_DISTANCE_PCT: 0.015, // Trail 1.5% behind peak
     BREAKEVEN_PROTECTION_BUFFER_PCT: 0.0001, // 0.01%
     BREAKEVEN_MIN_EXIT_PROFIT_PCT: 0.05,
-    ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: 0.05,
+    ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: 0.10,
     ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: -0.1,
     GREEN_TO_RED_MIN_PEAK_PCT: 0.0002, // 0.02%
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
@@ -949,6 +950,9 @@ export const aiConfig = {
   },
   get openaiApiKey() {
     return getEnv('OPENAI_API_KEY');
+  },
+  get anthropicApiKey() {
+    return getEnv('ANTHROPIC_API_KEY');
   },
   get confidenceBoostEnabled() {
     return getEnv('AI_CONFIDENCE_BOOST_ENABLED');
