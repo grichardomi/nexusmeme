@@ -345,7 +345,8 @@ export async function generateTradeSignalAI(
 
   // Signal decision: Use same thresholds as risk filter's 3-path gate
   // Read from environment to match risk-manager.ts exactly
-  const minMomentum1h = getEnv('RISK_MIN_MOMENTUM_1H') ?? 0.5;
+  // Binance is primary exchange (0.20% round-trip fee) → use Binance threshold
+  const minMomentum1h = getEnv('RISK_MIN_MOMENTUM_1H_BINANCE') ?? 0.2;
   const minMomentum4h = getEnv('RISK_MIN_MOMENTUM_4H') ?? 0.15;
   const volumeBreakoutRatio = getEnv('RISK_VOLUME_BREAKOUT_RATIO') ?? 1.3;
 
@@ -359,8 +360,24 @@ export async function generateTradeSignalAI(
   const shallowDipThreshold = isStrongTrend ? -0.5 : -0.3;
   const hasStrongTrendConsolidation = adx >= 20 && momentum4h > 0.3 && momentum1h > shallowDipThreshold;
 
+  // Path 5: Creeping uptrend — slow sustained directional drift with low ADX
+  // Both 1h AND 4h momentum must be positive to confirm hours of sustained move, not a momentary tick.
+  // ADX slope must be flat-to-rising — a declining ADX in an already-weak trend = move is fading, not building.
+  // ADX < 25 is explicitly required — this path is for markets the other 4 paths miss.
+  // Only active when CREEPING_UPTREND_ENABLED=true (opt-in, not default behaviour).
+  const creepingEnabled = getEnv('CREEPING_UPTREND_ENABLED');
+  const creepMin1h = getEnv('CREEPING_UPTREND_GATE_MIN_1H');  // 0.20%
+  const creepMin4h = getEnv('CREEPING_UPTREND_GATE_MIN_4H');  // 0.15%
+  const creepMaxSlope = getEnv('CREEPING_UPTREND_GATE_MAX_ADX_SLOPE'); // -0.3
+  const adxSlope = indicators.adxSlope ?? 0;
+  const hasCreepingUptrend = creepingEnabled
+    && adx < 25
+    && momentum1h >= creepMin1h
+    && momentum4h >= creepMin4h
+    && adxSlope >= creepMaxSlope; // ADX must not be actively declining — fading trend = bad entry
+
   const rsiThreshold = adx >= 35 ? (getEnv('RISK_RSI_OVERBOUGHT_TRENDING') ?? 92) : 85;
-  const signal: TradeSignal = ((hasStrongMomentum || hasBothPositive || hasVolumeBreakout || hasStrongTrendConsolidation) && rsi <= rsiThreshold) ? 'buy' : 'hold';
+  const signal: TradeSignal = ((hasStrongMomentum || hasBothPositive || hasVolumeBreakout || hasStrongTrendConsolidation || hasCreepingUptrend) && rsi <= rsiThreshold) ? 'buy' : 'hold';
 
   // Confidence score: base 50, apply boosters and penalties, clamp 0-100
   let confidence = 50;
@@ -413,6 +430,14 @@ export async function generateTradeSignalAI(
     factors.push(`trending pullback 4h=${momentum4h.toFixed(2)}% ADX=${adx.toFixed(1)} (+20)`);
   }
 
+  // Creeping uptrend boost (path 5: sustained slow drift)
+  // Confidence starts at 50 — apply moderate boost since the move is real but weak.
+  // Claude's AI layer will make the final call on whether the pattern is convincing.
+  if (hasCreepingUptrend) {
+    confidence += 12;
+    factors.push(`creeping uptrend 1h=${momentum1h.toFixed(2)}% 4h=${momentum4h.toFixed(2)}% ADX=${adx.toFixed(1)} slope=${adxSlope.toFixed(2)} (+12)`);
+  }
+
   // Penalties
   if (rsi > 80) {
     // In strong trends (ADX≥35), high RSI is normal — reduce penalty
@@ -439,14 +464,15 @@ export async function generateTradeSignalAI(
     confidence >= 65 ? 'moderate' :
     'weak';
 
-  // Price targets (regime-based)
-  const regimeProfitTargets: Record<string, number> = {
-    choppy: 0.02,
-    weak: 0.045,
-    moderate: 0.065,
-    strong: 0.12,
-  };
-  const regimeTarget = regimeProfitTargets[regime.regime] || 0.05;
+  // Price targets (regime-based) — read from env vars to stay in sync with exit logic
+  const envCfg = getEnv('PROFIT_TARGET_CHOPPY') !== undefined ? {
+    choppy: getEnv('PROFIT_TARGET_CHOPPY') as number,
+    transitioning: getEnv('PROFIT_TARGET_TRANSITIONING') as number,
+    weak: getEnv('PROFIT_TARGET_WEAK') as number,
+    moderate: getEnv('PROFIT_TARGET_MODERATE') as number,
+    strong: getEnv('PROFIT_TARGET_STRONG') as number,
+  } : { choppy: 0.005, transitioning: 0.008, weak: 0.015, moderate: 0.02, strong: 0.08 };
+  const regimeTarget = (envCfg as Record<string, number>)[regime.regime] ?? envCfg.moderate;
 
   const entryPrice = currentPrice;
   const stopLoss = currentPrice * 0.95;

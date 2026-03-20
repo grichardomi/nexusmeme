@@ -17,6 +17,7 @@ export interface RiskFilterResult {
   adxSlope?: number;
   btcMomentum1h?: number;
   isTransitioning?: boolean; // ADX 15-20 but slope rising fast — use reduced position size
+  isCreepingUptrend?: boolean; // ADX < 25 but sustained 1h+4h momentum — use 'weak' profit target (1.5%)
 }
 
 export interface MarketData {
@@ -138,9 +139,10 @@ class RiskManager {
    * CRITICAL: Block entries when ADX < 20 (choppy market) - matches /nexus behavior
    * ADX slope enables transition zone detection: ADX 15-20 + rising fast → allow at 50% size
    */
-  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number, volumeRatio?: number): RiskFilterResult {
+  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number, volumeRatio?: number, momentum4h?: number): RiskFilterResult {
     const slope = adxSlope ?? 0;
     const mom1h = momentum1h ?? 0;
+    const mom4h = momentum4h ?? 0;
     const vol = volumeRatio ?? 1;
     const env = getEnvironmentConfig();
     const transitionZoneMin = env.ADX_TRANSITION_ZONE_MIN; // 12 (lowered for momentum override)
@@ -228,6 +230,43 @@ class RiskManager {
         hasSlope,
         hasMomentum,
       });
+    }
+
+    // CREEPING UPTREND BYPASS: Low ADX but sustained directional drift
+    // Distinguishes "slow steady grind up" from "choppy oscillation":
+    //   - Both have low ADX (ADX measures strength, not direction)
+    //   - Creeping uptrend: 1h AND 4h momentum both positive = hours of sustained move
+    //   - Choppy: 4h momentum flat/mixed even if 1h briefly positive
+    // ADX slope must not be collapsing — a falling slope with positive momentum = fading, not creeping
+    if (adx < this.config.minADXForEntry && env.CREEPING_UPTREND_ENABLED && adx >= transitionZoneMin) {
+      const minMom1h = env.CREEPING_UPTREND_GATE_MIN_1H;
+      const minMom4h = env.CREEPING_UPTREND_GATE_MIN_4H;
+      const maxSlopeDrop = env.CREEPING_UPTREND_GATE_MAX_ADX_SLOPE;
+      const minVol = env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
+
+      const has1hMomentum = mom1h >= minMom1h;
+      const has4hMomentum = mom4h >= minMom4h;
+      const slopeNotCollapsing = slope > maxSlopeDrop;
+      const hasVolume = vol >= minVol;
+
+      if (has1hMomentum && has4hMomentum && slopeNotCollapsing && hasVolume) {
+        console.log(`\n🌿 CREEPING UPTREND: ADX=${adx.toFixed(1)} low but 1h=${mom1h.toFixed(2)}% >= ${minMom1h}% + 4h=${mom4h.toFixed(2)}% >= ${minMom4h}% + slope=${slope.toFixed(2)} > ${maxSlopeDrop} + vol=${vol.toFixed(2)}x >= ${minVol}x → ALLOW (steady grind up)`);
+        logger.info('RiskManager: Creeping uptrend bypass — sustained directional drift detected', {
+          adx, adxSlope: slope, momentum1h: mom1h, momentum4h: mom4h, volumeRatio: vol,
+          thresholds: { minMom1h, minMom4h, maxSlopeDrop, minVol },
+          note: 'Both 1h + 4h momentum positive = hours of sustained move, not chop',
+        });
+        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isCreepingUptrend: true };
+      }
+
+      // Log which condition failed
+      const failures = [
+        !has1hMomentum && `1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}%`,
+        !has4hMomentum && `4h momentum ${mom4h.toFixed(2)}% < ${minMom4h}%`,
+        !slopeNotCollapsing && `ADX slope ${slope.toFixed(2)} < ${maxSlopeDrop} (collapsing)`,
+        !hasVolume && `volume ${vol.toFixed(2)}x < ${minVol}x`,
+      ].filter(Boolean).join(', ');
+      console.log(`\n🌿 CREEPING UPTREND: ADX=${adx.toFixed(1)} - conditions not met: ${failures}`);
     }
 
     // /nexus parity: BLOCK entries in choppy markets (ADX < threshold)
@@ -753,8 +792,9 @@ class RiskManager {
 
     // STAGE 1: Health Gate - Check ADX for choppy markets (with slope + momentum + volume surge override)
     const momentum1h = indicators.momentum1h ?? 0;
+    const momentum4h = indicators.momentum4h ?? 0;
     const volumeRatio = indicators.volumeRatio ?? 1;
-    const stage1 = this.checkHealthGate(adx, adxSlope, momentum1h, volumeRatio);
+    const stage1 = this.checkHealthGate(adx, adxSlope, momentum1h, volumeRatio, momentum4h);
     if (!stage1.pass) {
       return stage1;
     }

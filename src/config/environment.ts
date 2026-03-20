@@ -98,11 +98,16 @@ const envSchema = z.object({
 
   /* Creeping Uptrend Mode - Catches slow steady trends in low-volume conditions */
   CREEPING_UPTREND_ENABLED: z.string().transform(val => val === 'true').default('false'),
-  CREEPING_UPTREND_MIN_MOMENTUM: z.string().transform(Number).default('0.003'), // 0.3% instead of 0.5%
+  CREEPING_UPTREND_MIN_MOMENTUM: z.string().transform(Number).default('0.003'), // 0.3% instead of 0.5% (decimal form for momentum threshold in risk stages 2+)
   CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: z.string().transform(Number).default('68'), // Weak regime confidence boost
   CREEPING_UPTREND_VOLUME_RATIO_MIN: z.string().transform(Number).default('0.5'), // Allow 50% of normal volume
   CREEPING_UPTREND_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.99'), // Allow trades 1% from high
   CREEPING_UPTREND_PULLBACK_THRESHOLD: z.string().transform(Number).default('0.95'), // Block if >5% pullback from recent high
+  // Health gate bypass for creeping uptrend (percentage form, matching health gate momentum values)
+  // Requires BOTH 1h and 4h momentum positive = sustained directional drift, not a momentary tick
+  CREEPING_UPTREND_GATE_MIN_1H: z.string().transform(Number).default('0.20'),  // 0.20% min 1h momentum — real directional pressure, not a tick
+  CREEPING_UPTREND_GATE_MIN_4H: z.string().transform(Number).default('0.15'),  // 0.15% min 4h momentum (hours of sustained move)
+  CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: z.string().transform(Number).default('-0.3'), // ADX must be roughly flat — declining = fading trend
 
   /* AI Configuration */
   AI_MIN_CONFIDENCE_THRESHOLD: z.string().transform(Number).default('70'),
@@ -276,7 +281,7 @@ const envSchema = z.object({
   /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
   PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.005'),       // 0.5% - scalp and move on
   PROFIT_TARGET_TRANSITIONING: z.string().transform(Number).default('0.008'), // 0.8% - early trend, conservative
-  PROFIT_TARGET_WEAK: z.string().transform(Number).default('0.008'),          // 0.8% - weak trend, book quickly
+  PROFIT_TARGET_WEAK: z.string().transform(Number).default('0.015'),          // 1.5% - weak/creeping trend, book before move fades
   PROFIT_TARGET_MODERATE: z.string().transform(Number).default('0.02'),       // 2% - developing trend
   PROFIT_TARGET_STRONG: z.string().transform(Number).default('0.08'),         // 8% - strong trend (not 20% - that's investing)
 
@@ -447,11 +452,14 @@ function getDefaultEnvironment(): Environment {
     ENABLE_BACKTESTING: false,
     LLM_PROVIDER: 'claude',
     KRAKEN_BOT_PAPER_TRADING: false,
-    CREEPING_UPTREND_ENABLED: false,
+    CREEPING_UPTREND_ENABLED: true,
     CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
     CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
     CREEPING_UPTREND_VOLUME_RATIO_MIN: 0.5,
     CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
+    CREEPING_UPTREND_GATE_MIN_1H: 0.20,
+    CREEPING_UPTREND_GATE_MIN_4H: 0.15,
+    CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: -0.3,
     CREEPING_UPTREND_PULLBACK_THRESHOLD: 0.95,
     AI_MIN_CONFIDENCE_THRESHOLD: 70,
     AI_CONFIDENCE_BOOST_ENABLED: true,
@@ -563,7 +571,7 @@ function getDefaultEnvironment(): Environment {
     PYRAMID_ADD_SIZE_PCT_L2: 0.50,
     PROFIT_TARGET_CHOPPY: 0.005,        // 0.5% - scalp and move on
     PROFIT_TARGET_TRANSITIONING: 0.008, // 0.8% - early trend
-    PROFIT_TARGET_WEAK: 0.008,          // 0.8% - weak trend
+    PROFIT_TARGET_WEAK: 0.015,          // 1.5% - weak/creeping trend
     PROFIT_TARGET_MODERATE: 0.02,       // 2% - developing trend
     PROFIT_TARGET_STRONG: 0.08,         // 8% - strong trend
     MAX_HOLD_MINUTES_CHOPPY: 45,
@@ -691,6 +699,9 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
       CREEPING_UPTREND_VOLUME_RATIO_MIN: 0.5,
       CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
+      CREEPING_UPTREND_GATE_MIN_1H: 0.20,
+      CREEPING_UPTREND_GATE_MIN_4H: 0.15,
+      CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: -0.3,
       KRAKEN_BOT_PYRAMIDING_ENABLED: true,
       KRAKEN_BOT_PYRAMID_LEVELS: 2,
       KRAKEN_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,

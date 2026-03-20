@@ -755,10 +755,15 @@ class TradeSignalOrchestrator {
 
             // 1H MOMENTUM GUARD — exchange-aware threshold
             // Binance round-trip: 0.20% → threshold 0.2%; Kraken round-trip: 0.52% → threshold 1.0%
+            // Creeping uptrend exception: if CREEPING_UPTREND_ENABLED, use the lower gate threshold
+            // and let the health gate's full 4h+slope check make the final call
             const mom1h = indicators.momentum1h ?? 0;
-            const minMom1h = pairExchange.startsWith('binance')
+            const standardMinMom1h = pairExchange.startsWith('binance')
               ? (env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.2)
               : (env.RISK_MIN_MOMENTUM_1H ?? 1.0);
+            const minMom1h = env.CREEPING_UPTREND_ENABLED
+              ? Math.min(standardMinMom1h, env.CREEPING_UPTREND_GATE_MIN_1H)
+              : standardMinMom1h;
             if (mom1h < minMom1h) {
               console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}% min`);
               return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${minMom1h}%`, stage: 'Pre-Filter' } };
@@ -775,8 +780,10 @@ class TradeSignalOrchestrator {
             }
 
             const isTransitioning = riskFilter.isTransitioning === true;
-            console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%${isTransitioning ? ' | 🔄 TRANSITIONING' : ''}`);
-            logger.info('Orchestrator: 5-stage risk filter passed', { pair, adx: indicators.adx?.toFixed(1), adxSlope: indicators.adxSlope?.toFixed(2), momentum1h: indicators.momentum1h?.toFixed(3), rsi: indicators.rsi?.toFixed(1), volumeRatio: indicators.volumeRatio?.toFixed(2), isTransitioning });
+            const isCreepingUptrend = riskFilter.isCreepingUptrend === true;
+            const entryLabel = isCreepingUptrend ? ' | 🌿 CREEPING' : isTransitioning ? ' | 🔄 TRANSITIONING' : '';
+            console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%${entryLabel}`);
+            logger.info('Orchestrator: 5-stage risk filter passed', { pair, adx: indicators.adx?.toFixed(1), adxSlope: indicators.adxSlope?.toFixed(2), momentum1h: indicators.momentum1h?.toFixed(3), rsi: indicators.rsi?.toFixed(1), volumeRatio: indicators.volumeRatio?.toFixed(2), isTransitioning, isCreepingUptrend });
 
             // Pass live price + indicators — same fresh data as risk filter (prevents staleness)
             console.log(`\n🔍 [ORCHESTRATOR] Passing indicators to analyzeMarket for ${pair}:`, { adx: indicators.adx, momentum1h: indicators.momentum1h, intrabarMomentum: indicators.intrabarMomentum, momentum4h: indicators.momentum4h, rsi: indicators.rsi });
@@ -805,7 +812,9 @@ class TradeSignalOrchestrator {
                 return { type: 'rejected', signal: { pair, reason: 'not_buy', signal: analysis.signal.signal, confidence: analysis.signal.confidence } };
               }
 
-              const effectiveRegime = isTransitioning ? 'transitioning' : (analysis.regime.regime as any);
+              // Creeping uptrend = sustained slow grind → use 'weak' profit target (1.5%)
+              // Transitioning = ADX slope rising, trend forming → use 'transitioning' target (0.8%)
+              const effectiveRegime = isCreepingUptrend ? 'weak' : isTransitioning ? 'transitioning' : (analysis.regime.regime as any);
 
               const decision: TradeDecision = {
                 pair,
@@ -833,8 +842,11 @@ class TradeSignalOrchestrator {
               }
 
               const adxVal = indicators.adx ?? 0;
-              const regimeClass = adxVal >= 35 ? 'STRONG' : adxVal >= 30 ? 'MODERATE' : adxVal >= 20 ? 'WEAK' : adxVal >= 12 ? 'TRANSITIONING' : 'CHOPPY';
-              const expectedTarget = adxVal >= 35 ? '12%' : adxVal >= 30 ? '5%' : adxVal >= 20 ? '2.5%' : adxVal >= 12 ? '2%' : '1.5%';
+              const adxMod = env.ADX_MODERATE_MAX; // 40
+              const adxWeak = env.ADX_WEAK_MAX;     // 25
+              const adxTrans = env.ADX_TRANSITION_ZONE_MIN; // 15
+              const regimeClass = adxVal >= adxMod ? 'STRONG' : adxVal >= adxWeak ? 'MODERATE' : adxVal >= env.RISK_MIN_ADX_FOR_ENTRY ? 'WEAK' : adxVal >= adxTrans ? 'TRANSITIONING' : 'CHOPPY';
+              const expectedTarget = adxVal >= adxMod ? `${(env.PROFIT_TARGET_STRONG * 100).toFixed(0)}%` : adxVal >= adxWeak ? `${(env.PROFIT_TARGET_MODERATE * 100).toFixed(0)}%` : adxVal >= env.RISK_MIN_ADX_FOR_ENTRY ? `${(env.PROFIT_TARGET_WEAK * 100).toFixed(1)}%` : adxVal >= adxTrans ? `${(env.PROFIT_TARGET_TRANSITIONING * 100).toFixed(1)}%` : `${(env.PROFIT_TARGET_CHOPPY * 100).toFixed(1)}%`;
               console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, minThreshold: minConfidenceThreshold, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
               logger.info('Orchestrator: TRADE DECISION CREATED (5-stage filter passed)', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, minConfidenceThreshold, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
 
@@ -1478,7 +1490,7 @@ class TradeSignalOrchestrator {
                 profitTarget = env.PROFIT_TARGET_MODERATE;
                 console.log(`📉 [ORCHESTRATOR] Profit target downgraded: strong → moderate (slope ${adxSlope.toFixed(2)} <= ${slopeFallingThreshold})`);
               } else {
-                profitTarget = env.PROFIT_TARGET_STRONG;   // 20% - MAXIMIZE strong trends!
+                profitTarget = env.PROFIT_TARGET_STRONG;   // default 8% — configurable via PROFIT_TARGET_STRONG
               }
               break;
             default:
