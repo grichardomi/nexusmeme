@@ -836,6 +836,7 @@ class RiskManager {
       adx,
       adxSlope,
       isTransitioning: stage1.isTransitioning,
+      isCreepingUptrend: stage1.isCreepingUptrend,
     };
   }
 }
