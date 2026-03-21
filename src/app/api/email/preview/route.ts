@@ -229,6 +229,19 @@ export async function GET(req: NextRequest) {
       minimumRequired: 10,
       dashboardUrl: appUrl('/dashboard/bots/example-id'),
     },
+    admin_error_alert: {
+      statusCode: 500,
+      path: '/api/trades',
+      message: 'Internal server error: database query failed',
+      timestamp: new Date().toISOString(),
+    },
+    system_health_report: {
+      status: 'degraded',
+      checks: { database: 'ok', active_bots: '3', recent_errors_1h: '22', binance_api: 'ok' },
+      recentErrors: 22,
+      activeBots: 3,
+      timestamp: new Date().toISOString(),
+    },
   };
 
   const context = contextMap[templateType];

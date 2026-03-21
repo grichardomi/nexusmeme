@@ -781,7 +781,8 @@ class TradeSignalOrchestrator {
 
             const isTransitioning = riskFilter.isTransitioning === true;
             const isCreepingUptrend = riskFilter.isCreepingUptrend === true;
-            const entryLabel = isCreepingUptrend ? ' | 🌿 CREEPING' : isTransitioning ? ' | 🔄 TRANSITIONING' : '';
+            const isVolumeSurge = riskFilter.isVolumeSurge === true;
+            const entryLabel = isCreepingUptrend ? ' | 🌿 CREEPING' : isVolumeSurge ? ' | 🚀 VOL SURGE' : isTransitioning ? ' | 🔄 TRANSITIONING' : '';
             console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%${entryLabel}`);
             logger.info('Orchestrator: 5-stage risk filter passed', { pair, adx: indicators.adx?.toFixed(1), adxSlope: indicators.adxSlope?.toFixed(2), momentum1h: indicators.momentum1h?.toFixed(3), rsi: indicators.rsi?.toFixed(1), volumeRatio: indicators.volumeRatio?.toFixed(2), isTransitioning, isCreepingUptrend });
 
@@ -795,6 +796,7 @@ class TradeSignalOrchestrator {
               includeRegime: true,
               currentPrice,
               indicators,
+              isVolumeSurge,
             });
 
             console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });

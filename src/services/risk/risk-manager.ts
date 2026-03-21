@@ -18,6 +18,7 @@ export interface RiskFilterResult {
   btcMomentum1h?: number;
   isTransitioning?: boolean; // ADX 15-20 but slope rising fast — use reduced position size
   isCreepingUptrend?: boolean; // ADX < 25 but sustained 1h+4h momentum — use 'weak' profit target (1.5%)
+  isVolumeSurge?: boolean; // Extraordinary volume (4x+) confirmed breakout despite low ADX
 }
 
 export interface MarketData {
@@ -177,7 +178,14 @@ class RiskManager {
     // ADX is lagging — slope + momentum together confirm ADX will catch up.
     if (adx >= transitionZoneMin && adx < this.config.minADXForEntry) {
       const hasSlope = slope >= slopeRisingThreshold;
-      const hasMomentum = mom1h >= momentumOverrideMin;
+      // When slope qualifies (>= threshold), trend building is confirmed by slope.
+      // Allow reduced momentum bar (0.25%) to catch slow pre-breakout grinds (e.g. ADX 20-24, slope +2.2).
+      // Without this: slope +2.2 + mom 0.33% blocked despite clear upward grind.
+      const strongSlope = hasSlope; // slope >= slopeRisingThreshold is sufficient confirmation
+      const effectiveMomentumMin = strongSlope
+        ? env.MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE
+        : momentumOverrideMin;
+      const hasMomentum = mom1h >= effectiveMomentumMin;
 
       // Volume surge override: extraordinary volume (>= 4x) with minimum momentum confirms breakout
       // ADX is lagging — 4x+ volume is a leading indicator that the trend is real
@@ -190,7 +198,7 @@ class RiskManager {
           adx, volumeRatio: vol, volumeSurgeRatio, momentum1h: mom1h,
           note: 'ADX lags price; 4x+ volume is leading indicator',
         });
-        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isTransitioning: true };
+        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isTransitioning: true, isVolumeSurge: true };
       }
 
       if (hasSlope && hasMomentum) {
@@ -219,7 +227,7 @@ class RiskManager {
       } else if (!hasSlope) {
         console.log(`\n⚠️ TRANSITION BLOCKED: momentum OK (${mom1h.toFixed(2)}%) but slope too weak (${slope.toFixed(2)} < ${slopeRisingThreshold}) - prevents false breakouts`);
       } else {
-        console.log(`\n⚠️ TRANSITION BLOCKED: slope OK (${slope.toFixed(2)}) but momentum too weak (${mom1h.toFixed(2)}% < ${momentumOverrideMin}%) - prevents chop entries`);
+        console.log(`\n⚠️ TRANSITION BLOCKED: slope OK (${slope.toFixed(2)}) but momentum too weak (${mom1h.toFixed(2)}% < ${effectiveMomentumMin}%${strongSlope ? ' [strong-slope bar]' : ''}) - prevents chop entries`);
       }
       logger.info('RiskManager: Transition zone blocked - missing slope or momentum confirmation', {
         adx,
@@ -837,6 +845,7 @@ class RiskManager {
       adxSlope,
       isTransitioning: stage1.isTransitioning,
       isCreepingUptrend: stage1.isCreepingUptrend,
+      isVolumeSurge: stage1.isVolumeSurge,
     };
   }
 }

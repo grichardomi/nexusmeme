@@ -178,8 +178,13 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
-      // Credentials or other non-OAuth flows
-      if (!account && user?.id) {
+      // Credentials login: account.provider === 'credentials', user.id is the DB UUID
+      // Non-OAuth (and legacy path where account is null): set token from user directly
+      if (user?.id && account?.provider === 'credentials') {
+        token.id = user.id;
+        token.sub = user.id;
+        token.role = (user as any).role ?? 'user';
+      } else if (!account && user?.id) {
         token.id = user.id;
         token.sub = user.id;
         token.role = (user as any).role ?? 'user';

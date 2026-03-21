@@ -111,6 +111,7 @@ export interface AIAnalysisRequest {
   // Optional: Pass current live price + indicators to avoid re-fetching stale OHLC data
   currentPrice?: number;
   indicators?: TechnicalIndicators;
+  isVolumeSurge?: boolean; // Extraordinary volume breakout — tells Claude not to penalize low ADX/overbought RSI
 }
 
 export interface AIAnalysisResult {

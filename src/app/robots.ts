@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: '*',
         allow: '/',
-        disallow: ['/dashboard', '/account', '/admin', '/api'],
+        disallow: ['/dashboard', '/account', '/admin', '/api', '/auth'],
       },
     ],
     sitemap: 'https://nexusmeme.com/sitemap.xml',

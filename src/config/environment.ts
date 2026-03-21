@@ -100,7 +100,7 @@ const envSchema = z.object({
   CREEPING_UPTREND_ENABLED: z.string().transform(val => val === 'true').default('false'),
   CREEPING_UPTREND_MIN_MOMENTUM: z.string().transform(Number).default('0.003'), // 0.3% instead of 0.5% (decimal form for momentum threshold in risk stages 2+)
   CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: z.string().transform(Number).default('68'), // Weak regime confidence boost
-  CREEPING_UPTREND_VOLUME_RATIO_MIN: z.string().transform(Number).default('0.5'), // Allow 50% of normal volume
+  CREEPING_UPTREND_VOLUME_RATIO_MIN: z.string().transform(Number).default('1.0'), // Require above-average volume — no volume = no real buying pressure
   CREEPING_UPTREND_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.99'), // Allow trades 1% from high
   CREEPING_UPTREND_PULLBACK_THRESHOLD: z.string().transform(Number).default('0.95'), // Block if >5% pullback from recent high
   // Health gate bypass for creeping uptrend (percentage form, matching health gate momentum values)
@@ -276,6 +276,7 @@ const envSchema = z.object({
   REGIME_SIZE_CHOPPY: z.string().transform(Number).default('0.5'),       // 50% position size in choppy market
   DEFAULT_STOP_LOSS_PCT: z.string().transform(Number).default('0.05'),   // 5% default stop loss if not in signal
   MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
+  MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE: z.string().transform(Number).default('0.25'), // Reduced momentum bar when slope >= 2x threshold (slope alone confirms trend)
   VOLUME_SURGE_ADX_OVERRIDE_RATIO: z.string().transform(Number).default('4.0'), // Volume >= 4x + positive momentum overrides low ADX in transition zone
 
   /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
@@ -292,7 +293,7 @@ const envSchema = z.object({
   MAX_HOLD_MINUTES_STRONG: z.string().transform(Number).default('360'),       // 6 hours
 
   /* Stale Flat Exit - hovering at zero is dead capital, free it */
-  STALE_FLAT_MINUTES: z.string().transform(Number).default('45'),             // 45 min flat = exit
+  STALE_FLAT_MINUTES: z.string().transform(Number).default('20'),             // 20 min flat = exit (was 45 — cut dead capital faster)
   STALE_FLAT_BAND_PCT: z.string().transform(Number).default('0.001'),         // ±0.1% counts as flat
 
   /* Early Loss Time-Based Thresholds - REGIME-AWARE */
@@ -455,7 +456,7 @@ function getDefaultEnvironment(): Environment {
     CREEPING_UPTREND_ENABLED: true,
     CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
     CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
-    CREEPING_UPTREND_VOLUME_RATIO_MIN: 0.5,
+    CREEPING_UPTREND_VOLUME_RATIO_MIN: 1.0,
     CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
     CREEPING_UPTREND_GATE_MIN_1H: 0.20,
     CREEPING_UPTREND_GATE_MIN_4H: 0.15,
@@ -562,6 +563,7 @@ function getDefaultEnvironment(): Environment {
     REGIME_SIZE_CHOPPY: 0.5,
     DEFAULT_STOP_LOSS_PCT: 0.05,
     MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
+    MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE: 0.25,
     VOLUME_SURGE_ADX_OVERRIDE_RATIO: 4.0, // Volume >= 4x + positive momentum overrides low ADX in transition zone
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,
@@ -578,7 +580,7 @@ function getDefaultEnvironment(): Environment {
     MAX_HOLD_MINUTES_WEAK: 90,
     MAX_HOLD_MINUTES_MODERATE: 180,
     MAX_HOLD_MINUTES_STRONG: 360,
-    STALE_FLAT_MINUTES: 45,
+    STALE_FLAT_MINUTES: 20,
     STALE_FLAT_BAND_PCT: 0.001,
     EARLY_LOSS_CHOPPY_MINUTE_1_5: -0.01,
     EARLY_LOSS_CHOPPY_MINUTE_15_30: -0.008,
@@ -697,7 +699,7 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       CREEPING_UPTREND_ENABLED: false,
       CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
       CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
-      CREEPING_UPTREND_VOLUME_RATIO_MIN: 0.5,
+      CREEPING_UPTREND_VOLUME_RATIO_MIN: 1.0,
       CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
       CREEPING_UPTREND_GATE_MIN_1H: 0.20,
       CREEPING_UPTREND_GATE_MIN_4H: 0.15,

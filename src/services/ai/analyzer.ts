@@ -208,7 +208,8 @@ export async function analyzeMarket(
           indicators,
           result.signal.signal,
           result.signal.confidence,
-          regime.regime
+          regime.regime,
+          request.isVolumeSurge
         );
 
         if (boostResult.adjustment !== 0) {

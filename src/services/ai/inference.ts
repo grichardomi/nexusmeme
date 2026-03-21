@@ -736,7 +736,8 @@ export async function aiConfidenceBoost(
   indicators: TechnicalIndicators,
   deterministicSignal: TradeSignal,
   deterministicConfidence: number,
-  regime: string
+  regime: string,
+  isVolumeSurge = false
 ): Promise<AIConfidenceBoostResult> {
   const startTime = Date.now();
   const maxAdj = aiConfig.confidenceBoostMaxAdjustment;
@@ -750,7 +751,11 @@ export async function aiConfidenceBoost(
   // Take last 10 candles for context
   const recentCandles = candles.slice(-10);
 
-  const prompt = `You are a crypto trading confidence advisor. Analyze these recent 15-minute candles and indicators for ${pair}.
+  const volumeSurgeContext = isVolumeSurge
+    ? `\nVOLUME SURGE BREAKOUT: Volume is ${(indicators.volumeRatio || 1).toFixed(1)}x normal — extraordinary buying pressure detected. ADX lags price by 2-3 candles during breakouts; low ADX here reflects the PAST, not the current move. RSI going overbought during a volume surge is a sign of STRENGTH, not exhaustion. Do NOT penalize ADX or RSI in this context.`
+    : '';
+
+  const prompt = `You are a crypto trading reversal detector. A deterministic system has already passed this ${pair} BUY signal through rigorous technical filters. Your ONLY job is to spot clear bearish reversal patterns in the candles that would contradict the buy.
 
 RECENT CANDLES (oldest to newest):
 ${formatCandlesForPrompt(recentCandles)}
@@ -761,23 +766,30 @@ CURRENT INDICATORS:
 - MACD histogram: ${indicators.macd.histogram.toFixed(4)}
 - 1h momentum: ${(indicators.momentum1h || 0).toFixed(3)}%
 - 4h momentum: ${(indicators.momentum4h || 0).toFixed(3)}%
-- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x
+- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}
 
-DETERMINISTIC SYSTEM says: ${deterministicSignal.toUpperCase()} with ${deterministicConfidence}% confidence.
+DETERMINISTIC SYSTEM says: BUY with ${deterministicConfidence}% confidence. Trust this signal UNLESS you see a specific reversal pattern.
 
-Should confidence be adjusted? Consider:
-1. Price action pattern (higher highs/lows, consolidation, reversal candles)
-2. Volume confirmation (is volume supporting the move?)
-3. Momentum divergence (indicators disagreeing with price?)
-4. Candle structure (wicks, dojis, engulfing patterns)
+ONLY apply a negative adjustment if you see ONE OR MORE of these clear bearish signals:
+- Bearish engulfing candle (large red candle fully engulfing prior green candle)
+- Double top pattern with declining volume on second top
+- Three consecutive lower highs AND lower lows in the last 5 candles
+- Hard rejection at resistance (long upper wick ≥ 2× candle body on most recent candle)
+
+Apply a positive adjustment (+5 to +${maxAdj}) if you see strong continuation signals:
+- Strong volume expansion on green candles
+- Higher highs AND higher lows with increasing closes
+- Momentum candles (small wicks, large bodies in trend direction)
+
+DEFAULT to 0 (no adjustment) if patterns are ambiguous or mixed. Do NOT penalize for RSI being elevated or ADX being low — the deterministic system already accounts for these.
 
 Respond with ONLY valid JSON, no other text:
-{"adjustment": <number from -${maxAdj} to ${maxAdj}>, "reasoning": "<one sentence>"}
+{"adjustment": <number from -${maxAdj} to ${maxAdj}>, "reasoning": "<one sentence naming the specific pattern seen>"}
 
 Rules:
-- Positive adjustment = more confident in the signal
-- Negative adjustment = less confident in the signal
-- 0 = no change needed
+- Positive = clear continuation pattern
+- Negative = specific reversal pattern present
+- 0 = ambiguous / no clear pattern (DEFAULT)
 - Stay within -${maxAdj} to +${maxAdj} range`;
 
   try {

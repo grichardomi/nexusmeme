@@ -34,7 +34,9 @@ export type EmailTemplateType =
   | 'invoice_expired'
   | 'fee_rate_changed'
   | 'login_alert'
-  | 'low_balance';
+  | 'low_balance'
+  | 'admin_error_alert'
+  | 'system_health_report';
 
 export interface EmailTemplate {
   subject: string;

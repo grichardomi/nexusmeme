@@ -453,6 +453,41 @@ export function renderEmailTemplate(
       });
     }
 
+    case 'admin_error_alert': {
+      const ctx = context as any;
+      return {
+        subject: `[NexusMeme] ${ctx.statusCode} Error — ${ctx.path}`,
+        html: `<h2>Admin Error Alert</h2>
+<p><strong>Status:</strong> ${ctx.statusCode}</p>
+<p><strong>Path:</strong> ${ctx.path}</p>
+<p><strong>Message:</strong> ${ctx.message}</p>
+${ctx.userId ? `<p><strong>User:</strong> ${ctx.userId}</p>` : ''}
+${ctx.stack ? `<pre style="background:#f5f5f5;padding:12px;font-size:12px;overflow:auto">${ctx.stack}</pre>` : ''}
+<p><small>${ctx.timestamp}</small></p>`,
+        text: `Admin Error Alert\nStatus: ${ctx.statusCode}\nPath: ${ctx.path}\nMessage: ${ctx.message}\n${ctx.timestamp}`,
+      };
+    }
+
+    case 'system_health_report': {
+      const ctx = context as any;
+      const statusIcon = ctx.status === 'healthy' ? '✅' : '⚠️';
+      const checksHtml = Object.entries(ctx.checks || {})
+        .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+        .join('');
+      return {
+        subject: `[NexusMeme] System Health ${statusIcon} ${ctx.status.toUpperCase()}`,
+        html: `<h2>System Health Report — ${ctx.status.toUpperCase()}</h2>
+<p><strong>Timestamp:</strong> ${ctx.timestamp}</p>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse">
+<thead><tr><th>Check</th><th>Status</th></tr></thead>
+<tbody>${checksHtml}</tbody>
+</table>
+${ctx.recentErrors ? `<p><strong>Recent errors (1h):</strong> ${ctx.recentErrors}</p>` : ''}
+${ctx.activeBots !== undefined ? `<p><strong>Active bots:</strong> ${ctx.activeBots}</p>` : ''}`,
+        text: `System Health: ${ctx.status}\nTimestamp: ${ctx.timestamp}\nChecks: ${JSON.stringify(ctx.checks, null, 2)}`,
+      };
+    }
+
     default:
       throw new Error(`Unknown email template type: ${type}`);
   }

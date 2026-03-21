@@ -16,6 +16,7 @@ const JOB_URLS: Record<string, string> = {
   'email-processor':     '/api/cron/email-processor',
   'billing-retry':       '/api/cron/billing-retry',
   'trial-notifications': '/api/cron/trial-notifications',
+  'system-health-check': '/api/admin/health-check',
 };
 
 export async function POST(req: NextRequest) {

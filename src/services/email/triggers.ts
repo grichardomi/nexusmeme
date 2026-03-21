@@ -550,3 +550,12 @@ export async function sendFeeRateChangedEmail(
   };
   return queueEmail('fee_rate_changed', email, context as any);
 }
+
+
+// ─── Admin Monitoring ─────────────────────────────────────────────────────────
+
+/**
+ * Re-export convenience wrappers so callers don't need to import error-notifier directly.
+ * The actual dedup + rate-limiting logic lives in error-notifier.ts.
+ */
+export { notifyAdminError, sendSystemHealthAlert, runSystemHealthCheck } from '@/services/monitoring/error-notifier';

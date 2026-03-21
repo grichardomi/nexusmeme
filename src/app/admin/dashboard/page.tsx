@@ -108,6 +108,7 @@ function computeNextRun(schedule: string): string {
 }
 
 const CRON_JOBS_DEFAULTS = [
+  { id: 'system-health-check',   name: 'System Health Check',   url: '/api/admin/health-check',         schedule: '*/30 * * * *', enabled: true },
   { id: 'billing-monthly',       name: 'Billing Monthly',       url: '/api/cron/billing-monthly',       schedule: '0 2 1 * *',   enabled: true },
   { id: 'billing-upcoming',      name: 'Billing Upcoming',      url: '/api/cron/billing-upcoming',      schedule: '0 9 28 * *',  enabled: true },
   { id: 'billing-dunning',       name: 'Billing Dunning',       url: '/api/cron/billing-dunning',       schedule: '0 9 * * *',   enabled: true },
@@ -124,6 +125,14 @@ interface DashboardStats {
   discordMembers: number;
   discordOnline: number;
   discordChannels: number;
+}
+
+interface SystemHealth {
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'loading' | 'error';
+  checks: Record<string, string>;
+  recentErrors?: number;
+  activeBots?: number;
+  timestamp?: string;
 }
 
 function CronStatusBadge({ status }: { status: CronJob['status'] }) {
@@ -166,6 +175,23 @@ export default function AdminDashboardPage() {
   const { data: session } = useSession();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const [health, setHealth] = useState<SystemHealth>({ status: 'loading', checks: {} });
+
+  const fetchHealth = useCallback(async () => {
+    setHealth(prev => ({ ...prev, status: 'loading' }));
+    try {
+      const res = await fetch('/api/admin/health-check');
+      if (res.status === 401) {
+        setHealth({ status: 'error', checks: { auth: 'Missing CRON_SECRET' } });
+        return;
+      }
+      const data = await res.json();
+      setHealth({ ...data, status: data.status ?? (res.ok ? 'healthy' : 'unhealthy') });
+    } catch (e: any) {
+      setHealth({ status: 'error', checks: { fetch: e.message } });
+    }
+  }, []);
 
   const [cronJobs, setCronJobs] = useState<CronJob[]>(() => {
     let savedEnabled: Record<string, boolean> = {};
@@ -264,7 +290,8 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+    fetchHealth();
+  }, [fetchHealth]);
 
   const fetchStats = async () => {
     try {
@@ -483,6 +510,72 @@ export default function AdminDashboardPage() {
               </div>
             </Link>
           ))}
+        </div>
+      </div>
+
+      {/* System Health */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">System Health</h2>
+          <button
+            onClick={fetchHealth}
+            disabled={health.status === 'loading'}
+            className="px-3 py-1.5 text-xs font-medium rounded bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 text-slate-700 dark:text-slate-300 transition"
+          >
+            {health.status === 'loading' ? 'Checking…' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className={`rounded-lg border p-5 ${
+          health.status === 'healthy'   ? 'border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20' :
+          health.status === 'degraded'  ? 'border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20' :
+          health.status === 'loading'   ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800' :
+          'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20'
+        }`}>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-2xl">
+              {health.status === 'healthy' ? '✅' : health.status === 'degraded' ? '⚠️' : health.status === 'loading' ? '⏳' : '🔴'}
+            </span>
+            <div>
+              <p className="font-bold text-slate-900 dark:text-white capitalize">
+                {health.status === 'loading' ? 'Checking…' : health.status}
+              </p>
+              {health.timestamp && (
+                <p className="text-xs text-slate-500">{new Date(health.timestamp).toLocaleString()}</p>
+              )}
+            </div>
+            {health.recentErrors !== undefined && (
+              <span className={`ml-auto text-sm font-semibold px-2 py-1 rounded ${
+                health.recentErrors > 10 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' :
+                health.recentErrors > 0  ? 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300' :
+                'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+              }`}>
+                {health.recentErrors} errors (1h)
+              </span>
+            )}
+            {health.activeBots !== undefined && (
+              <span className="text-sm font-semibold px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                {health.activeBots} bots running
+              </span>
+            )}
+          </div>
+
+          {Object.keys(health.checks).length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {Object.entries(health.checks).map(([key, val]) => (
+                <div key={key} className="bg-white/60 dark:bg-slate-800/60 rounded px-3 py-2">
+                  <p className="text-xs text-slate-500 uppercase tracking-wide">{key.replace(/_/g, ' ')}</p>
+                  <p className={`text-sm font-semibold mt-0.5 ${
+                    val === 'ok' || val === 'accessible' ? 'text-green-700 dark:text-green-400' :
+                    val.startsWith('fail') || val.startsWith('error') ? 'text-red-600 dark:text-red-400' :
+                    'text-slate-700 dark:text-slate-300'
+                  }`}>
+                    {val}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
