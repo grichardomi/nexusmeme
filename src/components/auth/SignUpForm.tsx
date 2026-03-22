@@ -208,8 +208,8 @@ export function SignUpForm() {
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={isLoading || !isPasswordValid}
-        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white font-medium py-2 rounded transition"
+        disabled={isLoading || !formData.name || !formData.email || !isPasswordValid || !formData.confirmPassword}
+        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium py-2 rounded transition"
       >
         {isLoading ? 'Creating Account...' : 'Sign Up'}
       </button>

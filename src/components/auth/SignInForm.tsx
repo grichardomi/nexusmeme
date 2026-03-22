@@ -189,8 +189,8 @@ export function SignInForm() {
       {/* Sign In Button */}
       <button
         type="submit"
-        disabled={isLoading || (!!lockedUntil && !!countdown)}
-        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 text-white font-medium py-2 rounded transition"
+        disabled={isLoading || (!!lockedUntil && !!countdown) || !formData.email || !formData.password}
+        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium py-2 rounded transition"
       >
         {isLoading ? 'Signing In...' : 'Sign In'}
       </button>
