@@ -56,6 +56,7 @@ interface PositionHealth {
   erosionUsedFraction: number;
   erosionRatioPct: number;
   erosionAbsolutePct: number;
+  erosionArmThreshold: number;
   regime: string;
   priceStale: boolean;
 }
@@ -301,6 +302,7 @@ export async function GET(req: NextRequest) {
         erosionUsedFraction,
         erosionRatioPct,
         erosionAbsolutePct,
+        erosionArmThreshold: env.EROSION_PEAK_MIN_PCT,
         regime,
         priceStale: !hasLivePrice,
       };

@@ -34,6 +34,7 @@ interface PositionHealth {
   erosionCap: number;
   erosionDollars: number;
   erosionCapDollars: number;
+  erosionArmThreshold?: number;
   status?: 'healthy' | 'warning' | 'critical' | 'underwater';
   healthStatus: 'HEALTHY' | 'CAUTION' | 'RISK' | 'ALERT';
   alertMessage?: string;
@@ -241,6 +242,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
             erosionCap,
             erosionDollars,
             erosionCapDollars,
+            erosionArmThreshold: Number(pos.erosionArmThreshold) || 0.4,
             healthStatus,
             alertMessage: pos.alertMessage || pos.recommendation,
             regime: (pos.regime as string) || 'moderate',
@@ -652,7 +654,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
                   >?</span>
                 </span>
                 <span className="font-semibold text-slate-900 dark:text-white">
-                  {health.peakProfitPct < 0.4
+                  {health.peakProfitPct < (health.erosionArmThreshold ?? 0.4)
                     ? 'Unarmed'
                     : health.erosionDollars > 0
                       ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
@@ -664,7 +666,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
                 <div
                   className="h-full transition-all"
                   style={{
-                    width: `${health.peakProfitPct < 0.4 ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
+                    width: `${health.peakProfitPct < (health.erosionArmThreshold ?? 0.4) ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
                     background: health.erosionRatioPct === 0 ? 'transparent'
                       : health.erosionRatioPct > 70 ? 'linear-gradient(90deg, #eab308 0%, #ef4444 100%)'
                       : 'linear-gradient(90deg, #22c55e 0%, #eab308 100%)',
