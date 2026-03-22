@@ -757,6 +757,8 @@ class TradeSignalOrchestrator {
             // Binance round-trip: 0.20% → threshold 0.2%; Kraken round-trip: 0.52% → threshold 1.0%
             // Creeping uptrend exception: if CREEPING_UPTREND_ENABLED, use the lower gate threshold
             // and let the health gate's full 4h+slope check make the final call
+            // Trending pullback exception: in strong trend (ADX >= 35), the 5-stage risk filter's
+            // path 4 allows 1h dips down to -0.5%. Don't block here — let path 4 evaluate it.
             const mom1h = indicators.momentum1h ?? 0;
             const standardMinMom1h = pairExchange.startsWith('binance')
               ? (env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.2)
@@ -764,9 +766,13 @@ class TradeSignalOrchestrator {
             const minMom1h = env.CREEPING_UPTREND_ENABLED
               ? Math.min(standardMinMom1h, env.CREEPING_UPTREND_GATE_MIN_1H)
               : standardMinMom1h;
-            if (mom1h < minMom1h) {
-              console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}% min`);
-              return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${minMom1h}%`, stage: 'Pre-Filter' } };
+            // In strong trend (ADX >= 35), allow shallow dips — path 4 in risk filter handles these
+            const isStrongTrend = (indicators.adx ?? 0) >= 35;
+            const trendingPullbackMin = isStrongTrend ? -0.5 : -0.3;
+            const effectiveMinMom1h = isStrongTrend ? Math.min(minMom1h, trendingPullbackMin) : minMom1h;
+            if (mom1h < effectiveMinMom1h) {
+              console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${effectiveMinMom1h.toFixed(2)}% min${isStrongTrend ? ' (strong trend pullback limit)' : ''}`);
+              return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${effectiveMinMom1h.toFixed(2)}%`, stage: 'Pre-Filter' } };
             }
 
             // Run 5-stage risk filter
@@ -1707,6 +1713,7 @@ class TradeSignalOrchestrator {
           // CHECK 2.8: STALE FLAT — trade hovering at zero = dead capital, free it
           // Skip when trade is net-positive: a profitable trade pausing in a bullish market
           // is not dead capital — it may be consolidating before the next leg up.
+          // Skip when price is actively rising: gross near peak means momentum is live.
           // Erosion cap handles exit once the trade peaks and pulls back.
           if (!shouldClose) {
             const flatBand = env.STALE_FLAT_BAND_PCT * 100; // convert to pct
@@ -1722,15 +1729,32 @@ class TradeSignalOrchestrator {
                   ageMinutes: tradeAgeMinutes.toFixed(1),
                 });
               } else {
-                shouldClose = true;
-                exitReason = 'stale_flat';
-                logger.info('😴 STALE FLAT - dead capital, freeing for next opportunity', {
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  grossProfitPct: grossProfitPct.toFixed(3) + '%',
-                  ageMinutes: tradeAgeMinutes.toFixed(1),
-                  flatBand: flatBand.toFixed(2) + '%',
-                });
+                // Check if price is actively rising: if gross ≈ peak, the trade is still climbing.
+                // A rising trade inside the flat band is not dead capital — it just hasn't cleared fees yet.
+                const peakPct = parseFloat(String(trade.peak_profit_pct ?? 0));
+                const distanceFromPeak = peakPct - grossProfitPct; // positive = pulled back from peak
+                const isRising = peakPct >= 0 && distanceFromPeak <= flatBand; // at or near all-time high
+                if (isRising) {
+                  logger.info('😴 STALE FLAT skipped — price actively rising (gross near peak)', {
+                    tradeId: trade.id,
+                    pair: trade.pair,
+                    grossProfitPct: grossProfitPct.toFixed(3) + '%',
+                    peakPct: peakPct.toFixed(3) + '%',
+                    distanceFromPeak: distanceFromPeak.toFixed(3) + '%',
+                    ageMinutes: tradeAgeMinutes.toFixed(1),
+                  });
+                } else {
+                  shouldClose = true;
+                  exitReason = 'stale_flat';
+                  logger.info('😴 STALE FLAT - dead capital, freeing for next opportunity', {
+                    tradeId: trade.id,
+                    pair: trade.pair,
+                    grossProfitPct: grossProfitPct.toFixed(3) + '%',
+                    peakPct: peakPct.toFixed(3) + '%',
+                    ageMinutes: tradeAgeMinutes.toFixed(1),
+                    flatBand: flatBand.toFixed(2) + '%',
+                  });
+                }
               }
             }
           }
