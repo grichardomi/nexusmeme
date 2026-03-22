@@ -154,6 +154,7 @@ const envSchema = z.object({
   RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Kraken default: 1% (2× 0.52% round-trip fee)
   RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.2'), // Binance: 0.2% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
+  RISK_MAX_ADVERSE_4H_MOMENTUM: z.string().transform(Number).default('-0.5'), // Block path 1/3 entries when 4h is this negative (counter-trend protection)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
   RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.015'), // 1.5% - covers 0.52% round-trip fees + margin
@@ -499,6 +500,7 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_1H: 1.0, // Kraken default
     RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
+    RISK_MAX_ADVERSE_4H_MOMENTUM: -0.5, // Block path 1/3 when 4h strongly negative
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)
     RISK_PROFIT_TARGET_MINIMUM: 0.015, // 1.5% - covers fees

@@ -16,7 +16,7 @@ import {
   aiConfidenceBoost,
   // analyzeRiskAI - DISABLED: Result was explicitly ignored (signal confidence is PRIMARY per /nexus)
 } from './inference';
-import { aiConfig } from '@/config/environment';
+import { aiConfig, getEnvironmentConfig } from '@/config/environment';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import {
   AIAnalysisRequest,
@@ -200,8 +200,17 @@ export async function analyzeMarket(
 
       // AI Confidence Boost - Hybrid layer (deterministic base + LLM advisor)
       // Only runs when AI_CONFIDENCE_BOOST_ENABLED=true and API key is configured
-      // Falls back to 0 adjustment on any failure (safe default)
-      if (aiConfig.confidenceBoostEnabled) {
+      // Only called when score is in the range where ±maxAdj can change the outcome:
+      //   score < threshold → Claude boost could push it over (worthwhile)
+      //   score >= threshold but Claude could veto it (worthwhile)
+      //   score >= threshold + maxAdj → Claude can't veto even at max penalty (skip)
+      //   score < threshold - maxAdj → Claude can't rescue even at max boost (skip)
+      const env = getEnvironmentConfig();
+      const boostThreshold = env.AI_MIN_CONFIDENCE_THRESHOLD; // 70
+      const maxAdj = aiConfig.confidenceBoostMaxAdjustment;   // 15
+      const scoreCanChange = result.signal.confidence >= (boostThreshold - maxAdj) &&
+                             result.signal.confidence <= (boostThreshold + maxAdj);
+      if (aiConfig.confidenceBoostEnabled && scoreCanChange) {
         const boostResult = await aiConfidenceBoost(
           request.pair,
           candles,

@@ -406,6 +406,11 @@ export function detectMarketRegime(
   if (momentum1h > 0.005) {
     // /nexus: Flat 70% confidence when momentum positive
     confidence = 70;
+    // Penalise when 4h trend is strongly adverse — 1h bounce in a downtrend is not a real signal
+    const env = getEnvironmentConfig();
+    if (momentum4h < env.RISK_MAX_ADVERSE_4H_MOMENTUM) {
+      confidence = 45; // Drop below entry threshold: counter-trend bounce, not a valid setup
+    }
   } else {
     // Below threshold
     confidence = 45;

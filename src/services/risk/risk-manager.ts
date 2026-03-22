@@ -78,8 +78,11 @@ class RiskManager {
     // Apply creeping uptrend mode if enabled
     if (env.CREEPING_UPTREND_ENABLED) {
       this.hasCreepingUptrend = true;
-      minMomentum1h = Math.min(minMomentum1h, env.CREEPING_UPTREND_MIN_MOMENTUM);
-      minMomentum4h = Math.min(minMomentum4h, env.CREEPING_UPTREND_MIN_MOMENTUM);
+      // CREEPING_UPTREND_MIN_MOMENTUM is in decimal form (0.003 = 0.3%) but
+      // minMomentum1h/4h are in percent form (0.5 = 0.5%). Convert to percent before Math.min.
+      const creepMinPct = env.CREEPING_UPTREND_MIN_MOMENTUM * 100; // 0.003 → 0.3%
+      minMomentum1h = Math.min(minMomentum1h, creepMinPct);
+      minMomentum4h = Math.min(minMomentum4h, creepMinPct);
       volumeBreakoutRatio = Math.max(env.CREEPING_UPTREND_VOLUME_RATIO_MIN, 0.1); // Floor at 0.1
       priceTopThreshold = env.CREEPING_UPTREND_PRICE_TOP_THRESHOLD; // Allow 1% from high
       logger.info('RiskManager: Creeping uptrend mode ENABLED', {
@@ -499,8 +502,13 @@ class RiskManager {
     }
 
     // Require minimum momentum - 4 entry paths (adaptive to market conditions)
-    // Path 1: Strong 1h momentum exceeds configured threshold
-    const has1hMomentum = momentum1h > this.config.minMomentum1h;
+    // Counter-trend protection: when 4h is strongly negative, paths 1 and 3 (1h-only) are
+    // buying bounces in a downtrend. Block them. Paths 2 and 4 already require positive 4h.
+    const maxAdverse4h = env.RISK_MAX_ADVERSE_4H_MOMENTUM; // default -0.5%
+    const is4hDowntrend = momentum4h < maxAdverse4h;
+
+    // Path 1: Strong 1h momentum exceeds configured threshold — but not when 4h is strongly adverse
+    const has1hMomentum = momentum1h > this.config.minMomentum1h && !is4hDowntrend;
     // Path 2: Both timeframes show meaningful momentum (> minMomentum threshold)
     const hasBothPositive =
       momentum1h > this.config.minMomentum1h &&
@@ -508,6 +516,7 @@ class RiskManager {
     // Path 3: Volume breakout (vol > 1.3x) with positive or near-zero 1h momentum
     // In strong trends (ADX>=35), allow slight negative 1h — high volume = accumulation signal
     // BUT block if intrabar is actively falling (price moving down at entry = bad timing)
+    // AND block when 4h is strongly adverse — volume spikes in downtrends are often selling pressure
     const isStrongTrend = adx >= 35;
     const volBreakoutMom1hMin = isStrongTrend ? -0.5 : 0;
     const intrabarMomentum = indicators.intrabarMomentum ?? 0;
@@ -518,7 +527,8 @@ class RiskManager {
     const hasVolumeBreakout =
       volumeRatio > this.config.volumeBreakoutRatio &&
       momentum1h > volBreakoutMom1hMin &&
-      intrabarNotFalling;
+      intrabarNotFalling &&
+      !is4hDowntrend; // Don't buy volume spikes when 4h trend is strongly down
 
     // Path 4: TRENDING PULLBACK — Strong 4h trend with shallow 1h dip (adaptive entry)
     // In strong trends (ADX>=35), allow deeper 1h dips — a -0.5% dip in a strong trend is noise
@@ -538,17 +548,26 @@ class RiskManager {
     const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout || hasTrendingPullback;
 
     if (!passesEntryGate) {
-      logger.info('RiskManager: Entry blocked - weak momentum (4-path gate)', {
-        pair,
-        momentum1h: momentum1h.toFixed(2),
-        momentum4h: momentum4h.toFixed(2),
-        volumeRatio: volumeRatio.toFixed(2),
-        adx: adx.toFixed(1),
-        has1hMomentum,
-        hasBothPositive,
-        hasVolumeBreakout,
-        hasTrendingPullback,
-      });
+      if (is4hDowntrend && momentum1h > this.config.minMomentum1h) {
+        // Specifically log when 4h downtrend is the blocker (would have entered on path 1/3 otherwise)
+        console.log(`\n🛑 4H DOWNTREND BLOCK: ${pair} - 4h momentum ${momentum4h.toFixed(2)}% < ${maxAdverse4h}% floor (1h bounce ${momentum1h.toFixed(2)}% ignored)`);
+        logger.info('RiskManager: Entry blocked - 4h downtrend (counter-trend protection)', {
+          pair, momentum1h: momentum1h.toFixed(2), momentum4h: momentum4h.toFixed(2), maxAdverse4h,
+        });
+      } else {
+        logger.info('RiskManager: Entry blocked - weak momentum (4-path gate)', {
+          pair,
+          momentum1h: momentum1h.toFixed(2),
+          momentum4h: momentum4h.toFixed(2),
+          volumeRatio: volumeRatio.toFixed(2),
+          adx: adx.toFixed(1),
+          has1hMomentum,
+          hasBothPositive,
+          hasVolumeBreakout,
+          hasTrendingPullback,
+          is4hDowntrend,
+        });
+      }
       return {
         pass: false,
         reason: `Weak momentum (1h=${momentum1h.toFixed(2)}%, 4h=${momentum4h.toFixed(2)}%, vol=${volumeRatio.toFixed(2)}x, ADX=${adx.toFixed(0)})`,

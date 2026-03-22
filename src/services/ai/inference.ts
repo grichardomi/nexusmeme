@@ -755,7 +755,13 @@ export async function aiConfidenceBoost(
     ? `\nVOLUME SURGE BREAKOUT: Volume is ${(indicators.volumeRatio || 1).toFixed(1)}x normal — extraordinary buying pressure detected. ADX lags price by 2-3 candles during breakouts; low ADX here reflects the PAST, not the current move. RSI going overbought during a volume surge is a sign of STRENGTH, not exhaustion. Do NOT penalize ADX or RSI in this context.`
     : '';
 
-  const prompt = `You are a crypto trading reversal detector. A deterministic system has already passed this ${pair} BUY signal through rigorous technical filters. Your ONLY job is to spot clear bearish reversal patterns in the candles that would contradict the buy.
+  const mom4h = indicators.momentum4h ?? 0;
+  const mom1h = indicators.momentum1h ?? 0;
+  const downtrend4hContext = mom4h < -0.5
+    ? `\n⚠️ 4H DOWNTREND: 4h momentum is ${mom4h.toFixed(2)}% — the broader trend is DOWN. The 1h bounce (${mom1h.toFixed(2)}%) is likely a counter-trend move in a falling market. Apply a strong negative adjustment unless you see compelling reversal evidence.`
+    : '';
+
+  const prompt = `You are a crypto trading signal validator. A deterministic system has generated a BUY signal for ${pair}. Your job is to assess whether this buy makes sense given ALL available context — trend direction, momentum across timeframes, and candle patterns.
 
 RECENT CANDLES (oldest to newest):
 ${formatCandlesForPrompt(recentCandles)}
@@ -764,32 +770,34 @@ CURRENT INDICATORS:
 - RSI: ${indicators.rsi.toFixed(1)}
 - ADX: ${indicators.adx.toFixed(1)} (regime: ${regime})
 - MACD histogram: ${indicators.macd.histogram.toFixed(4)}
-- 1h momentum: ${(indicators.momentum1h || 0).toFixed(3)}%
-- 4h momentum: ${(indicators.momentum4h || 0).toFixed(3)}%
-- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}
+- 1h momentum: ${mom1h.toFixed(3)}%
+- 4h momentum: ${mom4h.toFixed(3)}%
+- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${downtrend4hContext}
 
-DETERMINISTIC SYSTEM says: BUY with ${deterministicConfidence}% confidence. Trust this signal UNLESS you see a specific reversal pattern.
+DETERMINISTIC SYSTEM says: BUY with ${deterministicConfidence}% confidence.
 
-ONLY apply a negative adjustment if you see ONE OR MORE of these clear bearish signals:
-- Bearish engulfing candle (large red candle fully engulfing prior green candle)
-- Double top pattern with declining volume on second top
+APPLY NEGATIVE ADJUSTMENT (-5 to -${maxAdj}) when you see ANY of:
+- 4h momentum strongly negative (< -0.5%): buying a 1h bounce in a downtrend = high risk of loss
+- Bearish engulfing candle on recent candles
 - Three consecutive lower highs AND lower lows in the last 5 candles
-- Hard rejection at resistance (long upper wick ≥ 2× candle body on most recent candle)
+- Hard rejection at resistance (upper wick ≥ 2× candle body on most recent candle)
+- 4h and 1h both trending down (lower lows on multiple timeframes)
 
-Apply a positive adjustment (+5 to +${maxAdj}) if you see strong continuation signals:
+APPLY POSITIVE ADJUSTMENT (+5 to +${maxAdj}) when you see:
 - Strong volume expansion on green candles
-- Higher highs AND higher lows with increasing closes
+- Higher highs AND higher lows with increasing closes across timeframes
+- 4h momentum positive AND accelerating (trend confirmed on higher timeframe)
 - Momentum candles (small wicks, large bodies in trend direction)
 
-DEFAULT to 0 (no adjustment) if patterns are ambiguous or mixed. Do NOT penalize for RSI being elevated or ADX being low — the deterministic system already accounts for these.
+DEFAULT to 0 only if truly ambiguous with no directional bias evident.
 
 Respond with ONLY valid JSON, no other text:
-{"adjustment": <number from -${maxAdj} to ${maxAdj}>, "reasoning": "<one sentence naming the specific pattern seen>"}
+{"adjustment": <number from -${maxAdj} to ${maxAdj}>, "reasoning": "<one sentence explaining the key factor>"}
 
 Rules:
-- Positive = clear continuation pattern
-- Negative = specific reversal pattern present
-- 0 = ambiguous / no clear pattern (DEFAULT)
+- Positive = confirmed continuation, higher timeframe aligned
+- Negative = counter-trend entry or reversal pattern
+- 0 = genuinely ambiguous
 - Stay within -${maxAdj} to +${maxAdj} range`;
 
   try {
