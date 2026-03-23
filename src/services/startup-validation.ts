@@ -49,12 +49,8 @@ export async function validateStartup(): Promise<ValidationResult> {
     logger.info('✓ Email service configured');
   }
 
-  // 6. Validate Redis connection (for rate limiting)
-  if (!process.env.UPSTASH_REDIS_REST_URL) {
-    errors.push('UPSTASH_REDIS_REST_URL is not set (rate limiting will not work)');
-  } else {
-    logger.info('✓ Redis configured');
-  }
+  // 6. Cache uses PG (kv_cache table) — no external Redis required
+  logger.info('✓ Cache configured (PG-backed kv_cache)');
 
   // Log validation results
   if (errors.length > 0) {
