@@ -6,7 +6,7 @@
 
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
-import { getEnvironmentConfig } from '@/config/environment';
+import { getEnvironmentConfig, aiConfig } from '@/config/environment';
 import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import { analyzeMarket } from '@/services/ai/analyzer';
 import { executionFanOut } from '@/services/execution/fan-out';
@@ -812,12 +812,11 @@ class TradeSignalOrchestrator {
             console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
             logger.info('Orchestrator: analyzeMarket returned', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
 
-            const baseConfidenceThreshold = riskManager.getAIConfidenceThreshold();
             const regime = analysis.regime?.regime?.toLowerCase() || 'moderate';
-            const minConfidenceThreshold = baseConfidenceThreshold; // 70% for ALL regimes (/nexus parity)
+            const minConfidenceThreshold = aiConfig.getMinConfidenceForRegime(regime);
 
-            console.log(`\n📊 REGIME: ${pair} - ${regime.toUpperCase()} market, AI threshold: ${minConfidenceThreshold}%`);
-            logger.info('Orchestrator: regime detected (/nexus parity - same threshold all regimes)', { pair, regime, minConfidenceThreshold, signalConfidence: analysis.signal?.confidence });
+            console.log(`\n📊 REGIME: ${pair} - ${regime.toUpperCase()} market, AI threshold: ${minConfidenceThreshold}% (regime-specific)`);
+            logger.info('Orchestrator: regime detected (regime-specific confidence threshold)', { pair, regime, minConfidenceThreshold, signalConfidence: analysis.signal?.confidence });
 
             if (analysis.signal && analysis.regime && analysis.signal.confidence >= minConfidenceThreshold) {
               if (analysis.signal.signal !== 'buy') {

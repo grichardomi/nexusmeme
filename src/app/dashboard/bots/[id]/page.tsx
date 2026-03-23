@@ -75,6 +75,8 @@ export default function BotDetailPage() {
   const [showPauseConfirm, setShowPauseConfirm] = useState(false);
   const [openTradesCount, setOpenTradesCount] = useState(0);
   const [unpaidFeesError, setUnpaidFeesError] = useState<{ amount: number; count: number } | null>(null);
+  const [trialCapped, setTrialCapped] = useState(false);
+  const [trialMaxCapital, setTrialMaxCapital] = useState<number | null>(null);
 
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
@@ -468,6 +470,8 @@ export default function BotDetailPage() {
       setBalanceBreakdown(data.breakdown ?? null);
       if (data.minimum) setLiveMinimum(data.minimum);
       if (data.minUsdt) setMinUsdt(data.minUsdt);
+      setTrialCapped(data.trialCapped === true);
+      if (data.trialMaxCapital) setTrialMaxCapital(data.trialMaxCapital);
 
       setBalanceError(null);
       setLastBalanceUpdate(new Date());
@@ -558,6 +562,23 @@ export default function BotDetailPage() {
       </div>
 
       {/* Unpaid Fees Warning Banner */}
+      {trialCapped && trialMaxCapital && (
+        <div className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 flex items-start gap-3">
+          <span className="text-xl mt-0.5">🔒</span>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">
+              Free Trial — Capital Capped at ${trialMaxCapital.toLocaleString()}
+            </p>
+            <p className="text-sm text-blue-700 dark:text-blue-300 mt-0.5">
+              Your configured capital exceeds the free trial limit. The bot trades as if capital is ${trialMaxCapital.toLocaleString()}.{' '}
+              <Link href="/dashboard/billing" className="underline font-medium">
+                Upgrade to remove this limit →
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
+
       {unpaidFeesError && (
         <div className="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
           <div className="flex items-start gap-3">
@@ -590,7 +611,7 @@ export default function BotDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Bot Settings Card */}
         <div className="lg:col-span-1">
           <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-slate-200 dark:border-slate-700">
@@ -838,7 +859,7 @@ export default function BotDetailPage() {
               Trading Information
             </h3>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">Trading Pairs</p>
                 <div className="space-y-3">
@@ -1114,14 +1135,14 @@ export default function BotDetailPage() {
               <button
                 onClick={() => setIsEditingSettings(false)}
                 disabled={isUpdatingSettings}
-                className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:bg-slate-400 text-slate-900 dark:text-white px-4 py-2 rounded font-medium transition"
+                className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:bg-slate-400 text-slate-900 dark:text-white px-4 py-3 min-h-[44px] rounded font-medium transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpdateSettings}
                 disabled={isUpdatingSettings}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-4 py-2 rounded font-medium transition"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-4 py-3 min-h-[44px] rounded font-medium transition"
               >
                 {isUpdatingSettings ? 'Saving...' : 'Save Changes'}
               </button>
@@ -1166,14 +1187,14 @@ export default function BotDetailPage() {
               <button
                 onClick={() => setIsEditingPairs(false)}
                 disabled={isUpdatingPairs}
-                className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:bg-slate-400 text-slate-900 dark:text-white px-4 py-2 rounded font-medium transition"
+                className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:bg-slate-400 text-slate-900 dark:text-white px-4 py-3 min-h-[44px] rounded font-medium transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpdatePairs}
                 disabled={isUpdatingPairs || selectedPairs.length === 0}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-4 py-2 rounded font-medium transition"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-4 py-3 min-h-[44px] rounded font-medium transition"
               >
                 {isUpdatingPairs ? 'Updating...' : 'Save Changes'}
               </button>

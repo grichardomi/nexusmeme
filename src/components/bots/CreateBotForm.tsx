@@ -123,6 +123,13 @@ export function CreateBotForm() {
               {' '}to connect your API keys.
             </p>
           )}
+          {errorCode === 'TRIAL_CAPITAL_EXCEEDED' && (
+            <p className="text-xs mt-2">
+              <Link href="/dashboard/billing" className="underline font-semibold hover:text-red-900 dark:hover:text-red-100">
+                Upgrade your plan →
+              </Link>
+            </p>
+          )}
           {errorCode === 'BOT_EXISTS' && existingBotId && (
             <div className="text-xs mt-3 space-y-2">
               <p>You can manage your existing bot here:</p>

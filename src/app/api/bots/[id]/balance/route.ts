@@ -43,18 +43,46 @@ export async function GET(
     const bot = botResult[0];
     const config = bot.config || {};
 
-    // Always fetch real balance from exchange regardless of capital mode.
-    // - Unlimited (0): balance also controls position sizing
-    // - Fixed amount: balance is for display, billing tier, and account value only
     const initialCapital = config.initialCapital;
     const isUnlimited = initialCapital === 0 || (typeof initialCapital === 'string' && initialCapital.toLowerCase() === 'unlimited');
-    logger.debug('Fetching bot exchange balance', {
-      botId,
-      tradingMode: config.tradingMode || 'paper',
-      isUnlimited,
-    });
-
+    const tradingMode = config.tradingMode || 'paper';
     const exchange = bot.exchange.toLowerCase();
+
+    logger.debug('Fetching bot exchange balance', { botId, tradingMode, isUnlimited });
+
+    // Paper mode with no real capital configured — return simulated balance instead of
+    // hitting the exchange (free trial users have no validated keys; no real funds needed)
+    if (tradingMode === 'paper' && !isUnlimited && initialCapital > 0) {
+      // Check if user is on live_trial — cap displayed balance to TRIAL_MAX_CAPITAL
+      const { getEnvironmentConfig: getEnvCfg } = await import('@/config/environment');
+      const trialMax = getEnvCfg().TRIAL_MAX_CAPITAL;
+      const subRow = await query<{ plan_tier: string }>(
+        `SELECT plan_tier FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [session.user.id]
+      );
+      const planTier = subRow[0]?.plan_tier ?? 'live_trial';
+      const isTrialUser = planTier === 'live_trial';
+      const effectiveCapital = isTrialUser ? Math.min(initialCapital, trialMax) : initialCapital;
+      const trialCapped = isTrialUser && initialCapital > trialMax;
+
+      const simulated = effectiveCapital * 0.95;
+      return NextResponse.json({
+        available: simulated,
+        real: effectiveCapital,
+        minimum: 0,
+        minUsdt: 0,
+        totalAccountValue: effectiveCapital,
+        breakdown: { usdCash: effectiveCapital, btcHoldings: 0, btcValue: 0, ethHoldings: 0, ethValue: 0, btcPrice: 0, ethPrice: 0 },
+        billingTier: effectiveCapital >= 50000 ? 'elite' : effectiveCapital >= 5000 ? 'live' : 'starter',
+        buffer: 0.95,
+        exchange,
+        currencyBalances: { USDT: effectiveCapital },
+        simulated: true,
+        trialCapped,
+        trialMaxCapital: isTrialUser ? trialMax : undefined,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Get API keys for this exchange
     const keysResult = await query(
@@ -102,9 +130,18 @@ export async function GET(
         );
       }
 
-      // Keys are pre-validated at save time — connect and fetch balance directly
+      // Connect to exchange — wrap separately so connection errors return 400, not 500
       const adapter = getExchangeAdapter(exchange);
-      await adapter.connect({ publicKey, secretKey });
+      try {
+        await adapter.connect({ publicKey, secretKey });
+      } catch (connectError) {
+        const msg = connectError instanceof Error ? connectError.message : String(connectError);
+        logger.error('Exchange adapter connect failed', connectError instanceof Error ? connectError : null, { botId, exchange, error: msg });
+        return NextResponse.json(
+          { error: 'Could not connect to exchange. Check your API keys in Settings.', available: null },
+          { status: 400 }
+        );
+      }
 
       let balances;
       try {

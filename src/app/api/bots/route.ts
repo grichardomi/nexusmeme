@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { query, transaction } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
-import { tradingConfig, getSupportedExchanges } from '@/config/environment';
+import { tradingConfig, getSupportedExchanges, getEnvironmentConfig } from '@/config/environment';
 import { checkActionAllowed } from '@/services/billing/subscription';
 import { checkMinimumBalance } from '@/services/billing/balance-guard';
 import { sendBotCreatedEmail } from '@/services/email/triggers';
@@ -176,6 +176,28 @@ export async function POST(request: NextRequest) {
     // Check if user is admin (admins can create multiple bots for testing)
     const userRole = (session.user as any).role ?? 'user';
     const isAdmin = userRole === 'admin';
+
+    // Trial capital cap: live_trial users cannot configure more than TRIAL_MAX_CAPITAL
+    if (!isAdmin && initialCapital > 0) {
+      const subRow = await query<{ plan_tier: string }>(
+        `SELECT plan_tier FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [session.user.id]
+      );
+      const planTier = subRow[0]?.plan_tier ?? 'live_trial';
+      if (planTier === 'live_trial') {
+        const trialMax = getEnvironmentConfig().TRIAL_MAX_CAPITAL;
+        if (initialCapital > trialMax) {
+          return NextResponse.json(
+            {
+              error: `Free trial capital is limited to $${trialMax.toLocaleString()}. Upgrade to live trading to remove this limit.`,
+              code: 'TRIAL_CAPITAL_EXCEEDED',
+              trialMaxCapital: trialMax,
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     // Check if user has API keys connected for the selected exchange
     const apiKeysExist = await query(
@@ -691,6 +713,27 @@ export async function PATCH(request: NextRequest) {
               { error: 'Initial capital must be 0 (unlimited) or a positive amount' },
               { status: 400 }
             );
+          }
+          // Trial capital cap: live_trial users cannot set capital above TRIAL_MAX_CAPITAL
+          if (!isAdmin && capital > 0) {
+            const patchSubRow = await query<{ plan_tier: string }>(
+              `SELECT plan_tier FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+              [session.user.id]
+            );
+            const patchPlanTier = patchSubRow[0]?.plan_tier ?? 'live_trial';
+            if (patchPlanTier === 'live_trial') {
+              const trialMax = getEnvironmentConfig().TRIAL_MAX_CAPITAL;
+              if (capital > trialMax) {
+                return NextResponse.json(
+                  {
+                    error: `Free trial capital is limited to $${trialMax.toLocaleString()}. Upgrade to live trading to remove this limit.`,
+                    code: 'TRIAL_CAPITAL_EXCEEDED',
+                    trialMaxCapital: trialMax,
+                  },
+                  { status: 400 }
+                );
+              }
+            }
           }
           config.initialCapital = capital;
         }

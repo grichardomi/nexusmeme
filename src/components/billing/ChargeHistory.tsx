@@ -225,7 +225,7 @@ export function ChargeHistory() {
           ) : (
             <>
               {/* Mobile Card Layout */}
-              <div className="sm:hidden space-y-3">
+              <div className="md:hidden space-y-3">
                 {charges.map((charge, index) => (
                   <div
                     key={charge.id || `${charge.invoice_id}-${index}`}
@@ -273,7 +273,7 @@ export function ChargeHistory() {
               </div>
 
               {/* Desktop Layout */}
-              <div className="hidden sm:block space-y-3">
+              <div className="hidden md:block space-y-3">
                 {charges.map((charge, index) => (
                   <div
                     key={charge.id || `${charge.invoice_id}-${index}`}

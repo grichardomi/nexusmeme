@@ -16,7 +16,7 @@ import {
   aiConfidenceBoost,
   // analyzeRiskAI - DISABLED: Result was explicitly ignored (signal confidence is PRIMARY per /nexus)
 } from './inference';
-import { aiConfig, getEnvironmentConfig } from '@/config/environment';
+import { aiConfig } from '@/config/environment';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import {
   AIAnalysisRequest,
@@ -205,8 +205,8 @@ export async function analyzeMarket(
       //   score >= threshold but Claude could veto it (worthwhile)
       //   score >= threshold + maxAdj → Claude can't veto even at max penalty (skip)
       //   score < threshold - maxAdj → Claude can't rescue even at max boost (skip)
-      const env = getEnvironmentConfig();
-      const boostThreshold = env.AI_MIN_CONFIDENCE_THRESHOLD; // 70
+      // Use the regime-specific threshold so the call/skip gate is accurate per regime
+      const boostThreshold = aiConfig.getMinConfidenceForRegime(regime.regime);
       const maxAdj = aiConfig.confidenceBoostMaxAdjustment;   // 15
       const scoreCanChange = result.signal.confidence >= (boostThreshold - maxAdj) &&
                              result.signal.confidence <= (boostThreshold + maxAdj);
@@ -234,6 +234,24 @@ export async function analyzeMarket(
           result.signal.factors.push(
             `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
           );
+
+          // AI VETO: In low-margin regimes (choppy/transitioning), a negative AI adjustment
+          // is a hard block — the AI saw risk and the expected profit is too thin to ignore it.
+          // In trending regimes, AI skepticism is tolerated (momentum confirms the trade).
+          const isLowMarginRegime = regime.regime === 'choppy' || regime.regime === 'transitioning';
+          if (isLowMarginRegime && boostResult.adjustment < 0) {
+            logger.warn('AI VETO: negative adjustment in low-margin regime — trade blocked', {
+              pair: request.pair,
+              regime: regime.regime,
+              originalConfidence,
+              adjustment: boostResult.adjustment,
+              newConfidence: result.signal.confidence,
+              reasoning: boostResult.reasoning,
+              provider: boostResult.provider,
+            });
+            result.signal = null as any;
+            return result;
+          }
 
           logger.info('AI confidence boost applied', {
             pair: request.pair,

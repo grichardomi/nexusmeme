@@ -207,7 +207,7 @@ export function RecentTransactions() {
               <select
                 value={botFilter}
                 onChange={(e) => setBotFilter(e.target.value)}
-                className="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-3 py-2.5 min-h-[44px] text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="all">All Bots</option>
                 {bots.map(b => (
@@ -220,7 +220,7 @@ export function RecentTransactions() {
             <select
               value={statusFilter}
               onChange={(e) => handleFilterChange(e.target.value as StatusFilter)}
-              className="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="px-3 py-2.5 min-h-[44px] text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="all">All Statuses</option>
               <option value="pending_billing">Pending</option>
@@ -264,8 +264,8 @@ export function RecentTransactions() {
         </div>
       ) : (
         <>
-          {/* Mobile Card Layout (shown on small screens) */}
-          <div className="sm:hidden space-y-3">
+          {/* Mobile Card Layout (shown on small/medium screens) */}
+          <div className="md:hidden space-y-3">
             {transactions.map((tx, index) => (
               <div
                 key={tx.id || `${tx.trade_id}-${index}`}
@@ -319,8 +319,8 @@ export function RecentTransactions() {
             ))}
           </div>
 
-          {/* Desktop Table Layout (hidden on small screens) */}
-          <div className="hidden sm:block overflow-x-auto">
+          {/* Desktop Table Layout (hidden on small/medium screens) */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700">

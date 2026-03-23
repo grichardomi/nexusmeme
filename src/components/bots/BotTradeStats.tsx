@@ -95,7 +95,7 @@ export function BotTradeStats({ botId }: BotTradeStatsProps) {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {[...Array(8)].map((_, i) => (
           <div
             key={i}
@@ -109,7 +109,7 @@ export function BotTradeStats({ botId }: BotTradeStatsProps) {
   return (
     <div className="space-y-6">
       {/* Primary Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total Profit/Loss */}
         <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-slate-200 dark:border-slate-700">
           <div className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-2">
@@ -184,7 +184,7 @@ export function BotTradeStats({ botId }: BotTradeStatsProps) {
       </div>
 
       {/* Secondary Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total Trades */}
         <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-slate-200 dark:border-slate-700">
           <div className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-2">

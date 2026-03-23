@@ -234,7 +234,25 @@ class ExecutionFanOut {
       if (!isLive) {
         // Paper mode: never call the exchange API — use configured capital directly.
         // Paper trades are simulated; touching the real exchange account is outside our authority.
-        effectiveBalance = configured;
+        // Safety net: silently cap trial users to TRIAL_MAX_CAPITAL even if DB allows more.
+        const trialCapResult = await query<{ plan_tier: string }>(
+          `SELECT plan_tier FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+          [bot.user_id]
+        );
+        const planTier = trialCapResult[0]?.plan_tier ?? 'live_trial';
+        const trialMax = getEnvironmentConfig().TRIAL_MAX_CAPITAL;
+        if (planTier === 'live_trial' && configured > trialMax) {
+          logger.warn('Trial user capital capped at TRIAL_MAX_CAPITAL', {
+            botId: bot.id,
+            userId: bot.user_id,
+            configuredCapital: configured,
+            trialMax,
+            trialCapCapped: true,
+          });
+          effectiveBalance = trialMax;
+        } else {
+          effectiveBalance = configured;
+        }
       } else {
         try {
           // Live mode only: fetch real balance to prevent over-ordering

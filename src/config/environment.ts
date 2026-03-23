@@ -110,7 +110,11 @@ const envSchema = z.object({
   CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: z.string().transform(Number).default('-0.3'), // ADX must be roughly flat — declining = fading trend
 
   /* AI Configuration */
-  AI_MIN_CONFIDENCE_THRESHOLD: z.string().transform(Number).default('70'),
+  AI_MIN_CONFIDENCE_THRESHOLD: z.string().transform(Number).default('70'),         // Base fallback (all regimes)
+  AI_MIN_CONFIDENCE_CHOPPY: z.string().transform(Number).default('68'),            // Choppy: AI veto is the guard — allow opportunistic small-win entries
+  AI_MIN_CONFIDENCE_TRANSITIONING: z.string().transform(Number).default('70'),    // Transitioning: standard bar, trend forming
+  AI_MIN_CONFIDENCE_MODERATE: z.string().transform(Number).default('68'),         // Moderate trend: slightly opportunistic — trend confirmed
+  AI_MIN_CONFIDENCE_STRONG: z.string().transform(Number).default('62'),           // Strong trend: momentum confirms — AI uncertainty tolerated
 
   /* AI Confidence Boost - Hybrid AI layer for entry decisions */
   /* Deterministic 3-path gate remains primary. AI adjusts confidence ±15 as advisor. */
@@ -363,6 +367,7 @@ const envSchema = z.object({
 
   /* Trial Configuration */
   TRIAL_DURATION_DAYS: z.string().transform(Number).default('10'),        // Length of free trial in days
+  TRIAL_MAX_CAPITAL: z.string().transform(Number).default('10000'),       // Max paper capital for live_trial users
 
   /* Email Queue Configuration */
   EMAIL_MAX_RETRIES: z.string().transform(Number).default('3'),           // Max delivery attempts before marking failed
@@ -465,6 +470,10 @@ function getDefaultEnvironment(): Environment {
     CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: -0.3,
     CREEPING_UPTREND_PULLBACK_THRESHOLD: 0.95,
     AI_MIN_CONFIDENCE_THRESHOLD: 70,
+    AI_MIN_CONFIDENCE_CHOPPY: 68,
+    AI_MIN_CONFIDENCE_TRANSITIONING: 70,
+    AI_MIN_CONFIDENCE_MODERATE: 68,
+    AI_MIN_CONFIDENCE_STRONG: 62,
     AI_CONFIDENCE_BOOST_ENABLED: true,
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
@@ -619,6 +628,7 @@ function getDefaultEnvironment(): Environment {
     USDC_PAYMENT_REF_RETRIES: 5,
     USDC_MICRO_OFFSET_MAX: 999,
     TRIAL_DURATION_DAYS: 10,
+    TRIAL_MAX_CAPITAL: 10000,
     DEFAULT_BOT_EXCHANGE: 'binance',
     DEFAULT_BOT_PAIRS: 'BTC/USDT,ETH/USDT',
     DEFAULT_BOT_CAPITAL: 0,
@@ -979,6 +989,21 @@ export const aiConfig = {
   },
   get confidenceBoostTimeoutMs() {
     return getEnv('AI_CONFIDENCE_BOOST_TIMEOUT_MS');
+  },
+  /**
+   * Per-regime minimum confidence threshold.
+   * Higher conviction required in low-margin regimes (choppy),
+   * lower bar allowed in confirmed strong trends.
+   * Falls back to AI_MIN_CONFIDENCE_THRESHOLD for unknown regimes.
+   */
+  getMinConfidenceForRegime(regime: string): number {
+    const env = getEnvironmentConfig();
+    const r = regime.toLowerCase();
+    if (r === 'choppy')         return env.AI_MIN_CONFIDENCE_CHOPPY;
+    if (r === 'transitioning')  return env.AI_MIN_CONFIDENCE_TRANSITIONING;
+    if (r === 'moderate')       return env.AI_MIN_CONFIDENCE_MODERATE;
+    if (r === 'strong')         return env.AI_MIN_CONFIDENCE_STRONG;
+    return env.AI_MIN_CONFIDENCE_THRESHOLD; // fallback for any future regime
   },
 };
 

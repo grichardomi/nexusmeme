@@ -232,7 +232,63 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
           <p className="text-slate-600 dark:text-slate-400 text-sm">No open positions</p>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Mobile cards — hidden on md+ */}
+            <div className="md:hidden space-y-3">
+              {displayedOpenPositions.map(position => {
+                const metrics = calculateMetrics(position);
+                const currentPrice = prices.get(position.pair)?.price;
+                const health = healthData.get(position.id);
+                return (
+                  <div key={position.id} className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200 dark:border-slate-600">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="font-semibold text-slate-900 dark:text-white">{position.pair}</span>
+                      {health && (
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${getHealthStatusColor(health.healthStatus)}`}>
+                          {health.healthStatus}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Entry</p>
+                        <p className="text-slate-900 dark:text-white">${position.entryPrice.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Current</p>
+                        <p className="text-slate-900 dark:text-white">{currentPrice ? `$${currentPrice.toFixed(2)}` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Unrealized P&L</p>
+                        {metrics.currentPnL !== null ? (
+                          <p className={`font-medium ${metrics.currentPnL >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {metrics.currentPnL >= 0 ? '+' : ''}${metrics.currentPnL.toFixed(2)}
+                            {metrics.currentPnLPercent !== null && ` (${metrics.currentPnLPercent >= 0 ? '+' : ''}${metrics.currentPnLPercent.toFixed(2)}%)`}
+                          </p>
+                        ) : <p className="text-slate-500">—</p>}
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Peak / Erosion</p>
+                        <p className="text-slate-700 dark:text-slate-300">{health ? `${health.peakProfitPct}% / ${health.erosionRatioPct}%` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Hold Time</p>
+                        <p className="text-slate-700 dark:text-slate-300">{formatDuration(metrics.holdTime)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Qty</p>
+                        <p className="text-slate-700 dark:text-slate-300">{position.quantity.toFixed(4)}</p>
+                      </div>
+                    </div>
+                    {health?.alertMessage && (
+                      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{health.alertMessage}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop table — hidden on mobile */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 dark:border-slate-700">
                   <tr>
@@ -356,7 +412,7 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
                   })}
                 </tbody>
               </table>
-            </div>
+            </div>{/* end hidden md:block */}
 
             {/* Load More for Open Positions */}
             {hasMoreOpen && (
@@ -388,7 +444,45 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
           <p className="text-slate-600 dark:text-slate-400 text-sm">No closed positions</p>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Mobile cards — hidden on md+ */}
+            <div className="md:hidden space-y-3">
+              {displayedClosedPositions.map(position => {
+                const metrics = calculateMetrics(position);
+                return (
+                  <div key={position.id} className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 border border-slate-200 dark:border-slate-600">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="font-semibold text-slate-900 dark:text-white">{position.pair}</span>
+                      <span className="inline-block bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded text-xs font-semibold">✓ Closed</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Entry</p>
+                        <p className="text-slate-900 dark:text-white">${position.entryPrice.toFixed(2)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Exit</p>
+                        <p className="text-slate-900 dark:text-white">${position.exitPrice?.toFixed(2) || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">P&L</p>
+                        {position.profitLoss !== null ? (
+                          <p className={`font-medium ${position.profitLoss >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            ${position.profitLoss.toFixed(2)} {position.profitLossPercent !== null && `(${position.profitLossPercent >= 0 ? '+' : ''}${position.profitLossPercent.toFixed(2)}%)`}
+                          </p>
+                        ) : <p className="text-slate-500">—</p>}
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Duration</p>
+                        <p className="text-slate-700 dark:text-slate-300">{metrics.holdTime ? formatDuration(metrics.holdTime) : '—'}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop table — hidden on mobile */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 dark:border-slate-700">
                   <tr>
@@ -460,7 +554,7 @@ export function PositionHealthMonitor({ botId }: PositionHealthMonitorProps) {
                   })}
                 </tbody>
               </table>
-            </div>
+            </div>{/* end hidden md:block */}
 
             {/* Load More for Closed Positions */}
             {(hasMoreClosed || displayedClosedPositions.length > 0) && (

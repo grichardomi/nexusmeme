@@ -288,10 +288,13 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
               </>
             )}
 
-            {/* Right: User Info (Hidden on small mobile) */}
-            <div className="text-right hidden sm:block flex-shrink-0">
-              <p className="text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate max-w-[120px] sm:max-w-none">
+            {/* Right: User Info — initials on mobile, full name on sm+ */}
+            <div className="flex-shrink-0">
+              <p className="hidden sm:block text-xs sm:text-sm font-medium text-slate-900 dark:text-white truncate max-w-none">
                 {session?.user?.name || session?.user?.email}
+              </p>
+              <p className="sm:hidden text-xs font-medium text-slate-900 dark:text-white">
+                {(session?.user?.name || session?.user?.email || '').split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()}
               </p>
             </div>
           </div>
