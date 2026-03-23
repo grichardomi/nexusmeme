@@ -50,7 +50,7 @@ class TradeSignalOrchestrator {
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
   // Cache structure: Map<pair:timeframe, { data: OHLCCandle[], timestamp: number }>
   private ohlcCache = new Map<string, { data: any[], timestamp: number }>();
-  private readonly OHLC_CACHE_TTL_MS = 120000; // 120 seconds TTL (15m candles are stable, reduces Kraken API calls)
+  private readonly OHLC_CACHE_TTL_MS = 30000; // 30 seconds TTL — prevents stale spike indicators reused across trade cycles
 
   // REGIME CACHE: Populated by main orchestrator cycle (60s ADX detection)
   // Used by high-frequency peak tracking loop to avoid ADX fetches every second
@@ -1826,9 +1826,10 @@ class TradeSignalOrchestrator {
                   exitReason,
                 });
                 positionTracker.clearPosition(trade.id);
-                if (exitReason === 'stale_underwater' || exitReason === 'stale_flat') {
+                if (exitReason === 'stale_underwater' || exitReason === 'stale_flat' ||
+                    exitReason === 'underwater_small_peak_timeout' || exitReason === 'underwater_never_profited') {
                   this.staleExitedPairsThisCycle.add(trade.pair);
-                  logger.info('Stale exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });
+                  logger.info('Loss exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });
                 }
                 exitCount++;
               } else {
