@@ -487,33 +487,6 @@ class RiskManager {
       console.log(`\n⚠️ REVERSAL MODE: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%) - entry allowed`);
     }
 
-    // REGIME-AWARE RSI overbought block
-    // Choppy/weak (ADX < 35): RSI 85 = genuine overbought, block entry
-    // Strong trend (ADX >= 35): RSI stays elevated legitimately — use higher threshold (92)
-    // Rationale: In a genuine bull run (ADX 35+), RSI 87-90 is momentum, not reversal signal
-    {
-      const env = getEnvironmentConfig();
-      const adxForRsi = indicators.adx ?? 0;
-      const rsiThreshold = adxForRsi >= 35
-        ? env.RISK_RSI_OVERBOUGHT_TRENDING  // 92 — trending market, RSI stays high
-        : this.config.rsiExtremeOverbought; // 85 — choppy/weak, block at normal threshold
-
-      if (indicators.rsi > rsiThreshold) {
-        logger.info('RiskManager: Entry blocked - extreme overbought', {
-          pair,
-          rsi: indicators.rsi.toFixed(2),
-          threshold: rsiThreshold,
-          adx: adxForRsi.toFixed(1),
-          thresholdType: adxForRsi >= 35 ? 'trending (92)' : 'choppy (85)',
-        });
-        return {
-          pass: false,
-          reason: `Extreme overbought (RSI=${indicators.rsi.toFixed(2)} > ${rsiThreshold})`,
-          stage: 'Entry Quality',
-        };
-      }
-    }
-
     // Require minimum momentum - 4 entry paths (adaptive to market conditions)
     // Counter-trend protection: when 4h is strongly negative, paths 1 and 3 (1h-only) are
     // buying bounces in a downtrend. Block them. Paths 2 and 4 already require positive 4h.

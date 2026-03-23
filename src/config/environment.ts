@@ -379,7 +379,7 @@ const envSchema = z.object({
   DEFAULT_BOT_CAPITAL: z.string().transform(Number).default('0'), // 0 = unlimited simulated capital
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
-  CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('false'),
   CP_BTC_EMA_SHORT_PERIOD: z.string().transform(Number).default('50'),
   CP_BTC_EMA_LONG_PERIOD: z.string().transform(Number).default('200'),
   CP_DRAWDOWN_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -632,7 +632,7 @@ function getDefaultEnvironment(): Environment {
     EMAIL_JOB_PRIORITY: 7,
     EMAIL_BATCH_SIZE: 100,
     EMAIL_TRADE_ALERTS_DEFAULT: false,
-    CP_BTC_TREND_GATE_ENABLED: true,
+    CP_BTC_TREND_GATE_ENABLED: false,
     CP_BTC_EMA_SHORT_PERIOD: 50,
     CP_BTC_EMA_LONG_PERIOD: 200,
     CP_DRAWDOWN_ENABLED: true,

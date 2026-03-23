@@ -9,35 +9,14 @@ export type TradeSignal = 'buy' | 'sell' | 'hold';
 export type SentimentScore = 'very_positive' | 'positive' | 'neutral' | 'negative' | 'very_negative';
 
 export interface TechnicalIndicators {
-  rsi: number; // 0-100
-  macd: {
-    value: number;
-    signal: number;
-    histogram: number;
-  };
-  bollingerBands: {
-    upper: number;
-    middle: number;
-    lower: number;
-  };
-  movingAverages: {
-    sma20: number;
-    sma50: number;
-    ema12: number;
-    ema26: number;
-  };
-  atr: number; // Average True Range
-  obv: number; // On-Balance Volume
-  adx: number; // Average Directional Index (0-100)
-  adxSlope?: number; // ADX rate of change per candle (positive = strengthening, negative = weakening)
-  // Momentum indicators (for entry/exit decisions)
-  momentum1h?: number; // 1-hour momentum as percentage
-  momentum4h?: number; // 4-hour momentum as percentage
-  volumeRatio?: number; // Volume ratio vs average (e.g., 1.5x)
-  ema200?: number; // 200-period EMA (long-term trend)
-  intrabarMomentum?: number; // Current candle momentum (currentPrice - open) / open - TRUE real-time direction
-  recentHigh?: number; // Recent high price (for support/resistance)
-  recentLow?: number; // Recent low price
+  adx: number;           // Trend strength — how consistently price is moving (0-100, not direction)
+  adxSlope?: number;     // ADX rate of change per candle (positive = strengthening)
+  momentum1h?: number;   // Raw % price change over last 1h (4 × 15m candles)
+  momentum4h?: number;   // Raw % price change over last 4h (16 × 15m candles)
+  volumeRatio?: number;  // Current candle volume vs 20-candle average
+  intrabarMomentum?: number; // (currentPrice - candleOpen) / candleOpen — real-time direction
+  recentHigh?: number;   // Highest high over last 20 candles
+  recentLow?: number;    // Lowest low over last 20 candles
 }
 
 export interface MarketRegimeAnalysis {

@@ -100,8 +100,6 @@ export class MomentumFailureDetector {
     const momentum1h = indicators.momentum1h ?? 0;
     const momentum4h = indicators.momentum4h ?? 0;
     const volumeRatio = indicators.volumeRatio ?? 1;
-    const ema200 = indicators.ema200 ?? 0;
-
     // SIGNAL 1: Price Action Failure
     // Check if price is near recent high but momentum is declining
     // NOTE: momentum values and thresholds are both in percentage form (e.g., -0.5 = -0.5%)
@@ -145,7 +143,6 @@ export class MomentumFailureDetector {
     // NOTE: momentum4h and threshold both in percentage form (e.g., -0.5 = -0.5%)
     const htfMomentumWeak =
       momentum4h < this.HTF_MOMENTUM_WEAKENING;
-    const belowEMA200 = position.currentPrice < ema200 && ema200 > 0;
 
     if (htfMomentumWeak) {
       result.signals.htfBreakdown = true;
@@ -153,13 +150,6 @@ export class MomentumFailureDetector {
       result.reasoning.push(
         `4h momentum weakening: ${momentum4h.toFixed(2)}% ` +
           `(threshold: ${this.HTF_MOMENTUM_WEAKENING.toFixed(2)}%)`
-      );
-    } else if (belowEMA200) {
-      result.signals.htfBreakdown = true;
-      result.signalCount++;
-      result.reasoning.push(
-        `EMA200 breakdown: price $${position.currentPrice.toFixed(2)} < ` +
-          `EMA200 $${ema200.toFixed(2)}`
       );
     }
 

@@ -40,9 +40,8 @@ function getCacheKey(
   indicators: TechnicalIndicators
 ): string {
   const priceBucket = Math.floor(price / 100) * 100;
-  const rsiBucket = Math.floor(indicators.rsi / 5);
   const volumeBucket = Math.floor((indicators.volumeRatio || 1) / 0.5);
-  return `${pair}:${priceBucket}:${rsiBucket}:${volumeBucket}`;
+  return `${pair}:${priceBucket}:${volumeBucket}`;
 }
 
 /**
@@ -340,8 +339,6 @@ export async function generateTradeSignalAI(
   const momentum4h = indicators.momentum4h || 0;
   const volumeRatio = indicators.volumeRatio || 1;
   const adx = indicators.adx;
-  const rsi = indicators.rsi;
-  const macdHistogram = indicators.macd.histogram;
 
   // Signal decision: Use same thresholds as risk filter's 3-path gate
   // Read from environment to match risk-manager.ts exactly
@@ -376,8 +373,7 @@ export async function generateTradeSignalAI(
     && momentum4h >= creepMin4h
     && adxSlope >= creepMaxSlope; // ADX must not be actively declining — fading trend = bad entry
 
-  const rsiThreshold = adx >= 35 ? (getEnv('RISK_RSI_OVERBOUGHT_TRENDING') ?? 92) : 85;
-  const signal: TradeSignal = ((hasStrongMomentum || hasBothPositive || hasVolumeBreakout || hasStrongTrendConsolidation || hasCreepingUptrend) && rsi <= rsiThreshold) ? 'buy' : 'hold';
+  const signal: TradeSignal = (hasStrongMomentum || hasBothPositive || hasVolumeBreakout || hasStrongTrendConsolidation || hasCreepingUptrend) ? 'buy' : 'hold';
 
   // Confidence score: base 50, apply boosters and penalties, clamp 0-100
   let confidence = 50;
@@ -404,19 +400,9 @@ export async function generateTradeSignalAI(
     factors.push(`ADX ${adx.toFixed(1)} strong trend`);
   }
 
-  if (macdHistogram > 0) {
-    confidence += 5;
-    factors.push('MACD bullish');
-  }
-
   if (volumeRatio > 1.3) {
     confidence += 5;
     factors.push(`volume ${volumeRatio.toFixed(1)}x (breakout)`);
-  }
-
-  if (rsi >= 30 && rsi <= 60) {
-    confidence += 3;
-    factors.push(`RSI ${rsi.toFixed(0)} healthy range`);
   }
 
   if (momentum4h > 0) {
@@ -439,13 +425,6 @@ export async function generateTradeSignalAI(
   }
 
   // Penalties
-  if (rsi > 80) {
-    // In strong trends (ADX≥35), high RSI is normal — reduce penalty
-    const rsiPenalty = adx >= 35 ? 3 : 10;
-    confidence -= rsiPenalty;
-    factors.push(`RSI ${rsi.toFixed(0)} overbought (-${rsiPenalty})`);
-  }
-
   if (momentum4h < -2.0) {
     confidence -= 5;
     factors.push(`4h momentum bearish ${momentum4h.toFixed(2)}% (-5)`);
@@ -486,7 +465,7 @@ export async function generateTradeSignalAI(
 
   const analysis = signal === 'buy'
     ? `Buy signal: ${momentum1h.toFixed(2)}% 1h momentum, ADX ${adx.toFixed(1)}, confidence ${confidence}%`
-    : `Hold: momentum1h ${momentum1h.toFixed(2)}% insufficient or RSI ${rsi.toFixed(0)} overbought`;
+    : `Hold: momentum1h ${momentum1h.toFixed(2)}% insufficient`;
 
   const result = {
     signal,
@@ -497,7 +476,7 @@ export async function generateTradeSignalAI(
     takeProfit,
     riskRewardRatio,
     factors,
-    technicalScore: rsi > 30 && rsi < 70 ? 75 : 50,
+    technicalScore: momentum1h > 0.5 ? 75 : 50,
     sentimentScore: ((sentiment.value + 100) / 2) * 0.5,
     regimeScore: regime.confidence,
     analysis,
@@ -542,7 +521,6 @@ Predict future price levels for ${pair}.
 Current Price: $${currentPrice.toFixed(2)}
 24h Change: ${priceChange24h}%
 Market Regime: ${regime.regime}
-RSI: ${indicators.rsi.toFixed(2)}
 ADX: ${indicators.adx.toFixed(2)}
 
 Provide price predictions for:
@@ -767,9 +745,7 @@ RECENT CANDLES (oldest to newest):
 ${formatCandlesForPrompt(recentCandles)}
 
 CURRENT INDICATORS:
-- RSI: ${indicators.rsi.toFixed(1)}
 - ADX: ${indicators.adx.toFixed(1)} (regime: ${regime})
-- MACD histogram: ${indicators.macd.histogram.toFixed(4)}
 - 1h momentum: ${mom1h.toFixed(3)}%
 - 4h momentum: ${mom4h.toFixed(3)}%
 - Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${downtrend4hContext}

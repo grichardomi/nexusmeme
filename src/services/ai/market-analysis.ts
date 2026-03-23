@@ -24,9 +24,8 @@ export function calculateTechnicalIndicators(
   const closes = candles.map((c) => c.close);
   const volumes = candles.map((c) => c.volume);
 
-  // Calculate momentum (percentage change over periods)
-  // CRITICAL: Assumes 15m candles for /nexus parity!
-  // With 15m candles: 4 candles = 1h, 16 candles = 4h
+  // Momentum: raw % price change over real time windows
+  // CRITICAL: Assumes 15m candles — 4 candles = 1h, 16 candles = 4h
   const momentum1h = candles.length >= 4
     ? ((closes[closes.length - 1] - closes[closes.length - 4]) / closes[closes.length - 4]) * 100
     : 0;
@@ -35,200 +34,29 @@ export function calculateTechnicalIndicators(
     ? ((closes[closes.length - 1] - closes[closes.length - 16]) / closes[closes.length - 16]) * 100
     : 0;
 
-  // Calculate volume ratio (current vs average)
+  // Volume ratio: current candle volume vs 20-candle average
   const recentVolumes = volumes.slice(-20);
   const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length;
-  const currentVolume = volumes[volumes.length - 1];
-  const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
+  const volumeRatio = avgVolume > 0 ? volumes[volumes.length - 1] / avgVolume : 1;
 
-  // Calculate recent high and low (using actual high/low prices, not just closes)
-  // CRITICAL: Must use candle high/low, not close prices - matches nexus behavior
+  // Recent high/low: actual candle highs/lows (not closes)
   const recentCandles = candles.slice(-20);
-  const recentHighs = recentCandles.map((c) => c.high);
-  const recentLows = recentCandles.map((c) => c.low);
-  const recentHigh = Math.max(...recentHighs);
-  const recentLow = Math.min(...recentLows);
-
-  // Calculate EMA200 (200-period exponential moving average)
-  const ema200 = candles.length >= 200
-    ? calculateEMA(closes, 200)
-    : calculateEMA(closes, Math.min(closes.length, 50)); // Fallback to shorter period
+  const recentHigh = Math.max(...recentCandles.map((c) => c.high));
+  const recentLow = Math.min(...recentCandles.map((c) => c.low));
 
   const adxResult = calculateADX(candles);
 
   return {
-    rsi: calculateRSI(closes),
-    macd: calculateMACD(closes),
-    bollingerBands: calculateBollingerBands(closes),
-    movingAverages: calculateMovingAverages(closes),
-    atr: calculateATR(candles),
-    obv: calculateOBV(closes, volumes),
     adx: adxResult.value,
     adxSlope: adxResult.slope,
     momentum1h,
     momentum4h,
     volumeRatio,
-    ema200,
     recentHigh,
     recentLow,
   };
 }
 
-/**
- * Calculate RSI (Relative Strength Index)
- */
-function calculateRSI(closes: number[], period = 14): number {
-  if (closes.length < period + 1) {
-    return 50; // Neutral if not enough data
-  }
-
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const change = closes[i] - closes[i - 1];
-    if (change > 0) gains += change;
-    else losses += Math.abs(change);
-  }
-
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-
-  if (avgLoss === 0) return 100;
-  if (avgGain === 0) return 0;
-
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
-}
-
-/**
- * Calculate MACD (Moving Average Convergence Divergence)
- */
-function calculateMACD(
-  closes: number[]
-): { value: number; signal: number; histogram: number } {
-  const ema12 = calculateEMA(closes, 12);
-  const ema26 = calculateEMA(closes, 26);
-
-  const macdLine = ema12 - ema26;
-  const signalLine = calculateEMA([macdLine], 9);
-  const histogram = macdLine - signalLine;
-
-  return {
-    value: macdLine,
-    signal: signalLine,
-    histogram,
-  };
-}
-
-/**
- * Calculate Bollinger Bands
- */
-function calculateBollingerBands(
-  closes: number[],
-  period = 20,
-  stdDev = 2
-): { upper: number; middle: number; lower: number } {
-  const recentCloses = closes.slice(-period);
-  const middle = recentCloses.reduce((a, b) => a + b, 0) / period;
-
-  const variance =
-    recentCloses.reduce((sum, close) => sum + Math.pow(close - middle, 2), 0) /
-    period;
-  const std = Math.sqrt(variance);
-
-  return {
-    upper: middle + stdDev * std,
-    middle,
-    lower: middle - stdDev * std,
-  };
-}
-
-/**
- * Calculate Moving Averages
- */
-function calculateMovingAverages(closes: number[]): {
-  sma20: number;
-  sma50: number;
-  ema12: number;
-  ema26: number;
-} {
-  return {
-    sma20: calculateSMA(closes, 20),
-    sma50: calculateSMA(closes, 50),
-    ema12: calculateEMA(closes, 12),
-    ema26: calculateEMA(closes, 26),
-  };
-}
-
-/**
- * Calculate SMA (Simple Moving Average)
- */
-function calculateSMA(closes: number[], period: number): number {
-  const recent = closes.slice(-period);
-  return recent.reduce((a, b) => a + b, 0) / period;
-}
-
-/**
- * Calculate EMA (Exponential Moving Average)
- */
-function calculateEMA(closes: number[], period: number): number {
-  const multiplier = 2 / (period + 1);
-  let ema = closes[0];
-
-  for (let i = 1; i < closes.length; i++) {
-    ema = closes[i] * multiplier + ema * (1 - multiplier);
-  }
-
-  return ema;
-}
-
-/**
- * Calculate ATR (Average True Range)
- */
-function calculateATR(
-  candles: OHLCCandle[],
-  period = 14
-): number {
-  const trueRanges: number[] = [];
-
-  for (let i = 1; i < candles.length; i++) {
-    const current = candles[i];
-    const prev = candles[i - 1];
-
-    const tr1 = current.high - current.low;
-    const tr2 = Math.abs(current.high - prev.close);
-    const tr3 = Math.abs(current.low - prev.close);
-
-    trueRanges.push(Math.max(tr1, tr2, tr3));
-  }
-
-  const recentTR = trueRanges.slice(-period);
-  return recentTR.reduce((a, b) => a + b, 0) / period;
-}
-
-/**
- * Calculate OBV (On-Balance Volume)
- */
-function calculateOBV(closes: number[], volumes: number[]): number {
-  let obv = 0;
-
-  for (let i = 1; i < closes.length; i++) {
-    if (closes[i] > closes[i - 1]) {
-      obv += volumes[i];
-    } else if (closes[i] < closes[i - 1]) {
-      obv -= volumes[i];
-    }
-  }
-
-  return obv;
-}
-
-/**
- * Calculate ADX (Average Directional Index)
- * CRITICAL: Must match Nexus's calculation exactly for regime parity
- * Uses proper True Range + DI smoothing (not simplified version)
- */
 /**
  * ADX calculation result with slope for regime transition detection
  */
@@ -345,12 +173,9 @@ function calculateADX(candles: OHLCCandle[], period = 14): ADXResult {
  * MATCHES NEXUS: Uses ADX-based regime classification (choppy/weak/moderate/strong)
  */
 export function detectMarketRegime(
-  candles: OHLCCandle[],
+  _candles: OHLCCandle[],
   indicators: TechnicalIndicators
 ): MarketRegimeAnalysis {
-  const closes = candles.map((c) => c.close);
-  const currentPrice = closes[closes.length - 1];
-
   // CRITICAL: Use ADX-based regime classification (matching Nexus)
   // Handle NaN case - default to moderate if ADX is invalid
   const adx = isFinite(indicators.adx) ? indicators.adx : 25;
@@ -417,13 +242,7 @@ export function detectMarketRegime(
   }
 
   // Volatility analysis
-  const volatilityFactor = Math.min(indicators.atr / currentPrice, 0.05);
-  const volatilityPercent = volatilityFactor * 100;
-
-  // Excessive volatility reduces confidence (but doesn't change regime classification)
-  if (volatilityPercent > 3) {
-    confidence = Math.max(35, confidence - 15); // Stronger penalty for high volatility
-  }
+  const volatilityPercent = 0; // ATR removed — volatility no longer used in confidence
 
   const alignment4h = bothMomentumPositive ? '4h also positive ✓' : '4h negative';
 
@@ -435,7 +254,7 @@ Market is in ${regime} regime (ADX-based with slope awareness).
 ADX: ${isFinite(indicators.adx) ? indicators.adx.toFixed(2) : 'N/A'} (${regimeLabel} trend) | Slope: ${adxSlope.toFixed(2)}/candle (${slopeLabel})
 Momentum: 1h=${momentum1h.toFixed(3)}% | 4h=${momentum4h.toFixed(3)}% | ${alignment4h}
 Trend Direction: ${isBullish ? 'BULLISH' : 'BEARISH'} (1h momentum ${momentum1h > 0 ? 'positive' : 'negative'})
-RSI: ${indicators.rsi.toFixed(2)} | ATR: ${volatilityPercent.toFixed(2)}%
+Volatility: ${volatilityPercent.toFixed(2)}%
 AI Confidence for ${isBullish ? 'BUY' : 'HOLD'}: ${confidence.toFixed(0)}% (/nexus parity: momentum-first)
   `.trim();
 
@@ -450,7 +269,7 @@ AI Confidence for ${isBullish ? 'BUY' : 'HOLD'}: ${confidence.toFixed(0)}% (/nex
 }
 
 /**
- * Generate price targets based on technical analysis
+ * Generate price targets based on recent high/low
  */
 export function generatePriceTargets(
   candles: OHLCCandle[],
@@ -458,27 +277,12 @@ export function generatePriceTargets(
 ): { support: number[]; resistance: number[] } {
   const closes = candles.map((c) => c.close);
   const currentPrice = closes[closes.length - 1];
-
-  const bb = indicators.bollingerBands;
-  const atr = indicators.atr;
-
-  // Support levels
-  const support = [
-    bb.lower,
-    currentPrice - atr,
-    currentPrice - atr * 2,
-  ].filter((s) => s > 0);
-
-  // Resistance levels
-  const resistance = [
-    bb.upper,
-    currentPrice + atr,
-    currentPrice + atr * 2,
-  ];
+  const recentLow = indicators.recentLow ?? currentPrice * 0.98;
+  const recentHigh = indicators.recentHigh ?? currentPrice * 1.02;
 
   return {
-    support: support.sort((a, b) => b - a),
-    resistance: resistance.sort((a, b) => a - b),
+    support: [recentLow, currentPrice * 0.99].sort((a, b) => b - a),
+    resistance: [recentHigh, currentPrice * 1.01].sort((a, b) => a - b),
   };
 }
 

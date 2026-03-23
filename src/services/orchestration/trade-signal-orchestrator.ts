@@ -750,7 +750,7 @@ class TradeSignalOrchestrator {
               spreadPct = (ask - bid) / bid;
             }
 
-            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | ADX: ${indicators.adx?.toFixed(1) || 'N/A'} | RSI: ${indicators.rsi?.toFixed(1) || 'N/A'} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
+            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | ADX: ${indicators.adx?.toFixed(1) || 'N/A'} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
 
             // PRE-CHECK: Block entry if spread exceeds maximum
             const maxEntrySpreadPct = env.MAX_ENTRY_SPREAD_PCT || 0.003;
@@ -812,10 +812,10 @@ class TradeSignalOrchestrator {
             const isVolumeSurge = riskFilter.isVolumeSurge === true;
             const entryLabel = isCreepingUptrend ? ' | 🌿 CREEPING' : isVolumeSurge ? ' | 🚀 VOL SURGE' : isTransitioning ? ' | 🔄 TRANSITIONING' : '';
             console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%${entryLabel}`);
-            logger.info('Orchestrator: 5-stage risk filter passed', { pair, adx: indicators.adx?.toFixed(1), adxSlope: indicators.adxSlope?.toFixed(2), momentum1h: indicators.momentum1h?.toFixed(3), rsi: indicators.rsi?.toFixed(1), volumeRatio: indicators.volumeRatio?.toFixed(2), isTransitioning, isCreepingUptrend });
+            logger.info('Orchestrator: 5-stage risk filter passed', { pair, adx: indicators.adx?.toFixed(1), adxSlope: indicators.adxSlope?.toFixed(2), momentum1h: indicators.momentum1h?.toFixed(3), volumeRatio: indicators.volumeRatio?.toFixed(2), isTransitioning, isCreepingUptrend });
 
             // Pass live price + indicators — same fresh data as risk filter (prevents staleness)
-            console.log(`\n🔍 [ORCHESTRATOR] Passing indicators to analyzeMarket for ${pair}:`, { adx: indicators.adx, momentum1h: indicators.momentum1h, intrabarMomentum: indicators.intrabarMomentum, momentum4h: indicators.momentum4h, rsi: indicators.rsi });
+            console.log(`\n🔍 [ORCHESTRATOR] Passing indicators to analyzeMarket for ${pair}:`, { adx: indicators.adx, momentum1h: indicators.momentum1h, intrabarMomentum: indicators.intrabarMomentum, momentum4h: indicators.momentum4h });
 
             const analysis = await analyzeMarket({
               pair,
