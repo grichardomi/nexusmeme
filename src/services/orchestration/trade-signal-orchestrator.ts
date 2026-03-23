@@ -766,10 +766,12 @@ class TradeSignalOrchestrator {
             const minMom1h = env.CREEPING_UPTREND_ENABLED
               ? Math.min(standardMinMom1h, env.CREEPING_UPTREND_GATE_MIN_1H)
               : standardMinMom1h;
-            // In strong trend (ADX >= 35), allow shallow dips — path 4 in risk filter handles these
+            // In strong trend (ADX >= 35), allow shallow DIPS (negative 1h) — path 4 in risk filter handles these
+            // Only widen gate when 1h is actually negative (genuine pullback in uptrend)
+            // Do NOT widen for near-zero/flat 1h — flat momentum in a declining market is not a valid entry
             const isStrongTrend = (indicators.adx ?? 0) >= 35;
             const trendingPullbackMin = isStrongTrend ? -0.5 : -0.3;
-            const effectiveMinMom1h = isStrongTrend ? Math.min(minMom1h, trendingPullbackMin) : minMom1h;
+            const effectiveMinMom1h = (isStrongTrend && mom1h < 0) ? Math.min(minMom1h, trendingPullbackMin) : minMom1h;
             if (mom1h < effectiveMinMom1h) {
               console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${effectiveMinMom1h.toFixed(2)}% min${isStrongTrend ? ' (strong trend pullback limit)' : ''}`);
               return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${effectiveMinMom1h.toFixed(2)}%`, stage: 'Pre-Filter' } };
@@ -824,6 +826,7 @@ class TradeSignalOrchestrator {
               // Transitioning = ADX slope rising, trend forming → use 'transitioning' target (0.8%)
               const effectiveRegime = isCreepingUptrend ? 'weak' : isTransitioning ? 'transitioning' : (analysis.regime.regime as any);
 
+              const entryPath = isCreepingUptrend ? 'creeping' : isVolumeSurge ? 'path3_volume' : isTransitioning ? 'transitioning' : 'path1_or_2';
               const decision: TradeDecision = {
                 pair,
                 side: 'buy',
@@ -841,6 +844,15 @@ class TradeSignalOrchestrator {
                   timestamp: analysis.regime.timestamp,
                 },
                 capitalPreservationMultiplier: globalCpMultiplier,
+                entryNotes: {
+                  adx: indicators.adx ?? 0,
+                  momentum1h: indicators.momentum1h ?? 0,
+                  momentum4h: indicators.momentum4h ?? 0,
+                  confidence: analysis.signal.confidence,
+                  regime: effectiveRegime,
+                  entryPath,
+                  volumeRatio: indicators.volumeRatio ?? 0,
+                },
               };
 
               // Reduce ETH position 50% when BTC 1h momentum is negative

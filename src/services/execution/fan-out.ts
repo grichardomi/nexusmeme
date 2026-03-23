@@ -554,6 +554,7 @@ class ExecutionFanOut {
       takeProfit: decision.takeProfit, // Dynamic profit target: passed from signal
       reason: decision.reason,
       timestamp: new Date(),
+      entryNotes: decision.entryNotes,
     };
 
     logTradeExecution(bot.user_id, decision.pair, {
@@ -817,11 +818,11 @@ class ExecutionFanOut {
     const idempotencyKey = `direct_${botInstanceId}_${pair}_${side}_${Date.now()}`;
     const recordResult = await query<{ id: string }>(
       `INSERT INTO trades (id, bot_instance_id, pair, side, price, amount, entry_price, quantity,
-                          entry_time, status, idempotency_key, stop_loss, take_profit, trading_mode, fee)
-       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13)
+                          entry_time, status, idempotency_key, stop_loss, take_profit, trading_mode, fee, entry_notes)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING id`,
-      [botInstanceId, pair, side, executionPrice, amount, executionPrice, amount, 'open', idempotencyKey, calculatedStopLoss, calculatedTakeProfit, tradingMode, entryFee]
+      [botInstanceId, pair, side, executionPrice, amount, executionPrice, amount, 'open', idempotencyKey, calculatedStopLoss, calculatedTakeProfit, tradingMode, entryFee, plan.entryNotes ? JSON.stringify(plan.entryNotes) : null]
     );
 
     if (!recordResult || recordResult.length === 0) {

@@ -40,6 +40,15 @@ export interface TradeDecision {
   stopLoss?: number; // Risk management: exit price on loss
   takeProfit?: number; // Dynamic profit target based on regime
   capitalPreservationMultiplier?: number; // 0.25-1.0: position size reduction from capital preservation layers
+  entryNotes?: {
+    adx: number;
+    momentum1h: number;
+    momentum4h: number;
+    confidence: number;
+    regime: string;
+    entryPath: string;
+    volumeRatio?: number;
+  };
 }
 
 export interface ExecutionPlan {
@@ -53,4 +62,13 @@ export interface ExecutionPlan {
   timestamp: Date;
   stopLoss?: number; // Risk management: exit price on loss
   takeProfit?: number; // Dynamic profit target based on regime
+  entryNotes?: {
+    adx: number;
+    momentum1h: number;
+    momentum4h: number;
+    confidence: number;
+    regime: string;
+    entryPath: string; // path1/path2/path3/path4
+    volumeRatio?: number;
+  };
 }
