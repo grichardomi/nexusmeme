@@ -767,12 +767,13 @@ class TradeSignalOrchestrator {
             const minMom1h = env.CREEPING_UPTREND_ENABLED
               ? Math.min(standardMinMom1h, env.CREEPING_UPTREND_GATE_MIN_1H)
               : standardMinMom1h;
-            // In strong trend (ADX >= 35), allow shallow DIPS (negative 1h) — path 4 in risk filter handles these
-            // Only widen gate when 1h is actually negative (genuine pullback in uptrend)
-            // Do NOT widen for near-zero/flat 1h — flat momentum in a declining market is not a valid entry
+            // In strong trend (ADX >= 35), allow shallow DIPS (negative 1h) ONLY with volume confirmation
+            // Volume >= 0.8x required: a genuine pullback in a strong trend has buyers stepping in
+            // Low volume + negative 1h = failed breakout, not a buyable dip — block it
             const isStrongTrend = (indicators.adx ?? 0) >= 35;
+            const hasVolumeForDip = (indicators.volumeRatio ?? 0) >= 0.8;
             const trendingPullbackMin = isStrongTrend ? -0.5 : -0.3;
-            const effectiveMinMom1h = (isStrongTrend && mom1h < 0) ? Math.min(minMom1h, trendingPullbackMin) : minMom1h;
+            const effectiveMinMom1h = (isStrongTrend && mom1h < 0 && hasVolumeForDip) ? Math.min(minMom1h, trendingPullbackMin) : minMom1h;
             if (mom1h < effectiveMinMom1h) {
               console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${effectiveMinMom1h.toFixed(2)}% min${isStrongTrend ? ' (strong trend pullback limit)' : ''}`);
               return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${effectiveMinMom1h.toFixed(2)}%`, stage: 'Pre-Filter' } };
