@@ -1,4 +1,0 @@
-Pair,Entry Time,Exit Time,Entry Price,Exit Price,Quantity,Gross P&L,Fees,Net P&L,Net P&L %,Status,Exit Reason
-"BTC/USDT","3/23/2026, 3:06:58 PM","3/23/2026, 3:31:59 PM","$71452.64","$70873.53","0.005240","$-3.03","$0.75","$-3.78","-1.01%","closed","stale_underwater"
-"ETH/USDT","3/23/2026, 1:06:36 PM","3/23/2026, 3:18:29 PM","$2144.68","$2171.79","0.116600","$3.16","$0.50","$2.66","1.06%","closed","erosion_cap_exceeded"
-"BTC/USDT","3/23/2026, 1:06:36 PM","3/23/2026, 3:06:56 PM","$70745.79","$71452.64","0.003530","$2.50","$0.50","$1.99","0.80%","closed","erosion_cap_exceeded"

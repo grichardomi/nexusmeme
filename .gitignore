@@ -46,3 +46,7 @@ Thumbs.db
 /playwright-report/
 /test-results/
 e2e/.auth/
+
+# Log files (daily rotation, local dev only)
+logs/*.log
+logs/*.log.gz
