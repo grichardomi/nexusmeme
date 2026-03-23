@@ -6,7 +6,8 @@ import DynamicPositionSizer from '@/services/trading/dynamic-position-sizer';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
-import { getExchangeTakerFee, getEnvironmentConfig } from '@/config/environment';
+import { getEnvironmentConfig } from '@/config/environment';
+import { getExchangeFeeRates, getCachedTakerFee } from '@/services/billing/fee-rate';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
 
 interface BotInstance {
@@ -769,7 +770,7 @@ class ExecutionFanOut {
           entryFee = orderResult.fee;
         } else {
           // Estimate using taker fee rate for the exchange
-          const feeRate = getExchangeTakerFee(exchange);
+          const feeRate = getCachedTakerFee(exchange);
           entryFee = executionPrice * amount * feeRate;
         }
 
@@ -795,8 +796,10 @@ class ExecutionFanOut {
         return { executed: false, reason: 'exchange_error' };
       }
     } else {
-      // Paper trade: estimate entry fee using taker rate for the exchange
-      const feeRate = getExchangeTakerFee(exchange);
+      // Paper trade: estimate entry fee using taker rate from admin-configured billing_settings (DB)
+      // Falls back to BINANCE_TAKER_FEE_DEFAULT env var if DB unavailable
+      const exchangeFeeRates = await getExchangeFeeRates(exchange as 'binance' | 'kraken').catch(() => null);
+      const feeRate = exchangeFeeRates?.taker_fee ?? getCachedTakerFee(exchange);
       entryFee = executionPrice * amount * feeRate;
 
       console.log(`\n📋 PAPER TRADE: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)} (est fee: $${entryFee.toFixed(4)})`);

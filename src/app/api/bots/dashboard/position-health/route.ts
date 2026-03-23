@@ -8,7 +8,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
+import { getEnvironmentConfig } from '@/config/environment';
+import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
 
 /**
@@ -142,7 +143,7 @@ export async function GET(req: NextRequest) {
       // Calculate NET P&L (gross - entry fee ONLY)
       // Exit fee is NOT deducted until trade actually closes — best practice per exchange standards
       const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-      const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(tradeExchange));
+      const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(tradeExchange));
       const entryFeePct = quantity > 0 && entryPrice > 0 ? (entryFeeDollars / (entryPrice * quantity)) * 100 : 0;
       const currentProfitPct = grossProfitPct - entryFeePct;
       const currentProfit = (currentPrice - entryPrice) * quantity - entryFeeDollars;

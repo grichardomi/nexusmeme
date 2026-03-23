@@ -6,7 +6,8 @@
  */
 
 import { logger } from '@/lib/logger';
-import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
+import { getEnvironmentConfig } from '@/config/environment';
+import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import type { TechnicalIndicators } from '@/types/ai';
 
 export interface RiskFilterResult {
@@ -649,7 +650,7 @@ class RiskManager {
     logger.debug('RiskManager: Stage 5 - Cost Floor', { pair, profitTargetPercent, exchange });
 
     // Use ACTUAL exchange-specific fees (round-trip: entry + exit)
-    const exchangeFeePercent = getExchangeTakerFee(exchange) * 2; // Kraken: 0.0026*2 = 0.0052 (0.52%)
+    const exchangeFeePercent = getCachedTakerFee(exchange) * 2; // Kraken: 0.0026*2 = 0.0052 (0.52%)
 
     // Calculate total costs
     const spreadPercent = 0.0005; // 0.05% for liquid pairs (realistic Kraken spread)

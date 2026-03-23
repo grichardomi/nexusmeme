@@ -6,7 +6,8 @@
 
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
-import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
+import { getEnvironmentConfig } from '@/config/environment';
+import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import { analyzeMarket } from '@/services/ai/analyzer';
 import { executionFanOut } from '@/services/execution/fan-out';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
@@ -291,8 +292,8 @@ class TradeSignalOrchestrator {
         // Calculate NET profit (gross - entry fee - estimated exit fee)
         // This is what the user ACTUALLY makes after fees
         const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-        const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(trade.exchange));
-        const exitFeeDollars = currentPrice * quantity * getExchangeTakerFee(trade.exchange);
+        const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(trade.exchange));
+        const exitFeeDollars = currentPrice * quantity * getCachedTakerFee(trade.exchange);
         const totalFeeDollars = entryFeeDollars + exitFeeDollars;
         const totalFeePct = (totalFeeDollars / (entryPrice * quantity)) * 100;
         const netProfitPct = grossProfitPct - totalFeePct;
@@ -1118,8 +1119,8 @@ class TradeSignalOrchestrator {
 
           // Calculate NET profit for momentum check
           const momGrossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-          const momEntryFee = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(momExchange));
-          const momExitFee = currentPrice * quantity * getExchangeTakerFee(momExchange);
+          const momEntryFee = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(momExchange));
+          const momExitFee = currentPrice * quantity * getCachedTakerFee(momExchange);
           const momTotalFees = momEntryFee + momExitFee;
           const momFeePct = (momTotalFees / (entryPrice * quantity)) * 100;
           const profitPct = momGrossProfitPct - momFeePct;
@@ -1287,6 +1288,7 @@ class TradeSignalOrchestrator {
           t.entry_time,
           t.profit_loss,
           t.profit_loss_percent,
+          t.peak_profit_percent,
           t.stop_loss,
           t.fee,
           b.user_id,
@@ -1354,7 +1356,7 @@ class TradeSignalOrchestrator {
           // Exit fee deducted at close time, not during open monitoring
           // This matches /nexus (no fees) and exchange best practice
           const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-          const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(tradeExchange));
+          const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(tradeExchange));
           const entryFeePct = (entryFeeDollars / (entryPrice * quantity)) * 100;
           const currentProfitPct = grossProfitPct - entryFeePct;
 
@@ -1743,7 +1745,7 @@ class TradeSignalOrchestrator {
               } else {
                 // Check if price is actively rising: if gross ≈ peak, the trade is still climbing.
                 // A rising trade inside the flat band is not dead capital — it just hasn't cleared fees yet.
-                const peakPct = parseFloat(String(trade.peak_profit_pct ?? 0));
+                const peakPct = parseFloat(String(trade.peak_profit_percent ?? 0));
                 const distanceFromPeak = peakPct - grossProfitPct; // positive = pulled back from peak
                 const isRising = peakPct >= 0 && distanceFromPeak <= flatBand; // at or near all-time high
                 if (isRising) {
@@ -1919,8 +1921,8 @@ class TradeSignalOrchestrator {
 
           // Calculate NET profit (gross - entry fee - estimated exit fee)
           const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-          const pyramidEntryFee = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(pyramidExchange));
-          const pyramidExitFee = currentPrice * quantity * getExchangeTakerFee(pyramidExchange);
+          const pyramidEntryFee = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(pyramidExchange));
+          const pyramidExitFee = currentPrice * quantity * getCachedTakerFee(pyramidExchange);
           const pyramidTotalFees = pyramidEntryFee + pyramidExitFee;
           const pyramidFeePct = (pyramidTotalFees / (entryPrice * quantity)) * 100;
           const currentProfitPct = grossProfitPct - pyramidFeePct;

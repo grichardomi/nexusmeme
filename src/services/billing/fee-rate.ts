@@ -1,5 +1,32 @@
 import { query } from '@/lib/db';
-import { getEnvironmentConfig } from '@/config/environment';
+import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
+
+// In-process cache: refreshed every 5 minutes, survives across requests in same server instance
+const feeCache = new Map<string, { value: number; expiresAt: number }>();
+const FEE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Get taker fee for an exchange — DB-first (admin panel), env fallback.
+ * Sync-friendly via 5-minute in-process cache. Use everywhere instead of getExchangeTakerFee().
+ * Cache is pre-warmed on first async call; subsequent sync reads use cached value.
+ */
+export function getCachedTakerFee(exchange: string): number {
+  const key = exchange.startsWith('binance') ? 'binance' : 'kraken';
+  const cached = feeCache.get(key);
+  if (cached && Date.now() < cached.expiresAt) return cached.value;
+  // Cache miss or expired — return env fallback synchronously, refresh async
+  warmFeeCache(key as 'binance' | 'kraken');
+  return getExchangeTakerFee(exchange);
+}
+
+async function warmFeeCache(exchange: 'binance' | 'kraken'): Promise<void> {
+  try {
+    const rates = await getExchangeFeeRates(exchange);
+    feeCache.set(exchange, { value: rates.taker_fee, expiresAt: Date.now() + FEE_CACHE_TTL_MS });
+  } catch {
+    // silently ignore — next call will retry
+  }
+}
 
 export interface ExchangeFeeRates {
   taker_fee: number;

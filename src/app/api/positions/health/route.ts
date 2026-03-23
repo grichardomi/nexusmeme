@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { getEnvironmentConfig, getExchangeTakerFee } from '@/config/environment';
+import { getEnvironmentConfig } from '@/config/environment';
+import { getCachedTakerFee } from '@/services/billing/fee-rate';
 
 /**
  * GET /api/positions/health
@@ -75,8 +76,8 @@ export async function GET(request: NextRequest) {
 
       // Calculate NET profit (gross - round-trip fees)
       const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-      const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getExchangeTakerFee(tradeExchange));
-      const exitFeeDollars = currentPrice * quantity * getExchangeTakerFee(tradeExchange);
+      const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(tradeExchange));
+      const exitFeeDollars = currentPrice * quantity * getCachedTakerFee(tradeExchange);
       const totalFeeDollars = entryFeeDollars + exitFeeDollars;
       const totalFeePct = quantity > 0 && entryPrice > 0 ? (totalFeeDollars / (entryPrice * quantity)) * 100 : 0;
       const currentProfitPct = grossProfitPct - totalFeePct;
