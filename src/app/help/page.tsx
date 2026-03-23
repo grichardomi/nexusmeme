@@ -46,7 +46,7 @@ const faqSchema = {
       name: 'What is NexusMeme?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme is an AI-powered trading bot platform that executes automated crypto trades on your behalf. It uses intelligent market regime detection to identify profitable trading opportunities and execute trades on Binance International or Kraken with customizable risk management.',
+        text: 'NexusMeme is an AI-powered trading bot platform that executes automated crypto trades on your behalf. It uses intelligent market regime detection to identify profitable trading opportunities and execute trades on Binance with customizable risk management.',
       },
     },
     {
@@ -62,7 +62,7 @@ const faqSchema = {
       name: 'Is there a free trial?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes! Everyone gets a 10-day free trial with paper trading (simulated trades, zero risk). No payment required during the trial. You can switch to live trading during or after your trial — connect your exchange API keys (Binance International or Kraken) and go live whenever you\'re ready. Pay only a performance fee on profits.',
+        text: 'Yes! Everyone gets a 10-day free trial with paper trading (simulated trades, zero risk). No payment required during the trial. You can switch to live trading during or after your trial — connect your Binance API keys and go live whenever you\'re ready. Pay only a performance fee on profits.',
       },
     },
     {
@@ -78,7 +78,7 @@ const faqSchema = {
       name: 'Which exchange does NexusMeme require?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'NexusMeme supports two exchanges: Binance International (binance.com, available in 180+ countries, not US) and Kraken (kraken.com, available globally including US residents). Create an account on whichever exchange is available in your country, then connect it to NexusMeme via Settings → Exchange Connections.',
+        text: 'NexusMeme supports Binance: Binance International (binance.com, available in 180+ countries, not US) and Binance US (binance.us, available to US residents). Create an account on whichever is available in your country, then connect it to NexusMeme via Settings → Exchange Connections.',
       },
     },
     {

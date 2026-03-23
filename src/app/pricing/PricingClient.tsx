@@ -19,9 +19,13 @@ export function PricingClient() {
               <p className="text-sm text-slate-500 dark:text-slate-500 mt-3">
                 Requires a{' '}
                 <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-                  Binance International account
+                  Binance International
                 </a>
-                {' '}and $1,000 USDT minimum for live trading. Available globally — not for US residents.
+                {' '}or{' '}
+                <a href="https://www.binance.us" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+                  Binance US
+                </a>
+                {' '}account and $1,000 USDT minimum for live trading. Available worldwide including US residents.
               </p>
             </div>
             <PerformanceFeesPricing />

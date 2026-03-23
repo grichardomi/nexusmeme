@@ -29,7 +29,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
 2. Verify your email address
 3. Create an account on your exchange:
    - **Binance International (binance.com)** — available in 180+ countries (not US)
-   - **Kraken (kraken.com)** — available globally including US residents
+   - **Binance US (binance.us)** — available to US residents
 4. Create your API key on your chosen exchange (see guides below)
 5. Connect your API keys in Settings → Exchange Connections
 6. Create your first bot — it starts in paper mode (simulated trades, zero risk)
@@ -42,7 +42,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     },
     {
       question: 'Which exchange do I need?',
-      answer: `NexusMeme supports two exchanges:\n\n**Binance International (binance.com)**\n- Available in 180+ countries\n- Not available to US residents\n- Lower fees (0.10% per trade)\n- Highest global liquidity\n\n**Kraken (kraken.com)**\n- Available globally including US residents\n- Standard fees (0.26% per trade)\n- Fully regulated in the US\n\nBoth exchanges trade BTC/USDT and ETH/USDT. Connect whichever is available in your country in Settings → Exchange Connections.`,
+      answer: `NexusMeme supports Binance:\n\n**Binance International (binance.com)**\n- Available in 180+ countries\n- Not available to US residents\n- Low fees (0.10% per trade)\n- Highest global liquidity\n\n**Binance US (binance.us)**\n- Available to US residents\n- Low fees (0.10% per trade)\n- Fully compliant for US traders\n\nBoth exchanges trade BTC/USDT and ETH/USDT. Connect whichever is available in your country in Settings → Exchange Connections.`,
     },
     {
       question: 'How do I get my Binance API key?',
@@ -65,27 +65,6 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
 IMPORTANT:
 - Never enable "Enable Withdrawals" — NexusMeme never needs withdrawal access
 - Save your Secret Key somewhere safe — Binance only shows it once`,
-    },
-    {
-      question: 'How do I get my Kraken API key?',
-      answer: `API keys allow NexusMeme to place trades on your Kraken account. Here's how to create them:
-
-1. Log in to your Kraken account at kraken.com
-2. Click your name (top right) and go to "Security" → "API"
-3. Click "Create API Key"
-4. Enter a label (e.g., "NexusMeme Trading Bot")
-5. Under permissions, enable ONLY:
-   - Query Funds (required)
-   - Create & Modify Orders (required)
-   - Do NOT enable Withdraw Funds
-6. Click "Generate Key"
-7. Copy your API Key and Private Key immediately — the Private Key is only shown once
-8. In NexusMeme, go to Settings → Exchange Connections → Kraken
-9. Paste your API Key and Private Key and click "Connect"
-
-IMPORTANT:
-- Never enable "Withdraw Funds" — NexusMeme never needs withdrawal access
-- Save your Private Key somewhere safe — Kraken only shows it once`,
     },
     {
       question: 'Is my account secure?',

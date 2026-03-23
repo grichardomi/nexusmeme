@@ -58,7 +58,7 @@ export default function Home() {
               </div>
               <div className="inline-flex items-center gap-2 bg-green-50 dark:bg-green-900/20 px-4 py-1.5 rounded-full border border-green-200 dark:border-green-800">
                 <span className="text-xs text-green-700 dark:text-green-300">
-                  🌍 Available worldwide — Binance International &amp; Kraken (US residents welcome)
+                  🌍 Available worldwide — Binance International &amp; Binance US
                 </span>
               </div>
             </div>
@@ -312,7 +312,7 @@ export default function Home() {
               <div className="text-center">
                 <div className="w-14 h-14 bg-blue-100 dark:bg-blue-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold text-blue-600 dark:text-blue-400">1</div>
                 <h3 className="font-bold text-slate-900 dark:text-white mb-2">Connect your exchange</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">Generate a read + trade API key on Binance or Kraken. Paste it into NexusMeme. Takes 2 minutes.</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Generate a read + trade API key on Binance. Paste it into NexusMeme. Takes 2 minutes.</p>
               </div>
               {/* Step 2 */}
               <div className="text-center">
@@ -324,7 +324,7 @@ export default function Home() {
               <div className="text-center">
                 <div className="w-14 h-14 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold text-green-600 dark:text-green-400">3</div>
                 <h3 className="font-bold text-slate-900 dark:text-white mb-2">Profits stay in your account</h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400">All profits go directly into your exchange balance. Log in to Binance or Kraken anytime to see every trade and your full P&L.</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">All profits go directly into your exchange balance. Log in to Binance anytime to see every trade and your full P&L.</p>
               </div>
             </div>
 
@@ -364,7 +364,7 @@ export default function Home() {
                 <span className="text-purple-500 text-xl flex-shrink-0 mt-0.5">👁️</span>
                 <div>
                   <p className="font-semibold text-slate-900 dark:text-white text-sm">Full transparency on your exchange</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Every trade NexusMeme places is visible in your Binance or Kraken trade history — nothing hidden.</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Every trade NexusMeme places is visible in your Binance trade history — nothing hidden.</p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -531,7 +531,7 @@ export default function Home() {
                 },
                 {
                   q: 'Do I need to do anything once it\'s running?',
-                  a: 'No. Once your exchange API key is connected and the bot is started, it runs 24/7 automatically. You can log in to Binance or Kraken anytime to see every trade in your own account history.',
+                  a: 'No. Once your exchange API key is connected and the bot is started, it runs 24/7 automatically. You can log in to Binance anytime to see every trade in your own account history.',
                 },
                 {
                   q: 'When do I pay the performance fee?',

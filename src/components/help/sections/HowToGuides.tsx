@@ -28,7 +28,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I connect my exchange account?',
-      answer: `NexusMeme supports two exchanges. Choose the one available in your country:\n\n**Binance International (binance.com)** — Global, not available to US residents\n**Kraken (kraken.com)** — Global including US residents\n\nGo to Settings → Exchange Connections and follow the guide for your exchange. See the Getting Started section for full API key setup instructions for both exchanges.\n\n**IMPORTANT for both exchanges:**\n- Never enable Withdrawals — NexusMeme never needs withdrawal access\n- Save your Secret/Private Key — it's only shown once\n- You can revoke access anytime by deleting the API key on your exchange`,
+      answer: `NexusMeme supports Binance. Choose the one available in your country:\n\n**Binance International (binance.com)** — Global, not available to US residents\n**Binance US (binance.us)** — Available to US residents\n\nGo to Settings → Exchange Connections and follow the guide for your exchange. See the Getting Started section for full API key setup instructions.\n\n**IMPORTANT:**\n- Never enable Withdrawals — NexusMeme never needs withdrawal access\n- Save your Secret Key — it's only shown once\n- You can revoke access anytime by deleting the API key on your exchange`,
     },
     {
       question: 'How do I switch from paper trading to live trading?',
@@ -52,7 +52,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I manage my plan?',
-      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading (Binance International or Kraken)\n- Full analytics and trade history\n- ${fee} on profits only — $0 on losses`,
+      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading (Binance International or Binance US)\n- Full analytics and trade history\n- ${fee} on profits only — $0 on losses`,
     },
     {
       question: 'How do I enable trade alerts?',

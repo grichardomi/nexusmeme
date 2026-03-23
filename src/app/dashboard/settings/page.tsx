@@ -248,7 +248,7 @@ export default function SettingsPage() {
               <p className="text-sm font-semibold text-green-800 dark:text-green-200">💡 New to trading bots? Here's how this works</p>
               <ul className="text-xs text-green-700 dark:text-green-300 mt-1.5 space-y-1">
                 <li>• <strong>Your money never leaves your exchange.</strong> NexusMeme does not hold, move, or custody your funds.</li>
-                <li>• You simply connect your exchange account here — we trade on your behalf directly on Binance or Kraken.</li>
+                <li>• You simply connect your exchange account here — we trade on your behalf directly on Binance.</li>
                 <li>• Log in to your exchange at any time to see your full trade history, balances, and P&L.</li>
                 <li>• You can revoke access instantly by deleting your API keys on the exchange.</li>
               </ul>
@@ -292,18 +292,6 @@ export default function SettingsPage() {
                 <ExchangeKeyForm exchange="binanceus" />
               </div>
 
-              {/* Kraken */}
-              <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Kraken</h3>
-                  <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">Global + US</span>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                  Available globally including US residents.{' '}
-                  <a href="https://www.kraken.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">kraken.com</a>
-                </p>
-                <ExchangeKeyForm exchange="kraken" />
-              </div>
             </div>
           </div>
 

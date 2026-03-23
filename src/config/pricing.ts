@@ -47,7 +47,7 @@ export const PRICING_PLANS = {
       'AI-powered regime detection & market analysis',
       'Automated trade execution on regime signals',
       'Dynamic profit targeting based on market conditions',
-      'Full access to all exchanges (Kraken, Binance)',
+      'Full access to Binance (International & US)',
       '10-day trial period (no payment required)',
       'No capital limits - trade with your own funds',
       'Real-time market data & price feeds',
