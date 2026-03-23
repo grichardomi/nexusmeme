@@ -5,6 +5,7 @@ import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import { getCachedTakerFee } from '@/services/billing/fee-rate';
+import { marketDataAggregator } from '@/services/market-data/aggregator';
 
 /**
  * GET /api/positions/health
@@ -47,20 +48,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ positions: [], count: 0 });
     }
 
-    // Get market prices for current P&L calculation
-    const pairs = [...new Set(openTrades.map((t: any) => t.pair))];
+    // Get live market prices from aggregator (same source as trade execution)
+    const pairs = [...new Set(openTrades.map((t: any) => t.pair))] as string[];
     let priceMap = new Map<string, number>();
 
     try {
-      const pricesResult = await query(
-        `SELECT pair, last_price FROM market_data WHERE pair = ANY($1)`,
-        [pairs]
-      );
-      priceMap = new Map(
-        (pricesResult || []).map((p: any) => [p.pair, parseFloat(p.last_price)])
-      );
+      const exchanges = [...new Set(openTrades.map((t: any) => t.exchange || 'binance'))] as string[];
+      const primaryExchange = exchanges[0] || 'binance';
+      const marketData = await marketDataAggregator.getMarketData(pairs, primaryExchange);
+      for (const [pair, data] of marketData.entries()) {
+        if (data?.price > 0) priceMap.set(pair, data.price);
+      }
     } catch (priceError) {
-      // If market_data table doesn't exist, fall back to using entry price
       logger.warn('Market data fetch failed, using entry prices as fallback', {
         pairs,
         error: priceError instanceof Error ? priceError.message : String(priceError),

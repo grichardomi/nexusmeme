@@ -86,7 +86,7 @@ export async function GET(
 
     // Get API keys for this exchange
     const keysResult = await query(
-      `SELECT encrypted_public_key, encrypted_secret_key, validated_at
+      `SELECT encrypted_public_key, encrypted_secret_key, validated_at, created_at
        FROM exchange_api_keys
        WHERE user_id = $1 AND exchange = $2`,
       [session.user.id, exchange]
@@ -103,10 +103,27 @@ export async function GET(
       );
     }
 
-    // validated_at may be NULL for keys saved before validation was introduced — allow them through
-    // and backfill validated_at on successful balance fetch below
-
     const keys = keysResult[0];
+
+    // Block exchange call for unvalidated keys — prevents hammering the exchange with
+    // bad credentials on every 10s balance refresh and triggering circuit breakers.
+    // Exception: allow through if validated_at is NULL (keys saved before validation
+    // was introduced) — the connect() attempt below will backfill validated_at on success.
+    // Keys that have actively failed validation (validated_at = null AND created > 1 day ago)
+    // are likely invalid and should not be retried automatically.
+    const keyAgeHours = keys.validated_at ? 0 :
+      (Date.now() - new Date(keys.created_at || 0).getTime()) / 3_600_000;
+    if (!keys.validated_at && keyAgeHours > 24) {
+      return NextResponse.json(
+        {
+          error: 'API keys have not been validated. Go to Settings → API Keys and re-save your credentials.',
+          exchange,
+          available: null,
+          requiresValidation: true,
+        },
+        { status: 400 }
+      );
+    }
 
     try {
       // Decrypt API keys

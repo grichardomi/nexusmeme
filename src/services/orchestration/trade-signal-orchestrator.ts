@@ -580,8 +580,14 @@ class TradeSignalOrchestrator {
         const btcData = await marketDataAggregator.getMarketData([btcPair], btcExchange);
         const btcMarketData = btcData.get(btcPair);
         if (btcMarketData) {
-          // Calculate BTC 1h momentum (needs minimum 26 candles for indicator calculation)
-          const btcCandles = await this.fetchAndCalculateIndicators(btcPair, '15m', 100, btcExchange);
+          // Calculate BTC 1h momentum — use live price to avoid closed-candle staleness
+          const btcRaw = await this.fetchAndCalculateIndicatorsWithCandles(btcPair, '15m', 100, btcExchange);
+          const btcLivePrice = btcMarketData.price;
+          if (btcRaw.candles.length >= 4) {
+            const btcBase1h = btcRaw.candles[btcRaw.candles.length - 4].close;
+            btcRaw.indicators.momentum1h = ((btcLivePrice - btcBase1h) / btcBase1h) * 100;
+          }
+          const btcCandles = btcRaw.indicators;
           if (btcCandles.momentum1h !== undefined) {
             btcMomentum1h = btcCandles.momentum1h; // store for per-pair ETH size reduction
             riskManager.updateBTCMomentum(btcCandles.momentum1h / 100); // Convert percent to decimal
@@ -724,6 +730,18 @@ class TradeSignalOrchestrator {
             const lastCandle = candles[candles.length - 1];
             const intrabarMomentum = ((currentPrice - lastCandle.open) / lastCandle.open) * 100;
             indicators.intrabarMomentum = intrabarMomentum;
+
+            // LIVE MOMENTUM: Override closed-candle momentum1h/4h with live price as current close.
+            // Closed candles are up to 15m stale — in fast crypto this misses breakouts entirely.
+            // Formula identical to market-analysis.ts but anchors to currentPrice instead of last close.
+            if (candles.length >= 4) {
+              const base1h = candles[candles.length - 4].close;
+              indicators.momentum1h = ((currentPrice - base1h) / base1h) * 100;
+            }
+            if (candles.length >= 16) {
+              const base4h = candles[candles.length - 16].close;
+              indicators.momentum4h = ((currentPrice - base4h) / base4h) * 100;
+            }
 
             const bid = currentPriceData.bid;
             const ask = currentPriceData.ask;
@@ -876,11 +894,12 @@ class TradeSignalOrchestrator {
             } else if (analysis.signal && analysis.signal.confidence < minConfidenceThreshold) {
               logger.warn('Orchestrator: signal generated but rejected due to low confidence', { pair, signal: analysis.signal.signal, confidence: analysis.signal.confidence, minThreshold: minConfidenceThreshold, gap: minConfidenceThreshold - analysis.signal.confidence });
               return { type: 'rejected', signal: { pair, reason: 'low_confidence', signal: analysis.signal.signal, confidence: analysis.signal.confidence, minThreshold: minConfidenceThreshold, gap: minConfidenceThreshold - analysis.signal.confidence } };
-            } else if (analysis.signal === undefined) {
-              logger.warn('Orchestrator: no signal generated for pair', { pair, hasRegime: !!analysis.regime, regimeType: analysis.regime?.regime });
+            } else if (analysis.signal == null) {
+              // null = AI veto (set explicitly in analyzer.ts); undefined = no signal generated
+              const reason = analysis.signal === null ? 'ai_veto' : 'no_signal';
+              logger.warn('Orchestrator: signal blocked or absent', { pair, reason, hasRegime: !!analysis.regime, regimeType: analysis.regime?.regime });
               return { type: 'skipped' };
             } else {
-              console.log(`\n❌ SIGNAL REJECTED for ${pair}:`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, minConfidenceThreshold, passesConfidence: analysis.signal ? analysis.signal.confidence >= minConfidenceThreshold : false });
               logger.warn('Orchestrator: signal rejected - unknown reason', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, minConfidenceThreshold });
               return { type: 'skipped' };
             }
