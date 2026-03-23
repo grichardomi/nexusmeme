@@ -278,6 +278,7 @@ const envSchema = z.object({
   DEFAULT_STOP_LOSS_PCT: z.string().transform(Number).default('0.05'),   // 5% default stop loss if not in signal
   MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
   MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE: z.string().transform(Number).default('0.25'), // Reduced momentum bar when slope >= 2x threshold (slope alone confirms trend)
+  MOMENTUM_STRONG_ALONE_MIN: z.string().transform(Number).default('0.75'), // 1.5% 1h momentum alone (no slope required) — catches real breakouts where ADX still lags
   VOLUME_SURGE_ADX_OVERRIDE_RATIO: z.string().transform(Number).default('4.0'), // Volume >= 4x + positive momentum overrides low ADX in transition zone
 
   /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
@@ -566,6 +567,7 @@ function getDefaultEnvironment(): Environment {
     DEFAULT_STOP_LOSS_PCT: 0.05,
     MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
     MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE: 0.25,
+    MOMENTUM_STRONG_ALONE_MIN: 0.75,
     VOLUME_SURGE_ADX_OVERRIDE_RATIO: 4.0, // Volume >= 4x + positive momentum overrides low ADX in transition zone
     PYRAMID_L1_MIN_ADX: 35,
     PYRAMID_L2_MIN_ADX: 40,

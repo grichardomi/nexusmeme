@@ -225,6 +225,18 @@ class RiskManager {
         };
       }
 
+      // Strong momentum alone: ADX lags real breakouts — if 1h momentum is very strong,
+      // allow entry even when slope is still declining (trend started, ADX hasn't caught up yet)
+      const strongMomentumAloneMin = env.MOMENTUM_STRONG_ALONE_MIN; // e.g. 1.5%
+      if (!hasSlope && mom1h >= strongMomentumAloneMin) {
+        console.log(`\n🚀 STRONG MOMENTUM OVERRIDE: ADX=${adx.toFixed(1)} in transition zone, slope=${slope.toFixed(2)} declining but mom1h=${mom1h.toFixed(2)}% >= ${strongMomentumAloneMin}% (ADX lagging real breakout) → ALLOW at reduced size`);
+        logger.info('RiskManager: Strong momentum alone - ADX lagging genuine breakout', {
+          adx, adxSlope: slope, momentum1h: mom1h, strongMomentumAloneMin,
+          note: 'ADX is a lagging indicator; strong 1h momentum confirms breakout direction',
+        });
+        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isTransitioning: true };
+      }
+
       // Log why transition zone was blocked
       if (!hasSlope && !hasMomentum) {
         console.log(`\n⚠️ TRANSITION BLOCKED: ADX=${adx.toFixed(1)} in zone, but slope ${slope.toFixed(2)} < ${slopeRisingThreshold} AND momentum ${mom1h.toFixed(2)}% < ${momentumOverrideMin}%`);
