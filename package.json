@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "^1.44.1",
-    "@upstash/redis": "^1.36.1",
     "@walletconnect/ethereum-provider": "^2.23.7",
     "bcryptjs": "^2.4.3",
     "dotenv": "^17.2.4",

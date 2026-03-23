@@ -26,8 +26,6 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   MAILGUN_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   MAILGUN_DOMAIN: z.string().optional().transform(v => v?.trim() || undefined),
-  UPSTASH_REDIS_REST_URL: z.string().url(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
 
   /* Direct USDC Payment (Base Network) */
   USDC_PAYMENT_ENABLED: z.string().transform(v => v === 'true').default('false'),
@@ -429,8 +427,6 @@ function getDefaultEnvironment(): Environment {
     MAILGUN_DOMAIN: undefined,
     SUPPORT_ADMIN_EMAIL: undefined,
     INTERNAL_API_KEY: 'build-phase',
-    UPSTASH_REDIS_REST_URL: 'https://build-phase.upstash.io',
-    UPSTASH_REDIS_REST_TOKEN: 'build-phase',
     USDC_PAYMENT_ENABLED: false,
     USDC_WALLET_ADDRESS: undefined,
     USDC_CONTRACT_ADDRESS: undefined,
@@ -1007,17 +1003,6 @@ export const aiConfig = {
   },
 };
 
-/**
- * Redis/Caching configuration
- */
-export const redisConfig = {
-  get url() {
-    return getEnv('UPSTASH_REDIS_REST_URL');
-  },
-  get token() {
-    return getEnv('UPSTASH_REDIS_REST_TOKEN');
-  },
-};
 
 /**
  * Market data configuration
