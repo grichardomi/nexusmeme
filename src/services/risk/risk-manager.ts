@@ -259,7 +259,7 @@ class RiskManager {
     // CREEPING UPTREND BYPASS: Low ADX but sustained directional drift
     // 4h momentum removed as requirement — it lags even more than 1h during slow grinds.
     // 1h momentum + slope not collapsing is sufficient to confirm a real move vs chop.
-    if (adx < this.config.minADXForEntry && env.CREEPING_UPTREND_ENABLED && adx >= transitionZoneMin) {
+    if (adx < this.config.minADXForEntry && env.CREEPING_UPTREND_ENABLED && adx > 0) {
       const minMom1h = env.CREEPING_UPTREND_GATE_MIN_1H;
       const maxSlopeDrop = env.CREEPING_UPTREND_GATE_MAX_ADX_SLOPE;
       const minVol = env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
@@ -850,3 +850,4 @@ class RiskManager {
 }
 
 export const riskManager = new RiskManager();
+
