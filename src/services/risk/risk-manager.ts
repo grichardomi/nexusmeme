@@ -257,28 +257,23 @@ class RiskManager {
     }
 
     // CREEPING UPTREND BYPASS: Low ADX but sustained directional drift
-    // Distinguishes "slow steady grind up" from "choppy oscillation":
-    //   - Both have low ADX (ADX measures strength, not direction)
-    //   - Creeping uptrend: 1h AND 4h momentum both positive = hours of sustained move
-    //   - Choppy: 4h momentum flat/mixed even if 1h briefly positive
-    // ADX slope must not be collapsing — a falling slope with positive momentum = fading, not creeping
+    // 4h momentum removed as requirement — it lags even more than 1h during slow grinds.
+    // 1h momentum + slope not collapsing is sufficient to confirm a real move vs chop.
     if (adx < this.config.minADXForEntry && env.CREEPING_UPTREND_ENABLED && adx >= transitionZoneMin) {
       const minMom1h = env.CREEPING_UPTREND_GATE_MIN_1H;
-      const minMom4h = env.CREEPING_UPTREND_GATE_MIN_4H;
       const maxSlopeDrop = env.CREEPING_UPTREND_GATE_MAX_ADX_SLOPE;
       const minVol = env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
 
       const has1hMomentum = mom1h >= minMom1h;
-      const has4hMomentum = mom4h >= minMom4h;
       const slopeNotCollapsing = slope > maxSlopeDrop;
       const hasVolume = vol >= minVol;
 
-      if (has1hMomentum && has4hMomentum && slopeNotCollapsing && hasVolume) {
-        console.log(`\n🌿 CREEPING UPTREND: ADX=${adx.toFixed(1)} low but 1h=${mom1h.toFixed(2)}% >= ${minMom1h}% + 4h=${mom4h.toFixed(2)}% >= ${minMom4h}% + slope=${slope.toFixed(2)} > ${maxSlopeDrop} + vol=${vol.toFixed(2)}x >= ${minVol}x → ALLOW (steady grind up)`);
+      if (has1hMomentum && slopeNotCollapsing && hasVolume) {
+        console.log(`\n🌿 CREEPING UPTREND: ADX=${adx.toFixed(1)} low but 1h=${mom1h.toFixed(2)}% >= ${minMom1h}% + slope=${slope.toFixed(2)} > ${maxSlopeDrop} + vol=${vol.toFixed(2)}x >= ${minVol}x → ALLOW (steady grind up)`);
         logger.info('RiskManager: Creeping uptrend bypass — sustained directional drift detected', {
           adx, adxSlope: slope, momentum1h: mom1h, momentum4h: mom4h, volumeRatio: vol,
-          thresholds: { minMom1h, minMom4h, maxSlopeDrop, minVol },
-          note: 'Both 1h + 4h momentum positive = hours of sustained move, not chop',
+          thresholds: { minMom1h, maxSlopeDrop, minVol },
+          note: '1h momentum + slope confirms real move, 4h dropped (lags too much in slow grinds)',
         });
         return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isCreepingUptrend: true };
       }
@@ -286,7 +281,6 @@ class RiskManager {
       // Log which condition failed
       const failures = [
         !has1hMomentum && `1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}%`,
-        !has4hMomentum && `4h momentum ${mom4h.toFixed(2)}% < ${minMom4h}%`,
         !slopeNotCollapsing && `ADX slope ${slope.toFixed(2)} < ${maxSlopeDrop} (collapsing)`,
         !hasVolume && `volume ${vol.toFixed(2)}x < ${minVol}x`,
       ].filter(Boolean).join(', ');
