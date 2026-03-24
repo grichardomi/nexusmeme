@@ -762,11 +762,17 @@ class TradeSignalOrchestrator {
 
             // INTRABAR MOMENTUM CHECK
             const adx = indicators.adx ?? 0;
+            const mom1hForIntrabar = indicators.momentum1h ?? 0;
+            const creepingMomentumConfirmed = mom1hForIntrabar >= (env.CREEPING_UPTREND_GATE_MIN_1H ?? 0.20);
+            // In choppy ADX, relax intrabar gate when 1h momentum already confirms a sustained grind.
+            // A flat candle mid-grind is consolidation, not reversal — only block if actually falling.
             const minIntrabar = adx < 20
-              ? (env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.05)
+              ? (creepingMomentumConfirmed
+                  ? (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1)  // flat candle OK during grind
+                  : (env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.10))   // require rising candle in pure chop
               : (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1);
             if (intrabarMomentum < minIntrabar) {
-              const regimeLabel = adx < 20 ? 'choppy' : 'trending';
+              const regimeLabel = adx < 20 ? (creepingMomentumConfirmed ? 'grind' : 'choppy') : 'trending';
               console.log(`\n🔴 INTRABAR BLOCKED (${regimeLabel}): ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (ADX ${adx.toFixed(1)})`);
               logger.info('Orchestrator: entry blocked - intrabar momentum falling', { pair, intrabarMomentum: intrabarMomentum.toFixed(3), minIntrabar, adx: adx.toFixed(1), regimeLabel });
               return { type: 'rejected', signal: { pair, reason: 'intrabar_negative', details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (${regimeLabel} ADX ${adx.toFixed(1)})`, stage: 'Pre-Filter' } };
