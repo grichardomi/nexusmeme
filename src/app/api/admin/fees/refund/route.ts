@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     const refundSchema = z.object({
       feeId: z.string().uuid(),
       reason: z.string().min(10).max(500),
-      refundTxId: z.string().optional(), // Optional transaction ID for crypto refund
+      refundTxId: z.string().min(10), // Required: on-chain tx hash must be provided before marking refunded
     });
 
     const validated = refundSchema.safeParse(body);

@@ -186,6 +186,10 @@ export async function runMonthlyBillingJob(): Promise<{
 async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
   const { PERFORMANCE_FEE_MIN_INVOICE_USD } = getEnvironmentConfig();
 
+  // Include users who EITHER:
+  //   (a) have accumulated >= minimum invoice threshold (normal monthly billing), OR
+  //   (b) have any pending fees older than 30 days (orphaned small fees rollup)
+  // This prevents sub-$1 fees from sitting as pending_billing forever.
   const result = await query(
     `SELECT
        u.id as user_id,
@@ -193,20 +197,27 @@ async function getPendingFeesPerUser(): Promise<PendingUserFees[]> {
        u.name,
        SUM(pf.fee_amount)::DECIMAL as total_fees,
        COUNT(pf.id)::INT as fee_count,
-       ARRAY_AGG(pf.id) as fee_ids
+       ARRAY_AGG(pf.id) as fee_ids,
+       bool_or(pf.created_at < NOW() - INTERVAL '30 days') as has_aged_fees
      FROM users u
      JOIN performance_fees pf ON u.id = pf.user_id
      WHERE pf.status = 'pending_billing'
      GROUP BY u.id, u.email, u.name
      HAVING SUM(pf.fee_amount) >= $1
+        OR bool_or(pf.created_at < NOW() - INTERVAL '30 days')
      ORDER BY u.id`,
     [PERFORMANCE_FEE_MIN_INVOICE_USD]
   );
 
+  const aged = result.filter((r: any) => r.has_aged_fees).length;
   logger.debug('Pending fees query', {
     minInvoiceThreshold: PERFORMANCE_FEE_MIN_INVOICE_USD,
     usersWithFees: result.length,
+    usersWithAgedFees: aged,
   });
+  if (aged > 0) {
+    logger.info('Billing: rolling up aged small fees below minimum threshold', { usersAffected: aged });
+  }
 
   return result;
 }

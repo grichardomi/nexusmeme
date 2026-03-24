@@ -343,6 +343,56 @@ class TradeSignalOrchestrator {
             await positionTracker.updatePeakIfHigher(trade.id, netProfitPct, currentPrice, totalFeeDollars);
             updatedCount++;
 
+            // CHECK PROFIT LOCK - Exit if profit slips below locked level (regime-based fraction of peak)
+            // This fires BEFORE erosion cap so small peaks (0.1-0.5%) are protected.
+            // Erosion cap only arms at 1% peak — profit lock bridges the gap.
+            const profitLockResult = positionTracker.checkProfitLock(
+              trade.id,
+              trade.pair,
+              netProfitPct,
+              regime
+            );
+
+            if (profitLockResult.shouldExit) {
+              logger.info('🔒 PROFIT LOCK: Locking gains before full slip', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                regime,
+                peakProfitPct: profitLockResult.peakProfitPct.toFixed(4),
+                lockedProfitPct: profitLockResult.lockedProfitPct.toFixed(4),
+                currentProfitPct: netProfitPct.toFixed(4),
+                reason: profitLockResult.reason,
+              });
+              const profitLoss = (currentPrice - entryPrice) * quantity;
+              try {
+                const closeResult = await closeTrade({
+                  botInstanceId: trade.bot_instance_id,
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  exitTime: new Date().toISOString(),
+                  exitPrice: currentPrice,
+                  profitLoss,
+                  profitLossPercent: grossProfitPct,
+                  exitReason: 'profit_lock_regime',
+                  entryPrice: parseFloat(String(trade.entry_price)),
+                  entryFee: trade.fee ? parseFloat(String(trade.fee)) : undefined,
+                });
+                if (closeResult.ok) {
+                  exitCount++;
+                  positionTracker.clearPosition(trade.id);
+                  logger.info('💰 Profit lock exit: Trade closed', {
+                    tradeId: trade.id,
+                    pair: trade.pair,
+                    exitPrice: currentPrice,
+                    netProfitPct: netProfitPct.toFixed(4),
+                  });
+                  continue;
+                }
+              } catch (closeError) {
+                logger.error('Profit lock exit failed', closeError instanceof Error ? closeError : null);
+              }
+            }
+
             // CHECK EROSION CAP - Exit WHILE STILL GREEN (NET) to protect profits
             const erosionResult = positionTracker.checkErosionCap(
               trade.id,
@@ -801,6 +851,19 @@ class TradeSignalOrchestrator {
             if (mom1h < effectiveMinMom1h) {
               console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${effectiveMinMom1h.toFixed(2)}% min${isStrongTrend ? ' (strong trend pullback limit)' : ''}`);
               return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${effectiveMinMom1h.toFixed(2)}%`, stage: 'Pre-Filter' } };
+            }
+
+            // Block entries when 4h momentum is strongly negative (counter-trend bounce protection).
+            // Strong ADX can confirm a strong DOWNtrend — 1h bounce in a falling market is dangerous.
+            // Claude caught this at $69,494 (4h=-0.758%) but couldn't veto in 'strong' regime — this fixes it.
+            const mom4h = indicators.momentum4h ?? 0;
+            const block4hThreshold = env.ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD ?? -0.5;
+            if (mom4h < block4hThreshold) {
+              console.log(`\n🔴 4H DOWNTREND BLOCKED: ${pair} - 4h momentum ${mom4h.toFixed(2)}% < ${block4hThreshold}% threshold`);
+              logger.info('Orchestrator: entry blocked - 4h momentum confirms downtrend', {
+                pair, momentum4h: mom4h.toFixed(3), threshold: block4hThreshold,
+              });
+              return { type: 'rejected', signal: { pair, reason: '4h_downtrend', details: `4h momentum ${mom4h.toFixed(2)}% below ${block4hThreshold}% (counter-trend bounce blocked)`, stage: 'Pre-Filter' } };
             }
 
             // Run 5-stage risk filter

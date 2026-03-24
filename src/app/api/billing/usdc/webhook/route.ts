@@ -81,13 +81,34 @@ export async function POST(req: NextRequest) {
         to: activity.toAddress,
       });
 
-      const result = await processIncomingUSDCTransfer({
-        txHash: activity.hash,
-        fromAddress: activity.fromAddress,
-        toAddress: activity.toAddress,
-        value: activity.rawContract?.rawValue ?? activity.value?.toString() ?? '0',
-        blockNum: activity.blockNum,
-      });
+      let result: Awaited<ReturnType<typeof processIncomingUSDCTransfer>>;
+      try {
+        result = await processIncomingUSDCTransfer({
+          txHash: activity.hash,
+          fromAddress: activity.fromAddress,
+          toAddress: activity.toAddress,
+          value: activity.rawContract?.rawValue ?? activity.value?.toString() ?? '0',
+          blockNum: activity.blockNum,
+        });
+      } catch (transferError) {
+        // DB transaction failed — log for manual recovery. Alchemy won't retry (we return 200).
+        const errMsg = transferError instanceof Error ? transferError.message : String(transferError);
+        logger.error('processIncomingUSDCTransfer failed — logged for recovery', transferError instanceof Error ? transferError : null, {
+          txHash: activity.hash,
+          fromAddress: activity.fromAddress,
+        });
+        try {
+          await query(
+            `INSERT INTO webhook_failures (tx_hash, from_address, to_address, raw_value, block_num, error_message, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             ON CONFLICT (tx_hash) DO NOTHING`,
+            [activity.hash, activity.fromAddress, activity.toAddress, activity.rawContract?.rawValue ?? activity.value?.toString() ?? '0', activity.blockNum, errMsg]
+          );
+        } catch {
+          logger.error('Failed to write webhook_failures record', null, { txHash: activity.hash });
+        }
+        continue;
+      }
 
       if (result.matched && result.userId) {
         // Send confirmation email with actual paid amount

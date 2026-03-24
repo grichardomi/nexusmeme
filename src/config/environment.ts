@@ -112,7 +112,7 @@ const envSchema = z.object({
   AI_MIN_CONFIDENCE_CHOPPY: z.string().transform(Number).default('68'),            // Choppy: AI veto is the guard — allow opportunistic small-win entries
   AI_MIN_CONFIDENCE_TRANSITIONING: z.string().transform(Number).default('70'),    // Transitioning: standard bar, trend forming
   AI_MIN_CONFIDENCE_MODERATE: z.string().transform(Number).default('68'),         // Moderate trend: slightly opportunistic — trend confirmed
-  AI_MIN_CONFIDENCE_STRONG: z.string().transform(Number).default('62'),           // Strong trend: momentum confirms — AI uncertainty tolerated
+  AI_MIN_CONFIDENCE_STRONG: z.string().transform(Number).default('68'),           // Strong trend: raised from 62 — Claude -15 penalty (counter-trend bounces) was landing at 65 and still firing (2026-03-24)
 
   /* AI Confidence Boost - Hybrid AI layer for entry decisions */
   /* Deterministic 3-path gate remains primary. AI adjusts confidence ±15 as advisor. */
@@ -245,6 +245,11 @@ const envSchema = z.object({
   /* Intrabar momentum guard (no-entry-on-red) */
   ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.10'), // +0.10% min intrabar momentum for choppy/weak (ADX < 20) — filters slow drift entries without chasing
   ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('-0.1'), // -0.1% threshold for trending (tighter — block falling knives)
+
+  /* 4h downtrend block — prevents buying 1h bounces in a falling market */
+  // Strong ADX can confirm a DOWNtrend. Claude flags this but can't veto in 'strong' regime.
+  // When 4h momentum < threshold, block entry regardless of 1h signal or ADX.
+  ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD: z.string().transform(Number).default('-0.5'), // -0.5% = strong 4h downtrend → block
 
   /* Green-to-Red Protection - Safeguards against entry noise */
   /* Only triggers if peak was meaningful OR trade has been open long enough */
@@ -469,7 +474,7 @@ function getDefaultEnvironment(): Environment {
     AI_MIN_CONFIDENCE_CHOPPY: 68,
     AI_MIN_CONFIDENCE_TRANSITIONING: 70,
     AI_MIN_CONFIDENCE_MODERATE: 68,
-    AI_MIN_CONFIDENCE_STRONG: 62,
+    AI_MIN_CONFIDENCE_STRONG: 68,
     AI_CONFIDENCE_BOOST_ENABLED: true,
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
@@ -555,6 +560,7 @@ function getDefaultEnvironment(): Environment {
     BREAKEVEN_MIN_EXIT_PROFIT_PCT: 0.05,
     ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: 0.10,
     ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: -0.1,
+    ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD: -0.5,
     GREEN_TO_RED_MIN_PEAK_PCT: 0.0002, // 0.02%
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,

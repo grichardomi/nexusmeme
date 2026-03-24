@@ -49,7 +49,8 @@ export async function recordPerformanceFee(
       us.plan_tier AS plan,
       us.trial_ends_at,
       bi.config,
-      ub.fee_exempt
+      ub.fee_exempt,
+      ub.fee_exempt_expires_at
      FROM users u
      LEFT JOIN subscriptions us ON u.id = us.user_id
      LEFT JOIN bot_instances bi ON bi.id = $2
@@ -65,7 +66,9 @@ export async function recordPerformanceFee(
   );
   const tradingMode = userCheck[0]?.config?.tradingMode || 'paper';
   const isPaperTrading = tradingMode === 'paper';
-  const isFeeExempt = !isAdmin && userCheck[0]?.fee_exempt === true;
+  const feeExemptExpiresAt = userCheck[0]?.fee_exempt_expires_at;
+  const feeExemptExpired = feeExemptExpiresAt && new Date(feeExemptExpiresAt) <= new Date();
+  const isFeeExempt = !isAdmin && userCheck[0]?.fee_exempt === true && !feeExemptExpired;
 
   // Skip billing for trial/paper/exempt — write to fee_simulation instead for visibility
   // Admin users always go through real billing regardless of trial status
@@ -354,7 +357,7 @@ export async function markFeeRefunded(
   feeId: string,
   adminUserId: string,
   reason: string,
-  refundTxId?: string
+  refundTxId: string  // Required: must provide on-chain tx hash before marking refunded
 ): Promise<void> {
   try {
     const feeResult = await query(
@@ -382,7 +385,7 @@ export async function markFeeRefunded(
              adjustment_reason = $3,
              updated_at = NOW()
          WHERE id = $4`,
-        [refundTxId || null, adminUserId, reason, feeId]
+        [refundTxId, adminUserId, reason, feeId]
       );
 
       // Log audit trail

@@ -128,6 +128,13 @@ async function sendDunningReminder(
   // Days from final warning (Day 10) until suspension (Day 14) = 4 by default, but computed from env
   const daysUntilSuspension = env.BILLING_SUSPENSION_DAYS - env.DUNNING_WARNING_DAYS;
 
+  // Record attempt BEFORE sending email — if crash between the two, we
+  // won't resend the same phase on next cron run (idempotent dedup).
+  await query(
+    `UPDATE usdc_payment_references SET last_dunning_attempt = $1, updated_at = NOW() WHERE id = $2`,
+    [attempt, invoice.id]
+  );
+
   await sendPerformanceFeeDunningEmail(
     invoice.email,
     invoice.name || 'Trader',
@@ -138,12 +145,6 @@ async function sendDunningReminder(
     invoice.payment_reference,
     billingUrl,
     daysUntilSuspension
-  );
-
-  // Record attempt so we don't resend the same phase tomorrow
-  await query(
-    `UPDATE usdc_payment_references SET last_dunning_attempt = $1, updated_at = NOW() WHERE id = $2`,
-    [attempt, invoice.id]
   );
 
   logger.info('Dunning reminder sent', {
