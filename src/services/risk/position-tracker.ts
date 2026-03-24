@@ -461,7 +461,7 @@ class PositionTracker {
     tradeId: string,
     pair: string,
     currentProfitPct: number,
-    regime: string,
+    _regime: string,
     currentPrice?: number
   ): ErosionCheckResult {
     const existing = this.peakProfits.get(tradeId);
@@ -483,20 +483,7 @@ class PositionTracker {
       return result;
     }
 
-    // MINIMUM PEAK GUARD: Don't protect micro-peaks — they're noise, not real profit
-    // EROSION_MIN_PEAK_PCT (default 0.5%) must be reached before erosion cap activates
-    // Without this, a 0.15% peak fires on any 0.07% oscillation — blocks profit targets
     const env = getEnvironmentConfig();
-    const minPeakPct = env.EROSION_MIN_PEAK_PCT * 100; // convert decimal → percentage (0.005 → 0.5%)
-    if (existing.peakPct < minPeakPct) {
-      logger.debug('⏭️ EROSION CAP SKIP - peak below minimum threshold (noise)', {
-        tradeId,
-        pair,
-        peakPct: existing.peakPct.toFixed(3) + '%',
-        minPeakPct: minPeakPct.toFixed(3) + '%',
-      });
-      return result;
-    }
 
     // Calculate current profit in dollars
     let currentProfitDollars = existing.currentProfit;
@@ -505,105 +492,39 @@ class PositionTracker {
       existing.currentProfit = currentProfitDollars;
     }
 
-    // ONLY trigger if NET currentProfit > 0 (truly green trades only)
-    // NET = gross - estimated fees. Underwater trades handled by checkUnderwaterExit
-    const netCurrentDollars = currentProfitDollars - existing.estimatedTotalFees;
-    if (netCurrentDollars <= 0) {
+    // Only protect green trades
+    if (currentProfitDollars <= 0 || existing.peakProfit <= 0) {
       return result;
     }
 
-    // Must have positive NET peak in dollars
-    const netPeakDollars = existing.peakProfit - existing.estimatedTotalFees;
-    if (netPeakDollars <= 0) {
-      return result;
-    }
-
-    // If current profit >= peak, no erosion (still growing)
+    // Still growing — nothing to protect yet
     if (currentProfitDollars >= existing.peakProfit) {
       return result;
     }
 
-    // Calculate erosion
-    const erosionUsed = existing.peakProfit - currentProfitDollars;
-    const erosionPct = erosionUsed / existing.peakProfit;
-
-    // Erosion cap: totalCost × cap percentage (from environment config)
+    // SINGLE RULE: if peak >= min threshold AND profit pulled back >= retention threshold → exit
+    // EROSION_PEAK_MIN_PCT: minimum peak as % of position cost before protection arms (default 0.2%)
+    // EROSION_PEAK_RELATIVE_THRESHOLD: max allowed pullback from peak before exit (default 0.15 = 15%)
     const totalCost = existing.entryPrice * existing.quantity;
-    const erosionCapsByRegime: Record<string, number> = {
-      choppy: env.EROSION_CAP_CHOPPY,     // 2% default
-      weak: env.EROSION_CAP_WEAK,         // 2% default
-      moderate: env.EROSION_CAP_MODERATE,  // 3% default
-      strong: env.EROSION_CAP_STRONG,      // 5% default
-    };
-    const erosionCapPct = erosionCapsByRegime[regime.toLowerCase()] || env.EROSION_CAP_MODERATE;
-    const erosionCapAbsolute = totalCost * erosionCapPct;
+    const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
+    const minPeakPct = env.EROSION_PEAK_MIN_PCT; // e.g. 0.2 = 0.2% of cost
+    const threshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g. 0.15 = exit when 15% pulled back
+    const erosionPct = (existing.peakProfit - currentProfitDollars) / existing.peakProfit;
 
-    // Update result metrics
-    result.erosionUsed = erosionUsed;
-    result.erosionCap = erosionCapAbsolute;
+    result.erosionUsed = existing.peakProfit - currentProfitDollars;
     result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
     result.peakProfit = existing.peakProfit;
     result.currentProfit = currentProfitDollars;
 
-    logger.debug('📊 EROSION CHECK (/nexus)', {
-      tradeId,
-      pair,
-      regime,
-      peakProfit: '$' + existing.peakProfit.toFixed(2),
-      currentProfit: '$' + currentProfitDollars.toFixed(2),
-      erosionUsed: '$' + erosionUsed.toFixed(2),
-      erosionCap: '$' + erosionCapAbsolute.toFixed(2),
-      erosionPct: (erosionPct * 100).toFixed(1) + '%',
-    });
-
-    // CHECK 1: Absolute erosion exceeds cap (/nexus line 368-404)
-    if (erosionUsed > erosionCapAbsolute) {
-      logger.info('🛡️ EROSION CAP EXCEEDED - locking profit', {
-        tradeId,
-        pair,
-        regime,
-        peakProfit: '$' + existing.peakProfit.toFixed(2),
-        currentProfit: '$' + currentProfitDollars.toFixed(2),
-        erosionUsed: '$' + erosionUsed.toFixed(2),
-        erosionCap: '$' + erosionCapAbsolute.toFixed(2),
-        profitLocked: '$' + currentProfitDollars.toFixed(2),
-      });
-      result.shouldExit = true;
-      result.reason = 'erosion_cap_exceeded';
-      return result;
-    }
-
-    // CHECK 2: Peak-relative erosion (from environment config)
-    // If erosion >= threshold of peak profit → EXIT IMMEDIATELY
-    // NO fee adjustment — erosion cap protects green trades, period.
-    // A small fee-driven net loss is far better than going underwater.
-    const peakRelativeThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // default: 0.50 (50%)
-
-    // Guard: don't fire peak-relative erosion until trade has confirmed a meaningful peak.
-    // Without this, a 0.5% micro-peak with any pullback (0.25%) fires the exit —
-    // preventing the trade from ever reaching the 2%/5%/12% profit targets.
-    // EROSION_PEAK_MIN_PCT default 1.0%: erosion cap won't fire until peak >= 1% of position cost.
-    const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
-    const erosionPeakMinPct = env.EROSION_PEAK_MIN_PCT; // default 1.0%
-
-    // Ratchet: tighten erosion threshold once peak is in high-profit territory
-    // Prevents giving back large gains while not affecting normal-size trades
-    const ratchetActivation = env.EROSION_RATCHET_ACTIVATION_PCT; // default 8% of cost
-    const ratchetThreshold = env.EROSION_RATCHET_THRESHOLD;        // default 20%
-    const effectiveThreshold = (ratchetActivation > 0 && peakPctOfCost >= ratchetActivation)
-      ? ratchetThreshold
-      : peakRelativeThreshold;
-
-    // Immediate exit when peak-relative erosion reaches threshold (no time gate)
-    if (peakPctOfCost >= erosionPeakMinPct && erosionPct >= effectiveThreshold) {
-      logger.info('⏱️ PEAK-RELATIVE EROSION - locking profit (immediate exit)', {
+    if (peakPctOfCost >= minPeakPct && erosionPct >= threshold) {
+      logger.info('🔒 TRAILING STOP - locking profit', {
         tradeId,
         pair,
         peakProfit: '$' + existing.peakProfit.toFixed(2),
         currentProfit: '$' + currentProfitDollars.toFixed(2),
+        peakPctOfCost: peakPctOfCost.toFixed(3) + '%',
         erosionPct: (erosionPct * 100).toFixed(1) + '%',
-        threshold: (effectiveThreshold * 100).toFixed(1) + '%',
-        ratchetActive: peakPctOfCost >= ratchetActivation,
+        threshold: (threshold * 100).toFixed(1) + '%',
       });
       result.shouldExit = true;
       result.reason = 'erosion_cap_exceeded';

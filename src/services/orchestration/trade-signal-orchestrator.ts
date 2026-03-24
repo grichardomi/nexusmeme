@@ -343,57 +343,8 @@ class TradeSignalOrchestrator {
             await positionTracker.updatePeakIfHigher(trade.id, netProfitPct, currentPrice, totalFeeDollars);
             updatedCount++;
 
-            // CHECK PROFIT LOCK - Exit if profit slips below locked level (regime-based fraction of peak)
-            // This fires BEFORE erosion cap so small peaks (0.1-0.5%) are protected.
-            // Erosion cap only arms at 1% peak — profit lock bridges the gap.
-            const profitLockResult = positionTracker.checkProfitLock(
-              trade.id,
-              trade.pair,
-              netProfitPct,
-              regime
-            );
-
-            if (profitLockResult.shouldExit) {
-              logger.info('🔒 PROFIT LOCK: Locking gains before full slip', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                regime,
-                peakProfitPct: profitLockResult.peakProfitPct.toFixed(4),
-                lockedProfitPct: profitLockResult.lockedProfitPct.toFixed(4),
-                currentProfitPct: netProfitPct.toFixed(4),
-                reason: profitLockResult.reason,
-              });
-              const profitLoss = (currentPrice - entryPrice) * quantity;
-              try {
-                const closeResult = await closeTrade({
-                  botInstanceId: trade.bot_instance_id,
-                  tradeId: trade.id,
-                  pair: trade.pair,
-                  exitTime: new Date().toISOString(),
-                  exitPrice: currentPrice,
-                  profitLoss,
-                  profitLossPercent: grossProfitPct,
-                  exitReason: 'profit_lock_regime',
-                  entryPrice: parseFloat(String(trade.entry_price)),
-                  entryFee: trade.fee ? parseFloat(String(trade.fee)) : undefined,
-                });
-                if (closeResult.ok) {
-                  exitCount++;
-                  positionTracker.clearPosition(trade.id);
-                  logger.info('💰 Profit lock exit: Trade closed', {
-                    tradeId: trade.id,
-                    pair: trade.pair,
-                    exitPrice: currentPrice,
-                    netProfitPct: netProfitPct.toFixed(4),
-                  });
-                  continue;
-                }
-              } catch (closeError) {
-                logger.error('Profit lock exit failed', closeError instanceof Error ? closeError : null);
-              }
-            }
-
-            // CHECK EROSION CAP - Exit WHILE STILL GREEN (NET) to protect profits
+            // TRAILING STOP - single source of truth for profit protection
+            // Arms at EROSION_PEAK_MIN_PCT (0.2% of cost), exits when profit pulls back EROSION_PEAK_RELATIVE_THRESHOLD (15%) from peak
             const erosionResult = positionTracker.checkErosionCap(
               trade.id,
               trade.pair,
