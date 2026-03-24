@@ -45,6 +45,7 @@ export async function recordPerformanceFee(
   // Check if user is on free trial or admin-granted fee exemption
   const userCheck = await query(
     `SELECT
+      u.role,
       us.plan_tier AS plan,
       us.trial_ends_at,
       bi.config,
@@ -57,13 +58,17 @@ export async function recordPerformanceFee(
     [userId, botInstanceId]
   );
 
-  const isFreeTrial = userCheck[0]?.plan === 'live_trial' ||
-                     (userCheck[0]?.trial_ends_at && new Date(userCheck[0].trial_ends_at) > new Date());
+  const isAdmin = userCheck[0]?.role === 'admin';
+  const isFreeTrial = !isAdmin && (
+    userCheck[0]?.plan === 'live_trial' ||
+    (userCheck[0]?.trial_ends_at && new Date(userCheck[0].trial_ends_at) > new Date())
+  );
   const tradingMode = userCheck[0]?.config?.tradingMode || 'paper';
   const isPaperTrading = tradingMode === 'paper';
-  const isFeeExempt = userCheck[0]?.fee_exempt === true;
+  const isFeeExempt = !isAdmin && userCheck[0]?.fee_exempt === true;
 
   // Skip billing for trial/paper/exempt — write to fee_simulation instead for visibility
+  // Admin users always go through real billing regardless of trial status
   if (isFreeTrial || isPaperTrading || isFeeExempt) {
     const skipReason = isFreeTrial ? 'trial' : isPaperTrading ? 'paper' : 'exempt';
 
