@@ -134,18 +134,22 @@ class RiskManager {
     console.log(`\n🏥 HEALTH GATE: 4h=${mom4h.toFixed(2)}% | 1h=${mom1h.toFixed(2)}% | ADX=${adx?.toFixed(1) || 'N/A'} (for profit target only)`);
     logger.debug('RiskManager: Stage 1 - Health Gate (price momentum)', { momentum4h: mom4h, momentum1h: mom1h, adx });
 
-    // 4h momentum must be positive — higher timeframe trending up
-    if (mom4h <= 0) {
-      console.log(`\n🚫 4H BLOCKED: 4h momentum ${mom4h.toFixed(2)}% ≤ 0% — no uptrend on higher timeframe`);
-      logger.info('RiskManager: Entry blocked - 4h momentum non-positive', { momentum4h: mom4h.toFixed(3) });
-      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% ≤ 0% (higher timeframe not trending up)`, stage: 'Health Gate', adx };
-    }
-
-    // 1h momentum must exceed minimum — medium-term momentum is real
+    // 1h momentum must exceed minimum
     if (mom1h < this.config.minMomentum1h) {
       console.log(`\n🚫 1H BLOCKED: 1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`);
       logger.info('RiskManager: Entry blocked - 1h momentum below minimum', { momentum1h: mom1h.toFixed(3), minimum: this.config.minMomentum1h });
       return { pass: false, reason: `1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`, stage: 'Health Gate', adx };
+    }
+
+    // 4h momentum must be positive — higher timeframe confirms uptrend direction.
+    // This is the single most important filter: if price is lower now than 4h ago,
+    // any 1h bounce is counter-trend. Today's losses (12:27, 12:38, 12:45) were all
+    // 1h bounces with negative 4h. Wait for 4h to turn — miss the first 0.5% of a
+    // recovery, but avoid buying fake bounces in a continuing downtrend.
+    if (mom4h <= 0) {
+      console.log(`\n🚫 4H BLOCKED: 4h momentum ${mom4h.toFixed(2)}% ≤ 0% — higher timeframe still down`);
+      logger.info('RiskManager: Entry blocked - 4h momentum non-positive', { momentum4h: mom4h.toFixed(3), momentum1h: mom1h.toFixed(3) });
+      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% ≤ 0% (wait for higher timeframe to confirm recovery)`, stage: 'Health Gate', adx };
     }
 
     console.log(`\n✅ HEALTH GATE PASSED: 4h=${mom4h.toFixed(2)}% > 0 | 1h=${mom1h.toFixed(2)}% >= ${this.config.minMomentum1h}%`);
