@@ -6,7 +6,7 @@
 
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
-import { getEnvironmentConfig, aiConfig } from '@/config/environment';
+import { getEnvironmentConfig } from '@/config/environment';
 import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import { analyzeMarket } from '@/services/ai/analyzer';
 import { executionFanOut } from '@/services/execution/fan-out';
@@ -810,63 +810,25 @@ class TradeSignalOrchestrator {
               return { type: 'rejected', signal: { pair, reason: 'spread_too_wide', details: `Spread ${(spreadPct * 100).toFixed(3)}% > ${(maxEntrySpreadPct * 100).toFixed(2)}% max`, stage: 'Pre-Filter' } };
             }
 
-            // INTRABAR MOMENTUM CHECK
-            const adx = indicators.adx ?? 0;
-            const mom1hForIntrabar = indicators.momentum1h ?? 0;
-            const creepingMomentumConfirmed = mom1hForIntrabar >= (env.CREEPING_UPTREND_GATE_MIN_1H ?? 0.20);
-            // In choppy ADX, relax intrabar gate when 1h momentum already confirms a sustained grind.
-            // A flat candle mid-grind is consolidation, not reversal — only block if actually falling.
-            const minIntrabar = adx < 20
-              ? (creepingMomentumConfirmed
-                  ? (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1)  // flat candle OK during grind
-                  : (env.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY || 0.10))   // require rising candle in pure chop
-              : (env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1);
+            // INTRABAR MOMENTUM: flat rule — block if candle is actively falling beyond threshold
+            const minIntrabar = env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1;
             if (intrabarMomentum < minIntrabar) {
-              const regimeLabel = adx < 20 ? (creepingMomentumConfirmed ? 'grind' : 'choppy') : 'trending';
-              console.log(`\n🔴 INTRABAR BLOCKED (${regimeLabel}): ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (ADX ${adx.toFixed(1)})`);
-              logger.info('Orchestrator: entry blocked - intrabar momentum falling', { pair, intrabarMomentum: intrabarMomentum.toFixed(3), minIntrabar, adx: adx.toFixed(1), regimeLabel });
-              return { type: 'rejected', signal: { pair, reason: 'intrabar_negative', details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}% (${regimeLabel} ADX ${adx.toFixed(1)})`, stage: 'Pre-Filter' } };
+              console.log(`\n🔴 INTRABAR BLOCKED: ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}%`);
+              logger.info('Orchestrator: entry blocked - intrabar momentum falling', { pair, intrabarMomentum: intrabarMomentum.toFixed(3), minIntrabar });
+              return { type: 'rejected', signal: { pair, reason: 'intrabar_negative', details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}%`, stage: 'Pre-Filter' } };
             }
 
-            // 1H MOMENTUM GUARD — exchange-aware threshold
-            // Binance round-trip: 0.20% → threshold 0.2%; Kraken round-trip: 0.52% → threshold 1.0%
-            // Creeping uptrend exception: if CREEPING_UPTREND_ENABLED, use the lower gate threshold
-            // and let the health gate's full 4h+slope check make the final call
-            // Trending pullback exception: in strong trend (ADX >= 35), the 5-stage risk filter's
-            // path 4 allows 1h dips down to -0.5%. Don't block here — let path 4 evaluate it.
+            // 1H MOMENTUM: must be positive — no ADX-conditional dip exceptions
             const mom1h = indicators.momentum1h ?? 0;
-            const standardMinMom1h = pairExchange.startsWith('binance')
+            const minMom1h = pairExchange.startsWith('binance')
               ? (env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.2)
               : (env.RISK_MIN_MOMENTUM_1H ?? 1.0);
-            const minMom1h = env.CREEPING_UPTREND_ENABLED
-              ? Math.min(standardMinMom1h, env.CREEPING_UPTREND_GATE_MIN_1H)
-              : standardMinMom1h;
-            // In strong trend (ADX >= 35), allow shallow DIPS (negative 1h) ONLY with volume confirmation
-            // Volume >= 0.8x required: a genuine pullback in a strong trend has buyers stepping in
-            // Low volume + negative 1h = failed breakout, not a buyable dip — block it
-            const isStrongTrend = (indicators.adx ?? 0) >= 35;
-            const hasVolumeForDip = (indicators.volumeRatio ?? 0) >= 0.8;
-            const trendingPullbackMin = isStrongTrend ? -0.5 : -0.3;
-            const effectiveMinMom1h = (isStrongTrend && mom1h < 0 && hasVolumeForDip) ? Math.min(minMom1h, trendingPullbackMin) : minMom1h;
-            if (mom1h < effectiveMinMom1h) {
-              console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${effectiveMinMom1h.toFixed(2)}% min${isStrongTrend ? ' (strong trend pullback limit)' : ''}`);
-              return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${effectiveMinMom1h.toFixed(2)}%`, stage: 'Pre-Filter' } };
+            if (mom1h < minMom1h) {
+              console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}% min`);
+              return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${minMom1h}%`, stage: 'Pre-Filter' } };
             }
 
-            // Block entries when 4h momentum is strongly negative (counter-trend bounce protection).
-            // Strong ADX can confirm a strong DOWNtrend — 1h bounce in a falling market is dangerous.
-            // Claude caught this at $69,494 (4h=-0.758%) but couldn't veto in 'strong' regime — this fixes it.
-            const mom4h = indicators.momentum4h ?? 0;
-            const block4hThreshold = env.ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD ?? -0.5;
-            if (mom4h < block4hThreshold) {
-              console.log(`\n🔴 4H DOWNTREND BLOCKED: ${pair} - 4h momentum ${mom4h.toFixed(2)}% < ${block4hThreshold}% threshold`);
-              logger.info('Orchestrator: entry blocked - 4h momentum confirms downtrend', {
-                pair, momentum4h: mom4h.toFixed(3), threshold: block4hThreshold,
-              });
-              return { type: 'rejected', signal: { pair, reason: '4h_downtrend', details: `4h momentum ${mom4h.toFixed(2)}% below ${block4hThreshold}% (counter-trend bounce blocked)`, stage: 'Pre-Filter' } };
-            }
-
-            // Run 5-stage risk filter
+            // Run 5-stage risk filter (Health Gate now requires 4h > 0 AND 1h > min)
             const ticker = { bid, ask, spread: spreadPct };
             const riskFilter = await riskManager.runFullRiskFilter(pair, currentPrice, indicators, ticker);
 
@@ -876,15 +838,8 @@ class TradeSignalOrchestrator {
               return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: riskFilter.reason, stage: riskFilter.stage } };
             }
 
-            const isTransitioning = riskFilter.isTransitioning === true;
-            const isCreepingUptrend = riskFilter.isCreepingUptrend === true;
-            const isVolumeSurge = riskFilter.isVolumeSurge === true;
-            const entryLabel = isCreepingUptrend ? ' | 🌿 CREEPING' : isVolumeSurge ? ' | 🚀 VOL SURGE' : isTransitioning ? ' | 🔄 TRANSITIONING' : '';
-            console.log(`\n✅ RISK FILTER PASSED: ${pair} - ADX: ${indicators.adx?.toFixed(1)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}%${entryLabel}`);
-            logger.info('Orchestrator: 5-stage risk filter passed', { pair, adx: indicators.adx?.toFixed(1), adxSlope: indicators.adxSlope?.toFixed(2), momentum1h: indicators.momentum1h?.toFixed(3), volumeRatio: indicators.volumeRatio?.toFixed(2), isTransitioning, isCreepingUptrend });
-
-            // Pass live price + indicators — same fresh data as risk filter (prevents staleness)
-            console.log(`\n🔍 [ORCHESTRATOR] Passing indicators to analyzeMarket for ${pair}:`, { adx: indicators.adx, momentum1h: indicators.momentum1h, intrabarMomentum: indicators.intrabarMomentum, momentum4h: indicators.momentum4h });
+            console.log(`\n✅ RISK FILTER PASSED: ${pair} - 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | 1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
+            logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3), adx: indicators.adx?.toFixed(1) });
 
             const analysis = await analyzeMarket({
               pair,
@@ -893,29 +848,25 @@ class TradeSignalOrchestrator {
               includeRegime: true,
               currentPrice,
               indicators,
-              isVolumeSurge,
-              isCreepingUptrend,
             });
 
             console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
             logger.info('Orchestrator: analyzeMarket returned', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
 
             const regime = analysis.regime?.regime?.toLowerCase() || 'moderate';
-            const minConfidenceThreshold = aiConfig.getMinConfidenceForRegime(regime);
 
-            console.log(`\n📊 REGIME: ${pair} - ${regime.toUpperCase()} market, AI threshold: ${minConfidenceThreshold}% (regime-specific)`);
-            logger.info('Orchestrator: regime detected (regime-specific confidence threshold)', { pair, regime, minConfidenceThreshold, signalConfidence: analysis.signal?.confidence });
+            console.log(`\n📊 REGIME: ${pair} - ${regime.toUpperCase()} | AI confidence: ${analysis.signal?.confidence ?? 'N/A'}% (advisory)`);
+            logger.info('Orchestrator: regime detected', { pair, regime, signalConfidence: analysis.signal?.confidence });
 
-            if (analysis.signal && analysis.regime && analysis.signal.confidence >= minConfidenceThreshold) {
+            // AI confidence is advisory only — entry gated by 4h > 0 AND 1h > min (pure price).
+            // AI veto (signal === null) is still respected — null means explicit veto, not just low score.
+            if (analysis.signal && analysis.regime) {
               if (analysis.signal.signal !== 'buy') {
                 return { type: 'rejected', signal: { pair, reason: 'not_buy', signal: analysis.signal.signal, confidence: analysis.signal.confidence } };
               }
 
-              // Creeping uptrend = sustained slow grind → use 'weak' profit target (1.5%)
-              // Transitioning = ADX slope rising, trend forming → use 'transitioning' target (0.8%)
-              const effectiveRegime = isCreepingUptrend ? 'weak' : isTransitioning ? 'transitioning' : (analysis.regime.regime as any);
-
-              const entryPath = isCreepingUptrend ? 'creeping' : isVolumeSurge ? 'path3_volume' : isTransitioning ? 'transitioning' : 'path1_or_2';
+              const effectiveRegime = analysis.regime.regime as any;
+              const entryPath = 'momentum';
               const decision: TradeDecision = {
                 pair,
                 side: 'buy',
@@ -956,21 +907,18 @@ class TradeSignalOrchestrator {
               const adxTrans = env.ADX_TRANSITION_ZONE_MIN; // 15
               const regimeClass = adxVal >= adxMod ? 'STRONG' : adxVal >= adxWeak ? 'MODERATE' : adxVal >= env.RISK_MIN_ADX_FOR_ENTRY ? 'WEAK' : adxVal >= adxTrans ? 'TRANSITIONING' : 'CHOPPY';
               const expectedTarget = adxVal >= adxMod ? `${(env.PROFIT_TARGET_STRONG * 100).toFixed(0)}%` : adxVal >= adxWeak ? `${(env.PROFIT_TARGET_MODERATE * 100).toFixed(0)}%` : adxVal >= env.RISK_MIN_ADX_FOR_ENTRY ? `${(env.PROFIT_TARGET_WEAK * 100).toFixed(1)}%` : adxVal >= adxTrans ? `${(env.PROFIT_TARGET_TRANSITIONING * 100).toFixed(1)}%` : `${(env.PROFIT_TARGET_CHOPPY * 100).toFixed(1)}%`;
-              console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, minThreshold: minConfidenceThreshold, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
-              logger.info('Orchestrator: TRADE DECISION CREATED (5-stage filter passed)', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, minConfidenceThreshold, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
+              console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
+              logger.info('Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
 
               return { type: 'decision', decision };
 
-            } else if (analysis.signal && analysis.signal.confidence < minConfidenceThreshold) {
-              logger.warn('Orchestrator: signal generated but rejected due to low confidence', { pair, signal: analysis.signal.signal, confidence: analysis.signal.confidence, minThreshold: minConfidenceThreshold, gap: minConfidenceThreshold - analysis.signal.confidence });
-              return { type: 'rejected', signal: { pair, reason: 'low_confidence', signal: analysis.signal.signal, confidence: analysis.signal.confidence, minThreshold: minConfidenceThreshold, gap: minConfidenceThreshold - analysis.signal.confidence } };
             } else if (analysis.signal == null) {
               // null = AI veto (set explicitly in analyzer.ts); undefined = no signal generated
               const reason = analysis.signal === null ? 'ai_veto' : 'no_signal';
               logger.warn('Orchestrator: signal blocked or absent', { pair, reason, hasRegime: !!analysis.regime, regimeType: analysis.regime?.regime });
               return { type: 'skipped' };
             } else {
-              logger.warn('Orchestrator: signal rejected - unknown reason', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, minConfidenceThreshold });
+              logger.warn('Orchestrator: signal rejected - unknown reason', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence });
               return { type: 'skipped' };
             }
           } catch (error) {

@@ -34,7 +34,6 @@ export interface MarketData {
 
 class RiskManager {
   private btcMomentum1h = 0; // Updated per trading iteration
-  private hasCreepingUptrend = false; // Skip price top check in uptrends
   private config = {
     minADXForEntry: 20,
     btcDumpThreshold1h: -0.015,
@@ -76,26 +75,6 @@ class RiskManager {
     let volumeBreakoutRatio = parseFloat(botConfig?.volumeBreakoutRatio || '1.3');
     let priceTopThreshold = parseFloat(botConfig?.priceTopThreshold || '0.995');
 
-    // Apply creeping uptrend mode if enabled
-    if (env.CREEPING_UPTREND_ENABLED) {
-      this.hasCreepingUptrend = true;
-      // CREEPING_UPTREND_MIN_MOMENTUM is in decimal form (0.003 = 0.3%) but
-      // minMomentum1h/4h are in percent form (0.5 = 0.5%). Convert to percent before Math.min.
-      const creepMinPct = env.CREEPING_UPTREND_MIN_MOMENTUM * 100; // 0.003 → 0.3%
-      minMomentum1h = Math.min(minMomentum1h, creepMinPct);
-      minMomentum4h = Math.min(minMomentum4h, creepMinPct);
-      volumeBreakoutRatio = Math.max(env.CREEPING_UPTREND_VOLUME_RATIO_MIN, 0.1); // Floor at 0.1
-      priceTopThreshold = env.CREEPING_UPTREND_PRICE_TOP_THRESHOLD; // Allow 1% from high
-      logger.info('RiskManager: Creeping uptrend mode ENABLED', {
-        minMomentum1h,
-        minMomentum4h,
-        volumeBreakoutRatio,
-        priceTopThreshold,
-        skipPriceTopCheck: true,
-      });
-    } else {
-      this.hasCreepingUptrend = false;
-    }
 
     // Determine pyramid env var prefix based on exchange (kraken vs binance)
     const exchangePrefix = exchange.toLowerCase() === 'binance' ? 'BINANCE_BOT' : 'KRAKEN_BOT';
@@ -140,170 +119,36 @@ class RiskManager {
   }
 
   /**
-   * STAGE 1: Health Gate - Check AI rate limits and choppy market detection
-   * CRITICAL: Block entries when ADX < 20 (choppy market) - matches /nexus behavior
-   * ADX slope enables transition zone detection: ADX 15-20 + rising fast → allow at 50% size
+   * STAGE 1: Health Gate - Pure price momentum gate
+   * Entry requires 4h momentum > 0 (higher timeframe trending up)
+   * AND 1h momentum > minimum (medium-term momentum is real)
+   * ADX is NOT used for entry gating — only for profit target scaling (getRegime/getProfitTarget).
+   * Why: ADX is a lagging derivative of price. It told us "strong trend" (47.8) while BTC was
+   * making lower highs and lower lows. 4h/1h price momentum IS the source of truth.
    */
-  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number, volumeRatio?: number, momentum4h?: number): RiskFilterResult {
+  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number): RiskFilterResult {
     const slope = adxSlope ?? 0;
     const mom1h = momentum1h ?? 0;
     const mom4h = momentum4h ?? 0;
-    const vol = volumeRatio ?? 1;
-    const env = getEnvironmentConfig();
-    const transitionZoneMin = env.ADX_TRANSITION_ZONE_MIN; // 12 (lowered for momentum override)
-    const slopeRisingThreshold = env.ADX_SLOPE_RISING_THRESHOLD; // +2.0/candle
-    const momentumOverrideMin = env.MOMENTUM_OVERRIDE_MIN_1H; // 1.5% (clear directional move)
-    const volumeSurgeRatio = env.VOLUME_SURGE_ADX_OVERRIDE_RATIO; // 4.0x = extraordinary volume confirms breakout
 
-    // PROMINENT LOG: Always show ADX value + slope for debugging
-    console.log(`\n🏥 HEALTH GATE: ADX = ${adx?.toFixed(1) || 'N/A'} (threshold: ${this.config.minADXForEntry}) | slope: ${slope.toFixed(2)}/candle`);
-    logger.debug('RiskManager: Stage 1 - Health Gate', { adx, adxSlope: slope });
+    console.log(`\n🏥 HEALTH GATE: 4h=${mom4h.toFixed(2)}% | 1h=${mom1h.toFixed(2)}% | ADX=${adx?.toFixed(1) || 'N/A'} (for profit target only)`);
+    logger.debug('RiskManager: Stage 1 - Health Gate (price momentum)', { momentum4h: mom4h, momentum1h: mom1h, adx });
 
-    // Block if ADX is missing/invalid (0 or undefined) - be conservative
-    if (!adx || adx <= 0) {
-      console.log(`\n🚫 BLOCKED: ADX unavailable/invalid (${adx}) - no entry allowed`);
-      logger.info('RiskManager: Entry blocked - ADX unavailable (conservative block)', {
-        adx,
-        threshold: this.config.minADXForEntry,
-      });
-      return {
-        pass: false,
-        reason: `ADX unavailable or invalid (${adx}) - blocking entry`,
-        stage: 'Health Gate',
-        adx,
-      };
+    // 4h momentum must be positive — higher timeframe trending up
+    if (mom4h <= 0) {
+      console.log(`\n🚫 4H BLOCKED: 4h momentum ${mom4h.toFixed(2)}% ≤ 0% — no uptrend on higher timeframe`);
+      logger.info('RiskManager: Entry blocked - 4h momentum non-positive', { momentum4h: mom4h.toFixed(3) });
+      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% ≤ 0% (higher timeframe not trending up)`, stage: 'Health Gate', adx };
     }
 
-    // TRANSITION ZONE with MOMENTUM OVERRIDE (merged — BOTH required)
-    // ADX 12-20 entries ONLY allowed when:
-    //   1. Slope >= threshold (trend is FORMING, not just noise)
-    //   2. Momentum >= threshold (price is MOVING directionally)
-    // Without both, entries in low-ADX go immediately underwater.
-    // ADX is lagging — slope + momentum together confirm ADX will catch up.
-    if (adx >= transitionZoneMin && adx < this.config.minADXForEntry) {
-      const hasSlope = slope >= slopeRisingThreshold;
-      // When slope qualifies (>= threshold), trend building is confirmed by slope.
-      // Allow reduced momentum bar (0.25%) to catch slow pre-breakout grinds (e.g. ADX 20-24, slope +2.2).
-      // Without this: slope +2.2 + mom 0.33% blocked despite clear upward grind.
-      const strongSlope = hasSlope; // slope >= slopeRisingThreshold is sufficient confirmation
-      const effectiveMomentumMin = strongSlope
-        ? env.MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE
-        : momentumOverrideMin;
-      const hasMomentum = mom1h >= effectiveMomentumMin;
-
-      // Volume surge override: extraordinary volume (>= 4x) with minimum momentum confirms breakout
-      // ADX is lagging — 4x+ volume is a leading indicator that the trend is real
-      // CRITICAL: Volume confirms direction only when momentum is real (>= RISK_MIN_MOMENTUM_1H)
-      // Allowing mom1h > 0 (near-zero) = volume confirming noise, not a breakout
-      const hasVolumeSurge = vol >= volumeSurgeRatio && mom1h >= this.config.minMomentum1h;
-      if (hasVolumeSurge && !hasSlope && !hasMomentum) {
-        console.log(`\n🚀 VOLUME SURGE OVERRIDE: ADX=${adx.toFixed(1)} in transition zone but volume=${vol.toFixed(2)}x >= ${volumeSurgeRatio}x + mom1h=${mom1h.toFixed(2)}% >= ${this.config.minMomentum1h}% → ALLOW at reduced size`);
-        logger.info('RiskManager: Volume surge override - extraordinary volume confirms breakout despite low ADX', {
-          adx, volumeRatio: vol, volumeSurgeRatio, momentum1h: mom1h,
-          note: 'ADX lags price; 4x+ volume is leading indicator',
-        });
-        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isTransitioning: true, isVolumeSurge: true };
-      }
-
-      if (hasSlope && hasMomentum) {
-        console.log(`\n🚀 TRANSITION + MOMENTUM: ADX=${adx.toFixed(1)} (${transitionZoneMin}-${this.config.minADXForEntry}) + slope=${slope.toFixed(2)} >= ${slopeRisingThreshold} + mom1h=${mom1h.toFixed(2)}% >= ${momentumOverrideMin}% → ALLOW at reduced size`);
-        logger.info('RiskManager: Transition zone - slope + momentum confirm trend forming', {
-          adx,
-          adxSlope: slope,
-          slopeThreshold: slopeRisingThreshold,
-          momentum1h: mom1h,
-          momentumOverrideThreshold: momentumOverrideMin,
-          transitionZoneMin,
-          note: 'BOTH slope + momentum required to prevent false breakouts',
-        });
-        return {
-          pass: true,
-          stage: 'Health Gate',
-          adx,
-          adxSlope: slope,
-          isTransitioning: true,
-        };
-      }
-
-      // Strong momentum alone: ADX lags real breakouts — if 1h momentum is very strong,
-      // allow entry even when slope is still declining (trend started, ADX hasn't caught up yet)
-      const strongMomentumAloneMin = env.MOMENTUM_STRONG_ALONE_MIN; // e.g. 1.5%
-      if (!hasSlope && mom1h >= strongMomentumAloneMin) {
-        console.log(`\n🚀 STRONG MOMENTUM OVERRIDE: ADX=${adx.toFixed(1)} in transition zone, slope=${slope.toFixed(2)} declining but mom1h=${mom1h.toFixed(2)}% >= ${strongMomentumAloneMin}% (ADX lagging real breakout) → ALLOW at reduced size`);
-        logger.info('RiskManager: Strong momentum alone - ADX lagging genuine breakout', {
-          adx, adxSlope: slope, momentum1h: mom1h, strongMomentumAloneMin,
-          note: 'ADX is a lagging indicator; strong 1h momentum confirms breakout direction',
-        });
-        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isTransitioning: true };
-      }
-
-      // Log why transition zone was blocked
-      if (!hasSlope && !hasMomentum) {
-        console.log(`\n⚠️ TRANSITION BLOCKED: ADX=${adx.toFixed(1)} in zone, but slope ${slope.toFixed(2)} < ${slopeRisingThreshold} AND momentum ${mom1h.toFixed(2)}% < ${momentumOverrideMin}%`);
-      } else if (!hasSlope) {
-        console.log(`\n⚠️ TRANSITION BLOCKED: momentum OK (${mom1h.toFixed(2)}%) but slope too weak (${slope.toFixed(2)} < ${slopeRisingThreshold}) - prevents false breakouts`);
-      } else {
-        console.log(`\n⚠️ TRANSITION BLOCKED: slope OK (${slope.toFixed(2)}) but momentum too weak (${mom1h.toFixed(2)}% < ${effectiveMomentumMin}%${strongSlope ? ' [strong-slope bar]' : ''}) - prevents chop entries`);
-      }
-      logger.info('RiskManager: Transition zone blocked - missing slope or momentum confirmation', {
-        adx,
-        adxSlope: slope,
-        slopeThreshold: slopeRisingThreshold,
-        momentum1h: mom1h,
-        momentumThreshold: momentumOverrideMin,
-        hasSlope,
-        hasMomentum,
-      });
+    // 1h momentum must exceed minimum — medium-term momentum is real
+    if (mom1h < this.config.minMomentum1h) {
+      console.log(`\n🚫 1H BLOCKED: 1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`);
+      logger.info('RiskManager: Entry blocked - 1h momentum below minimum', { momentum1h: mom1h.toFixed(3), minimum: this.config.minMomentum1h });
+      return { pass: false, reason: `1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`, stage: 'Health Gate', adx };
     }
 
-    // CREEPING UPTREND BYPASS: Low ADX but sustained directional drift
-    // 4h momentum removed as requirement — it lags even more than 1h during slow grinds.
-    // 1h momentum + slope not collapsing is sufficient to confirm a real move vs chop.
-    if (adx < this.config.minADXForEntry && env.CREEPING_UPTREND_ENABLED && adx > 0) {
-      const minMom1h = env.CREEPING_UPTREND_GATE_MIN_1H;
-      const maxSlopeDrop = env.CREEPING_UPTREND_GATE_MAX_ADX_SLOPE;
-      const minVol = env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
-
-      const has1hMomentum = mom1h >= minMom1h;
-      const slopeNotCollapsing = slope > maxSlopeDrop;
-      const hasVolume = vol >= minVol;
-
-      if (has1hMomentum && slopeNotCollapsing && hasVolume) {
-        console.log(`\n🌿 CREEPING UPTREND: ADX=${adx.toFixed(1)} low but 1h=${mom1h.toFixed(2)}% >= ${minMom1h}% + slope=${slope.toFixed(2)} > ${maxSlopeDrop} + vol=${vol.toFixed(2)}x >= ${minVol}x → ALLOW (steady grind up)`);
-        logger.info('RiskManager: Creeping uptrend bypass — sustained directional drift detected', {
-          adx, adxSlope: slope, momentum1h: mom1h, momentum4h: mom4h, volumeRatio: vol,
-          thresholds: { minMom1h, maxSlopeDrop, minVol },
-          note: '1h momentum + slope confirms real move, 4h dropped (lags too much in slow grinds)',
-        });
-        return { pass: true, stage: 'Health Gate', adx, adxSlope: slope, isCreepingUptrend: true };
-      }
-
-      // Log which condition failed
-      const failures = [
-        !has1hMomentum && `1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}%`,
-        !slopeNotCollapsing && `ADX slope ${slope.toFixed(2)} < ${maxSlopeDrop} (collapsing)`,
-        !hasVolume && `volume ${vol.toFixed(2)}x < ${minVol}x`,
-      ].filter(Boolean).join(', ');
-      console.log(`\n🌿 CREEPING UPTREND: ADX=${adx.toFixed(1)} - conditions not met: ${failures}`);
-    }
-
-    // /nexus parity: BLOCK entries in choppy markets (ADX < threshold)
-    // Choppy markets have no clear direction → entries go immediately underwater
-    if (adx < this.config.minADXForEntry) {
-      console.log(`\n🚫 CHOPPY MARKET BLOCKED: ADX=${adx.toFixed(1)} < ${this.config.minADXForEntry} - no entry allowed`);
-      logger.info('RiskManager: Entry blocked - choppy market (/nexus parity)', {
-        adx,
-        threshold: this.config.minADXForEntry,
-      });
-      return {
-        pass: false,
-        reason: `Choppy market (ADX ${adx.toFixed(1)} < ${this.config.minADXForEntry})`,
-        stage: 'Health Gate',
-        adx,
-      };
-    }
-
-    console.log(`\n✅ TRENDING MARKET: ADX=${adx.toFixed(1)} >= ${this.config.minADXForEntry} | slope: ${slope.toFixed(2)}`);
+    console.log(`\n✅ HEALTH GATE PASSED: 4h=${mom4h.toFixed(2)}% > 0 | 1h=${mom1h.toFixed(2)}% >= ${this.config.minMomentum1h}%`);
     return { pass: true, stage: 'Health Gate', adx, adxSlope: slope };
   }
 
@@ -374,205 +219,17 @@ class RiskManager {
   }
 
   /**
-   * STAGE 3: Entry Quality Gate - Avoid poor entry conditions
+   * STAGE 3: Entry Quality Gate
+   * Health Gate already confirmed 4h > 0 and 1h > min.
+   * This stage only checks BTC dump protection (drop protection handles volume panics).
+   * Price-top check removed: if 4h and 1h are both positive, we're in an uptrend — trends trade near highs.
    */
   checkEntryQuality(
     pair: string,
     price: number,
-    indicators: TechnicalIndicators
+    _indicators: TechnicalIndicators
   ): RiskFilterResult {
     logger.debug('RiskManager: Stage 3 - Entry Quality', { pair, price });
-
-    const env = getEnvironmentConfig();
-    const recentHigh = indicators.recentHigh ?? price;
-    const momentum1h = indicators.momentum1h ?? 0;
-    const momentum4h = indicators.momentum4h ?? 0;
-    const volumeRatio = indicators.volumeRatio ?? 1;
-    const adx = indicators.adx ?? 0;
-
-    // DYNAMIC REGIME-AWARE price top check:
-    // In trending markets (ADX >= minADXForEntry), price near highs is NORMAL - that's where trends trade
-    // In choppy/weak markets (ADX < minADXForEntry), buying at local tops is dangerous (mean reversion)
-    // Volume surge override: extraordinary volume with positive momentum = breakout (being near high is correct)
-    const isTrending = adx >= this.config.minADXForEntry;
-    const volumeSurgeRatio = env.VOLUME_SURGE_ADX_OVERRIDE_RATIO;
-    const isVolumeSurge = volumeRatio >= volumeSurgeRatio && momentum1h >= this.config.minMomentum1h;
-
-    if (this.hasCreepingUptrend || isTrending || isVolumeSurge) {
-      // TRENDING MODE: Allow entries near highs (trends make new highs!)
-      // Only block if price has pulled back too far from high (broken trend signal)
-      const pullbackThreshold = env.CREEPING_UPTREND_PULLBACK_THRESHOLD; // default 0.95 = 5% pullback
-      if (price < recentHigh * pullbackThreshold) {
-        const pullbackPercent = (1 - price / recentHigh) * 100;
-        const pullbackThresholdPercent = (1 - pullbackThreshold) * 100;
-        logger.info('RiskManager: Entry blocked - price pulled back too far from high (trending mode)', {
-          pair,
-          price: price.toFixed(2),
-          recentHigh: recentHigh.toFixed(2),
-          pullbackPercent: pullbackPercent.toFixed(2),
-          pullbackThresholdPercent: pullbackThresholdPercent.toFixed(1),
-          adx: adx.toFixed(1),
-          trendingMode: true,
-        });
-        return {
-          pass: false,
-          reason: `Price pulled back too far from high (${pullbackPercent.toFixed(2)}% > ${pullbackThresholdPercent.toFixed(1)}% threshold)`,
-          stage: 'Entry Quality',
-        };
-      }
-      logger.debug('RiskManager: Trending mode - allowing entry near highs', {
-        pair,
-        price: price.toFixed(2),
-        recentHigh: recentHigh.toFixed(2),
-        distFromHigh: ((1 - price / recentHigh) * 100).toFixed(2) + '%',
-        adx: adx.toFixed(1),
-      });
-    } else {
-      // CHOPPY MODE: Avoid buying at local tops (mean reversion risk)
-      // Block if price is within 0.5% of recent high
-      const topThreshold = this.config.priceTopThreshold; // 0.995
-      if (price > recentHigh * topThreshold) {
-        logger.info('RiskManager: Entry blocked - price at local top (choppy market)', {
-          pair,
-          price: price.toFixed(2),
-          recentHigh: recentHigh.toFixed(2),
-          topThreshold: (topThreshold * 100).toFixed(2),
-          adx: adx.toFixed(1),
-          trendingMode: false,
-        });
-        return {
-          pass: false,
-          reason: `Price at local top (${(price / recentHigh * 100 - 100).toFixed(2)}% from high, ADX ${adx.toFixed(0)} = choppy)`,
-          stage: 'Entry Quality',
-        };
-      }
-    }
-
-    // EMA200 DOWNTREND FILTER - Prevents entries in downtrends
-    // CRITICAL: ADX measures trend STRENGTH, not DIRECTION
-    // High ADX can mean strong downtrend! Price > EMA200 confirms UPTREND
-    // CONFIGURABLE: Can be disabled to catch reversal entries when price bounces from below EMA200
-    const ema200 = (indicators as any).ema200;
-    if (env.RISK_EMA200_DOWNTREND_BLOCK_ENABLED && ema200 && price < ema200) {
-      const distanceFromEMA = ((price / ema200 - 1) * 100);
-      logger.info('RiskManager: Entry blocked - price below EMA200 (downtrend)', {
-        pair,
-        price: price.toFixed(2),
-        ema200: ema200.toFixed(2),
-        distanceFromEMA: distanceFromEMA.toFixed(2) + '%',
-        note: 'EMA200 downtrend protection - prevents false "strong" signals in falling markets',
-      });
-      console.log(`\n🚫 DOWNTREND BLOCKED: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%)`);
-      return {
-        pass: false,
-        reason: `Downtrend: Price ${distanceFromEMA.toFixed(2)}% below EMA200`,
-        stage: 'Entry Quality',
-      };
-    } else if (!env.RISK_EMA200_DOWNTREND_BLOCK_ENABLED && ema200 && price < ema200) {
-      // Log but allow entry - catching reversal opportunities
-      const distanceFromEMA = ((price / ema200 - 1) * 100);
-      logger.info('RiskManager: Price below EMA200 but entry allowed (reversal mode)', {
-        pair,
-        price: price.toFixed(2),
-        ema200: ema200.toFixed(2),
-        distanceFromEMA: distanceFromEMA.toFixed(2) + '%',
-        note: 'RISK_EMA200_DOWNTREND_BLOCK_ENABLED=false - allowing reversal entries',
-      });
-      console.log(`\n⚠️ REVERSAL MODE: Price $${price.toFixed(2)} < EMA200 $${ema200.toFixed(2)} (${distanceFromEMA.toFixed(2)}%) - entry allowed`);
-    }
-
-    // Require minimum momentum - 4 entry paths (adaptive to market conditions)
-    // Counter-trend protection: when 4h is strongly negative, paths 1 and 3 (1h-only) are
-    // buying bounces in a downtrend. Block them. Paths 2 and 4 already require positive 4h.
-    const maxAdverse4h = env.RISK_MAX_ADVERSE_4H_MOMENTUM; // default -0.5%
-    const is4hDowntrend = momentum4h < maxAdverse4h;
-
-    // Path 1: Strong 1h momentum exceeds configured threshold — but not when 4h is strongly adverse
-    const has1hMomentum = momentum1h > this.config.minMomentum1h && !is4hDowntrend;
-    // Path 2: Both timeframes show meaningful momentum (> minMomentum threshold)
-    const hasBothPositive =
-      momentum1h > this.config.minMomentum1h &&
-      momentum4h > this.config.minMomentum4h;
-    // Path 3: Volume breakout (vol > 1.3x) with positive or near-zero 1h momentum
-    // In strong trends (ADX>=35), allow slight negative 1h — high volume = accumulation signal
-    // BUT block if intrabar is actively falling (price moving down at entry = bad timing)
-    // AND block when 4h is strongly adverse — volume spikes in downtrends are often selling pressure
-    const isStrongTrend = adx >= 35;
-    const volBreakoutMom1hMin = isStrongTrend ? -0.5 : 0;
-    const intrabarMomentum = indicators.intrabarMomentum ?? 0;
-    // Unified intrabar guard: block entry if price is actively falling beyond threshold
-    // Applied to ALL paths — volume or trend context does not override a falling-knife entry
-    const intrabarThreshold = this.config.entryMinIntrabarMomentumTrending; // -0.1% from env
-    const intrabarNotFalling = intrabarMomentum > intrabarThreshold;
-    const hasVolumeBreakout =
-      volumeRatio > this.config.volumeBreakoutRatio &&
-      momentum1h > volBreakoutMom1hMin &&
-      intrabarNotFalling &&
-      !is4hDowntrend; // Don't buy volume spikes when 4h trend is strongly down
-
-    // Path 4: TRENDING PULLBACK — Strong 4h trend with shallow 1h dip (adaptive entry)
-    // In strong trends (ADX>=35), allow deeper 1h dips — a -0.5% dip in a strong trend is noise
-    // Note: adx and isTrending already declared above (line 312, 319)
-    const trendingPullback4hMin = 0.3; // 0.3% in percentage units
-    const has4hTrend = momentum4h > trendingPullback4hMin;
-    const shallowDipThreshold = isStrongTrend ? -0.5 : -0.3; // -0.5% for strong trend, -0.3% otherwise
-    const isShallowDip = momentum1h > shallowDipThreshold;
-    // Also gate on intrabar: even in a valid pullback, don't enter while price is actively dropping
-    const hasTrendingPullback = isTrending && has4hTrend && isShallowDip && intrabarNotFalling;
-
-    // Entry gate: 4 paths
-    // 1. Strong 1h momentum (> 0.5%)
-    // 2. Both timeframes positive (1h > 0.5% AND 4h > 0.5%)
-    // 3. Volume breakout (vol > 1.3x AND 1h > 0%)
-    // 4. Trending pullback (ADX >= 20, 4h > 0.5%, 1h > -0.3%)
-    const passesEntryGate = has1hMomentum || hasBothPositive || hasVolumeBreakout || hasTrendingPullback;
-
-    if (!passesEntryGate) {
-      if (is4hDowntrend && momentum1h > this.config.minMomentum1h) {
-        // Specifically log when 4h downtrend is the blocker (would have entered on path 1/3 otherwise)
-        console.log(`\n🛑 4H DOWNTREND BLOCK: ${pair} - 4h momentum ${momentum4h.toFixed(2)}% < ${maxAdverse4h}% floor (1h bounce ${momentum1h.toFixed(2)}% ignored)`);
-        logger.info('RiskManager: Entry blocked - 4h downtrend (counter-trend protection)', {
-          pair, momentum1h: momentum1h.toFixed(2), momentum4h: momentum4h.toFixed(2), maxAdverse4h,
-        });
-      } else {
-        logger.info('RiskManager: Entry blocked - weak momentum (4-path gate)', {
-          pair,
-          momentum1h: momentum1h.toFixed(2),
-          momentum4h: momentum4h.toFixed(2),
-          volumeRatio: volumeRatio.toFixed(2),
-          adx: adx.toFixed(1),
-          has1hMomentum,
-          hasBothPositive,
-          hasVolumeBreakout,
-          hasTrendingPullback,
-          is4hDowntrend,
-        });
-      }
-      return {
-        pass: false,
-        reason: `Weak momentum (1h=${momentum1h.toFixed(2)}%, 4h=${momentum4h.toFixed(2)}%, vol=${volumeRatio.toFixed(2)}x, ADX=${adx.toFixed(0)})`,
-        stage: 'Entry Quality',
-      };
-    }
-
-    // Log which path allowed entry
-    if (hasTrendingPullback && !has1hMomentum && !hasBothPositive && !hasVolumeBreakout) {
-      logger.info('RiskManager: Trending pullback entry (adaptive)', {
-        pair,
-        momentum1h: momentum1h.toFixed(2),
-        momentum4h: momentum4h.toFixed(2),
-        adx: adx.toFixed(1),
-        note: 'Entering shallow dip within clear 4h uptrend',
-      });
-      console.log(`\n📈 TRENDING PULLBACK: ${pair} - 4h trend ${momentum4h.toFixed(2)}%, 1h dip ${momentum1h.toFixed(2)}% (shallow), ADX ${adx.toFixed(0)}`);
-    } else if (hasVolumeBreakout && !has1hMomentum && !hasBothPositive) {
-      logger.info('RiskManager: Volume breakout entry', {
-        pair,
-        momentum1h: momentum1h.toFixed(2),
-        volumeRatio: volumeRatio.toFixed(2),
-      });
-    }
-
     return { pass: true, stage: 'Entry Quality' };
   }
 

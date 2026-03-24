@@ -206,15 +206,11 @@ export async function analyzeMarket(
       //   score >= threshold + maxAdj → Claude can't veto even at max penalty (skip)
       //   score < threshold - maxAdj → Claude can't rescue even at max boost (skip)
       // Use the regime-specific threshold so the call/skip gate is accurate per regime
-      const boostThreshold = aiConfig.getMinConfidenceForRegime(regime.regime);
-      const maxAdj = aiConfig.confidenceBoostMaxAdjustment;   // 15
-      const scoreCanChange = result.signal.confidence >= (boostThreshold - maxAdj) &&
-                             result.signal.confidence <= (boostThreshold + maxAdj);
-      // Always call Claude for low-margin regimes (veto power critical) and special paths (need pattern validation).
-      // For trending regimes (weak/moderate/strong) with high-confidence signal, scoreCanChange gate is sufficient.
-      const isLowMarginRegime = regime.regime === 'choppy' || regime.regime === 'transitioning';
-      const isSpecialPath = request.isCreepingUptrend || request.isVolumeSurge;
-      const shouldCallAI = aiConfig.confidenceBoostEnabled && (isLowMarginRegime || isSpecialPath || scoreCanChange);
+      // Call Claude only when signal is 'buy' — veto is only meaningful on entries.
+      // Skipped for 'sell'/'hold' signals (orchestrator rejects non-buy anyway).
+      // All regime/confidence-based skipping removed: since entry no longer gates on
+      // confidence score, Claude must evaluate every buy signal to veto counter-trend patterns.
+      const shouldCallAI = aiConfig.confidenceBoostEnabled && result.signal.signal === 'buy';
       if (shouldCallAI) {
         const boostResult = await aiConfidenceBoost(
           request.pair,
@@ -241,11 +237,10 @@ export async function analyzeMarket(
             `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
           );
 
-          // AI VETO: In low-margin regimes (choppy/transitioning), a negative AI adjustment
-          // is a hard block — the AI saw risk and the expected profit is too thin to ignore it.
-          // In trending regimes, AI skepticism is tolerated (momentum confirms the trade).
-          const isLowMarginRegime = regime.regime === 'choppy' || regime.regime === 'transitioning';
-          if (isLowMarginRegime && boostResult.adjustment < 0) {
+          // AI VETO: Any negative adjustment is a hard block in ALL regimes.
+          // Entry is already gated by pure price (4h > 0, 1h > min). If Claude sees a
+          // counter-trend pattern after momentum gates passed, that's a genuine warning.
+          if (boostResult.adjustment < 0) {
             logger.warn('AI VETO: negative adjustment in low-margin regime — trade blocked', {
               pair: request.pair,
               regime: regime.regime,
