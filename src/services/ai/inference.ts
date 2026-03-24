@@ -715,7 +715,8 @@ export async function aiConfidenceBoost(
   deterministicSignal: TradeSignal,
   deterministicConfidence: number,
   regime: string,
-  isVolumeSurge = false
+  isVolumeSurge = false,
+  isCreepingUptrend = false
 ): Promise<AIConfidenceBoostResult> {
   const startTime = Date.now();
   const maxAdj = aiConfig.confidenceBoostMaxAdjustment;
@@ -733,6 +734,10 @@ export async function aiConfidenceBoost(
     ? `\nVOLUME SURGE BREAKOUT: Volume is ${(indicators.volumeRatio || 1).toFixed(1)}x normal — extraordinary buying pressure detected. ADX lags price by 2-3 candles during breakouts; low ADX here reflects the PAST, not the current move. RSI going overbought during a volume surge is a sign of STRENGTH, not exhaustion. Do NOT penalize ADX or RSI in this context.`
     : '';
 
+  const creepingUptrendContext = isCreepingUptrend
+    ? `\nCREEPING UPTREND MODE: This is a slow sustained directional grind — NOT a breakout. Low ADX is EXPECTED and correct here; do NOT penalize it. The profit target is small (1.5%) with a quick exit plan. You are validating whether the grind is real and continuing. APPROVE (+adjustment) if you see: consistent small green candles with no large rejection wicks, 1h momentum sustained positive across multiple candles, no sudden large red candle breaking the pattern. REJECT (-adjustment) if you see: a large red candle interrupting the sequence, multiple consecutive lower lows, or a sharp reversal wick on the most recent candle. Volume does not need to be high — steady low volume grind is valid.`
+    : '';
+
   const mom4h = indicators.momentum4h ?? 0;
   const mom1h = indicators.momentum1h ?? 0;
   const downtrend4hContext = mom4h < -0.5
@@ -748,7 +753,7 @@ CURRENT INDICATORS:
 - ADX: ${indicators.adx.toFixed(1)} (regime: ${regime})
 - 1h momentum: ${mom1h.toFixed(3)}%
 - 4h momentum: ${mom4h.toFixed(3)}%
-- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${downtrend4hContext}
+- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${creepingUptrendContext}${downtrend4hContext}
 
 DETERMINISTIC SYSTEM says: BUY with ${deterministicConfidence}% confidence.
 

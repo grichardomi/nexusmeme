@@ -831,6 +831,7 @@ class TradeSignalOrchestrator {
               currentPrice,
               indicators,
               isVolumeSurge,
+              isCreepingUptrend,
             });
 
             console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });

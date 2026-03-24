@@ -210,7 +210,12 @@ export async function analyzeMarket(
       const maxAdj = aiConfig.confidenceBoostMaxAdjustment;   // 15
       const scoreCanChange = result.signal.confidence >= (boostThreshold - maxAdj) &&
                              result.signal.confidence <= (boostThreshold + maxAdj);
-      if (aiConfig.confidenceBoostEnabled && scoreCanChange) {
+      // Always call Claude for low-margin regimes (veto power critical) and special paths (need pattern validation).
+      // For trending regimes (weak/moderate/strong) with high-confidence signal, scoreCanChange gate is sufficient.
+      const isLowMarginRegime = regime.regime === 'choppy' || regime.regime === 'transitioning';
+      const isSpecialPath = request.isCreepingUptrend || request.isVolumeSurge;
+      const shouldCallAI = aiConfig.confidenceBoostEnabled && (isLowMarginRegime || isSpecialPath || scoreCanChange);
+      if (shouldCallAI) {
         const boostResult = await aiConfidenceBoost(
           request.pair,
           candles,
@@ -218,7 +223,8 @@ export async function analyzeMarket(
           result.signal.signal,
           result.signal.confidence,
           regime.regime,
-          request.isVolumeSurge
+          request.isVolumeSurge,
+          request.isCreepingUptrend
         );
 
         if (boostResult.adjustment !== 0) {

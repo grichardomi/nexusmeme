@@ -91,6 +91,7 @@ export interface AIAnalysisRequest {
   currentPrice?: number;
   indicators?: TechnicalIndicators;
   isVolumeSurge?: boolean; // Extraordinary volume breakout — tells Claude not to penalize low ADX/overbought RSI
+  isCreepingUptrend?: boolean; // Slow sustained directional grind — tells Claude to look for consistency not explosiveness
 }
 
 export interface AIAnalysisResult {
