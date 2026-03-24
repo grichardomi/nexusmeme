@@ -39,3 +39,8 @@ cmd = "node scripts/run-cron.mjs billing-dunning"
 name = "trial-notifications"
 schedule = "0 */6 * * *"
 cmd = "node scripts/run-cron.mjs trial-notifications"
+
+[[crons]]
+name = "webhook-recovery"
+schedule = "0 */4 * * *"
+cmd = "node scripts/run-cron.mjs webhook-recovery"

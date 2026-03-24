@@ -415,3 +415,90 @@ export async function expireOverdueInvoices(): Promise<number> {
 
   return writeOffCount;
 }
+
+/**
+ * Retry unresolved webhook failures.
+ * Called by the webhook-recovery cron every 4 hours.
+ *
+ * Each row in webhook_failures represents a transfer whose DB processing
+ * failed (Alchemy returned 200 so won't retry). This job re-runs the same
+ * processIncomingUSDCTransfer() logic and marks rows resolved on success.
+ *
+ * Skips rows that are already resolved or older than 30 days (unlikely to match
+ * any live invoice at that point).
+ *
+ * Returns: { attempted, resolved, stillFailing }
+ */
+export async function retryWebhookFailures(): Promise<{
+  attempted: number;
+  resolved: number;
+  stillFailing: number;
+}> {
+  const failures = await query<{
+    id: string;
+    tx_hash: string;
+    from_address: string;
+    to_address: string;
+    raw_value: string;
+    block_num: string;
+  }>(
+    `SELECT id, tx_hash, from_address, to_address, raw_value, block_num
+     FROM webhook_failures
+     WHERE resolved = FALSE
+       AND created_at > NOW() - INTERVAL '30 days'
+     ORDER BY created_at ASC
+     LIMIT 50`
+  );
+
+  if (failures.length === 0) return { attempted: 0, resolved: 0, stillFailing: 0 };
+
+  logger.info('webhook-recovery: retrying failed webhook transfers', { count: failures.length });
+
+  let resolved = 0;
+  let stillFailing = 0;
+
+  for (const row of failures) {
+    try {
+      const result = await processIncomingUSDCTransfer({
+        txHash: row.tx_hash,
+        fromAddress: row.from_address,
+        toAddress: row.to_address,
+        value: row.raw_value,
+        blockNum: row.block_num,
+      });
+
+      // Mark resolved whether or not it matched — if no invoice matches, there's
+      // nothing to retry (invoice may have expired or already been paid separately).
+      await query(
+        `UPDATE webhook_failures SET resolved = TRUE, resolved_at = NOW() WHERE id = $1`,
+        [row.id]
+      );
+      resolved++;
+
+      if (result.matched) {
+        logger.info('webhook-recovery: transfer matched on retry', {
+          txHash: row.tx_hash,
+          userId: result.userId,
+          reference: result.reference,
+        });
+      } else {
+        logger.info('webhook-recovery: transfer unmatched (invoice expired or already paid) — marked resolved', {
+          txHash: row.tx_hash,
+        });
+      }
+    } catch (err) {
+      stillFailing++;
+      // Update error message so operator can see latest failure reason
+      await query(
+        `UPDATE webhook_failures SET error_message = $1 WHERE id = $2`,
+        [err instanceof Error ? err.message : String(err), row.id]
+      ).catch(() => {});
+      logger.error('webhook-recovery: retry failed', err instanceof Error ? err : null, {
+        txHash: row.tx_hash,
+      });
+    }
+  }
+
+  logger.info('webhook-recovery complete', { attempted: failures.length, resolved, stillFailing });
+  return { attempted: failures.length, resolved, stillFailing };
+}

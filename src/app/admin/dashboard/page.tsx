@@ -115,6 +115,7 @@ const CRON_JOBS_DEFAULTS = [
   { id: 'email-processor',       name: 'Email Processor',       url: '/api/cron/email-processor',       schedule: '*/5 * * * *', enabled: true },
   { id: 'billing-retry',         name: 'Billing Retry',         url: '/api/cron/billing-retry',         schedule: '0 10 * * 3',  enabled: true },
   { id: 'trial-notifications',   name: 'Trial Notifications',   url: '/api/cron/trial-notifications',   schedule: '0 */6 * * *', enabled: true },
+  { id: 'webhook-recovery',      name: 'Webhook Recovery',      url: '/api/cron/webhook-recovery',      schedule: '0 */4 * * *', enabled: true },
 ];
 
 interface DashboardStats {
