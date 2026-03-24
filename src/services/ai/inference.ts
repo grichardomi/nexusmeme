@@ -772,8 +772,8 @@ APPLY POSITIVE ADJUSTMENT (+5 to +${maxAdj}) when you see:
 
 DEFAULT to 0 only if truly ambiguous with no directional bias evident.
 
-Respond with ONLY valid JSON, no other text:
-{"adjustment": <number from -${maxAdj} to ${maxAdj}>, "reasoning": "<one sentence explaining the key factor>"}
+IMPORTANT: Respond with ONLY raw JSON (no markdown, no code blocks, no backticks):
+{"adjustment": <integer from -${maxAdj} to ${maxAdj}>, "reasoning": "<max 15 words>"}
 
 Rules:
 - Positive = confirmed continuation, higher timeframe aligned
@@ -782,7 +782,7 @@ Rules:
 - Stay within -${maxAdj} to +${maxAdj} range`;
 
   try {
-    const responseText = await callLLM(prompt, 200);
+    const responseText = await callLLM(prompt, 350);
 
     // Parse JSON response
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
