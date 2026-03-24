@@ -15,6 +15,16 @@ import type { SupportTicket } from '@/types/support';
  * and provides ability to create new tickets
  */
 
+type StatusFilter = 'all' | 'open' | 'in_progress' | 'resolved' | 'closed';
+
+const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'resolved', label: 'Resolved' },
+  { value: 'closed', label: 'Closed' },
+];
+
 export default function SupportPage() {
   const { status } = useSession();
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -23,10 +33,13 @@ export default function SupportPage() {
   const [canAccessSupport, setCanAccessSupport] = useState(false);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [showTicketSection, setShowTicketSection] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // Memoize fetch function to prevent infinite re-renders
   const fetchTicketsData = useCallback(async (offset: number, limit: number) => {
-    const response = await fetch(`/api/support/tickets?offset=${offset}&limit=${limit}`);
+    const params = new URLSearchParams({ offset: String(offset), limit: String(limit) });
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    const response = await fetch(`/api/support/tickets?${params}`);
     if (!response.ok) throw new Error('Failed to fetch tickets');
 
     const data = await response.json();
@@ -34,7 +47,7 @@ export default function SupportPage() {
       items: data.tickets || [],
       total: data.total || 0,
     };
-  }, []);
+  }, [statusFilter]);
 
   // Load more pagination
   const { items: tickets, isLoading, error, hasMore, load, loadMore } = useLoadMore<SupportTicket>({
@@ -64,6 +77,15 @@ export default function SupportPage() {
       load();
     }
   }, [status, canAccessSupport, load]);
+
+  // Reload when status filter changes
+  useEffect(() => {
+    if (canAccessSupport) {
+      setFetchedTicketIds(new Set());
+      setUnreadCounts({});
+      load();
+    }
+  }, [statusFilter, canAccessSupport, load]);
 
   // Auto-expand ticket section if user has existing tickets
   useEffect(() => {
@@ -277,6 +299,23 @@ export default function SupportPage() {
                 Create new ticket
               </button>
             </div>
+            {/* Status Filter Chips */}
+            <div className="flex gap-2 flex-wrap">
+              {STATUS_FILTERS.map(f => (
+                <button
+                  key={f.value}
+                  onClick={() => setStatusFilter(f.value)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition touch-manipulation ${
+                    statusFilter === f.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
             {/* Error Alert */}
             {error && tickets.length === 0 && (
               <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-500 text-red-700 dark:text-red-200 px-4 py-3 rounded">
@@ -289,7 +328,9 @@ export default function SupportPage() {
               {tickets.length === 0 && !isLoading ? (
                 <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 sm:p-8 text-center">
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    No tickets yet. Click &quot;Create Ticket&quot; above if you have a private issue.
+                    {statusFilter === 'all'
+                      ? 'No tickets yet. Click "Create Ticket" above if you have a private issue.'
+                      : `No ${statusFilter.replace('_', ' ')} tickets.`}
                   </p>
                 </div>
               ) : (
