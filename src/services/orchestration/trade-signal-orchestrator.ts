@@ -46,6 +46,9 @@ class TradeSignalOrchestrator {
   private reconcileInterval: NodeJS.Timer | null = null;
   // Pairs exited for stale reasons in the current cycle — block re-entry until next cycle
   private staleExitedPairsThisCycle = new Set<string>();
+  // Pairs where thesis was invalidated — block re-entry for THESIS_INVALIDATION_BLOCK_MINUTES
+  // Prevents re-entering a pair that just proved its 1h momentum is broken
+  private thesisInvalidatedPairs = new Map<string, number>(); // pair → timestamp of invalidation
   private lowBalanceCheckInterval: NodeJS.Timer | null = null;
 
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
@@ -698,6 +701,24 @@ class TradeSignalOrchestrator {
             if (this.staleExitedPairsThisCycle.has(pair)) {
               logger.info('Skipping entry: pair had stale exit this cycle', { pair });
               return { type: 'skipped' };
+            }
+
+            // Skip pairs where thesis was recently invalidated — 1h momentum proven broken
+            const thesisBlockedAt = this.thesisInvalidatedPairs.get(pair);
+            if (thesisBlockedAt) {
+              const env = getEnvironmentConfig();
+              const blockMs = env.THESIS_INVALIDATION_BLOCK_MINUTES * 60 * 1000;
+              const elapsedMs = Date.now() - thesisBlockedAt;
+              if (elapsedMs < blockMs) {
+                logger.debug('Skipping entry: thesis invalidated recently', {
+                  pair,
+                  minutesAgo: (elapsedMs / 60000).toFixed(1),
+                  blockMinutes: env.THESIS_INVALIDATION_BLOCK_MINUTES,
+                });
+                return { type: 'skipped' };
+              } else {
+                this.thesisInvalidatedPairs.delete(pair); // block expired
+              }
             }
 
             // NOTE: Position duplicate prevention handled PER-BOT in fan-out.ts
@@ -1649,14 +1670,14 @@ class TradeSignalOrchestrator {
           }
 
           // CHECK 2.4: MOMENTUM THESIS INVALIDATED
-          // Entry required 1h momentum > RISK_MIN_MOMENTUM_1H_BINANCE (e.g. 0.3%).
-          // If that signal has since decayed below minimum AND trade is still underwater
-          // after MIN_AGE minutes → don't wait 25 min for stale_underwater. Cut early.
-          // This caught the Mar 24 pattern: 1h decayed 0.6% → 0.19% at age 15 min, -0.21% gross.
+          // Fires only when 1h momentum goes NEGATIVE (< 0%) — not just below entry minimum.
+          // In a rising market, 1h will fluctuate around 0.3% during pullbacks — that's normal.
+          // Only exit early when momentum is genuinely reversed, not just breathing.
+          // Mar 24 lesson: BTC 1h went 0.306% → 0.26% (still positive) → thesis invalidation fired
+          // too early during a temporary pullback in an ongoing uptrend. Price was still rising.
           if (!shouldClose && grossProfitPct < 0 && env.ENTRY_THESIS_INVALIDATION_ENABLED) {
             const minAge = env.ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES; // 10 min
             const invalidationLoss = env.ENTRY_THESIS_INVALIDATION_LOSS_PCT * 100; // -0.2%
-            const minMom1h = env.RISK_MIN_MOMENTUM_1H_BINANCE; // 0.3%
             const peakData = positionTracker.getPeakProfit(trade.id);
             const peakPct = peakData?.peakPct || 0;
 
@@ -1664,15 +1685,14 @@ class TradeSignalOrchestrator {
               tradeAgeMinutes >= minAge &&
               peakPct < profitCollapseMinPeakPct && // never confirmed (< 0.5% peak)
               grossProfitPct < invalidationLoss && // underwater enough
-              liveMomentum1h < minMom1h // entry thesis gone
+              liveMomentum1h < 0 // 1h is genuinely negative — not just below entry minimum
             ) {
               shouldClose = true;
               exitReason = 'momentum_thesis_invalidated';
-              logger.info('📉 THESIS INVALIDATED — 1h momentum decayed below entry minimum while underwater', {
+              logger.info('📉 THESIS INVALIDATED — 1h momentum turned negative while underwater', {
                 tradeId: trade.id,
                 pair: trade.pair,
                 liveMomentum1h: liveMomentum1h.toFixed(2) + '%',
-                minMom1h: minMom1h.toFixed(2) + '%',
                 grossProfitPct: grossProfitPct.toFixed(2) + '%',
                 invalidationLoss: invalidationLoss.toFixed(2) + '%',
                 peakPct: peakPct.toFixed(2) + '%',
@@ -1855,6 +1875,14 @@ class TradeSignalOrchestrator {
                     exitReason === 'underwater_small_peak_timeout' || exitReason === 'underwater_never_profited') {
                   this.staleExitedPairsThisCycle.add(trade.pair);
                   logger.info('Loss exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });
+                }
+                if (exitReason === 'momentum_thesis_invalidated') {
+                  this.thesisInvalidatedPairs.set(trade.pair, Date.now());
+                  const env = getEnvironmentConfig();
+                  logger.info('Thesis invalidated: blocking re-entry', {
+                    pair: trade.pair,
+                    blockMinutes: env.THESIS_INVALIDATION_BLOCK_MINUTES,
+                  });
                 }
                 exitCount++;
               } else {

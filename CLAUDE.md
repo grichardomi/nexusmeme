@@ -1,5 +1,21 @@
 # NexusMeme Trading Bot - Development Guide
 
+## Position Sizing Ladder (FIXED — DO NOT CHANGE WITHOUT USER INSTRUCTION)
+
+Position size scales with regime confidence. This ladder is deliberate and must not be adjusted based on short-term trade outcomes:
+
+| Regime | Multiplier | Rationale |
+|--------|-----------|-----------|
+| Strong (ADX >40) | **1.5x** | Confirmed trend — maximize gains |
+| Moderate (ADX 25-40) | **0.75x** | Developing trend — reduced risk in slow/creeping markets |
+| Weak (ADX 15-25) | **0.75x** | Weak trend — conservative sizing |
+| Transitioning | **0.5x** | Uncertain direction — half size |
+| Choppy (ADX <15) | **0.5x** | No trend — minimal exposure |
+
+Source: `REGIME_SIZE_*` env vars in `.env.local`. Capital preservation (BTC EMA layers) multiplies on top of this.
+
+**RULE: Never suggest changing these multipliers based on a small number of trades. 50+ trades per regime required before tuning.**
+
 ## Core Principles
 
 **NO HARDCODING - PERIOD**
