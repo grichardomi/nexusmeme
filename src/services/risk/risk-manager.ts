@@ -281,6 +281,20 @@ class RiskManager {
   ): RiskFilterResult {
     logger.debug('RiskManager: Stage 5 - Cost Floor', { pair, profitTargetPercent, exchange });
 
+    // Enforce absolute minimum target to avoid fee drag on tiny moves
+    if (profitTargetPercent < this.config.profitTargetMinimum) {
+      logger.info('RiskManager: Entry blocked - profit target below minimum', {
+        pair,
+        profitTargetPercent: (profitTargetPercent * 100).toFixed(3),
+        minimum: (this.config.profitTargetMinimum * 100).toFixed(3),
+      });
+      return {
+        pass: false,
+        reason: `Profit target ${(profitTargetPercent * 100).toFixed(2)}% < minimum ${(this.config.profitTargetMinimum * 100).toFixed(2)}%`,
+        stage: 'Cost Floor',
+      };
+    }
+
     // Use ACTUAL exchange-specific fees (round-trip: entry + exit)
     const exchangeFeePercent = getCachedTakerFee(exchange) * 2; // Kraken: 0.0026*2 = 0.0052 (0.52%)
 
@@ -477,4 +491,3 @@ class RiskManager {
 }
 
 export const riskManager = new RiskManager();
-

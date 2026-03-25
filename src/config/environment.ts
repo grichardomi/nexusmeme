@@ -150,14 +150,14 @@ const envSchema = z.object({
   RISK_SPREAD_MAX_PERCENT: z.string().transform(Number).default('0.005'),
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
   RISK_RSI_EXTREME_OVERBOUGHT: z.string().transform(Number).default('85'),
-  RISK_RSI_OVERBOUGHT_TRENDING: z.string().transform(Number).default('92'), // ADX >= 35: RSI stays elevated in trends
+  RISK_RSI_OVERBOUGHT_TRENDING: z.string().transform(Number).default('92'), // RSI can stay elevated in sustained trends
   RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Kraken default: 1% (2× 0.52% round-trip fee)
-  RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.2'), // Binance: 0.2% (2× 0.10% round-trip fee)
+  RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.25'), // Binance: 0.25% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   RISK_MAX_ADVERSE_4H_MOMENTUM: z.string().transform(Number).default('-0.5'), // Block path 1/3 entries when 4h is this negative (counter-trend protection)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
-  RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.015'), // 1.5% - covers 0.52% round-trip fees + margin
+  RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.02'), // 2.0% minimum target to avoid fee drag
   RISK_EMA200_DOWNTREND_BLOCK_ENABLED: z.string().transform(val => val === 'true').default('false'), // Block entries when price < EMA200 (disable to catch reversals)
 
   /* Loss Streak & Cooldown - Prevents trade churn after consecutive losses */
@@ -174,7 +174,7 @@ const envSchema = z.object({
   /* Minimum peak profit before collapse protection kicks in */
   /* Philosophy: Only protect peaks above fee round-trip + buffer; below this let time-gated early loss handle it */
   PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - above 0.2% fee round-trip + buffer
-  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('2.5'), // 2.5% - must reach meaningful peak before erosion arms; prevents premature exits in trending markets
+  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('0.30'), // 0.30% minimum peak — ensures net-positive after fees at 85% retention
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - meaningful peak, not noise
@@ -241,12 +241,10 @@ const envSchema = z.object({
   BREAKEVEN_MIN_EXIT_PROFIT_PCT: z.string().transform(Number).default('0.10'), // Require +0.10% P&L to execute breakeven exit (covers fees/slip)
 
   /* Intrabar momentum guard (no-entry-on-red) */
-  ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.10'), // +0.10% min intrabar momentum for choppy/weak (ADX < 20) — filters slow drift entries without chasing
-  ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('-0.1'), // -0.1% threshold for trending (tighter — block falling knives)
+  ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.10'), // +0.10% min intrabar momentum for weak/choppy — filters slow drift entries without chasing
+  ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('0.05'), // Require rising candle even in trending markets
 
   /* 4h downtrend block — prevents buying 1h bounces in a falling market */
-  // Strong ADX can confirm a DOWNtrend. Claude flags this but can't veto in 'strong' regime.
-  // When 4h momentum < threshold, block entry regardless of 1h signal or ADX.
   ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD: z.string().transform(Number).default('-0.5'), // -0.5% = strong 4h downtrend → block
 
   /* Green-to-Red Protection - Safeguards against entry noise */
@@ -510,7 +508,7 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.008, // 0.8% - above fee round-trip + buffer
-    EROSION_PEAK_MIN_PCT: 2.5, // 2.5% - must reach meaningful peak before erosion arms; prevents premature exits in trending markets
+    EROSION_PEAK_MIN_PCT: 0.30,
     EROSION_MIN_PEAK_PCT: 0.008, // 0.8% - meaningful peak, not noise
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold

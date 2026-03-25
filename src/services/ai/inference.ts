@@ -44,6 +44,18 @@ function getCacheKey(
   return `${pair}:${priceBucket}:${volumeBucket}`;
 }
 
+function getBoostCacheKey(
+  pair: string,
+  indicators: TechnicalIndicators,
+  confidence: number,
+  isCreepingUptrend: boolean
+): string {
+  const volumeBucket = Math.floor((indicators.volumeRatio || 1) / 0.5);
+  const mom1hBucket = Math.round((indicators.momentum1h ?? 0) * 10) / 10; // 0.1% precision
+  const mom4hBucket = Math.round((indicators.momentum4h ?? 0) * 10) / 10;
+  return `boost:${pair}:vol${volumeBucket}:m1h${mom1hBucket}:m4h${mom4hBucket}:c${confidence}:cu${isCreepingUptrend ? 1 : 0}`;
+}
+
 /**
  * Check cache for response
  */
@@ -700,6 +712,15 @@ export async function aiConfidenceBoost(
     return { adjustment: 0, reasoning: 'No adjustment needed for hold signal', provider, latencyMs: 0 };
   }
 
+  // Cache lookup — isCreepingUptrend is part of the key so a mode change always gets a fresh call
+  const boostCacheKey = getBoostCacheKey(pair, indicators, deterministicConfidence, isCreepingUptrend);
+  const cachedBoost = getFromCache(boostCacheKey);
+  if (cachedBoost) {
+    const parsed = JSON.parse(cachedBoost) as AIConfidenceBoostResult;
+    logger.debug('AI boost cache hit', { pair, boostCacheKey, adjustment: parsed.adjustment });
+    return { ...parsed, latencyMs: 0 };
+  }
+
   // Take last 10 candles for context
   const recentCandles = candles.slice(-10);
 
@@ -781,7 +802,9 @@ Rules:
       latencyMs,
     });
 
-    return { adjustment, reasoning, provider, latencyMs };
+    const boostResult = { adjustment, reasoning, provider, latencyMs };
+    setCache(boostCacheKey, JSON.stringify(boostResult));
+    return boostResult;
   } catch (error) {
     const latencyMs = Date.now() - startTime;
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';

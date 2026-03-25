@@ -200,13 +200,11 @@ export async function closeTrade(data: CloseTradeParams): Promise<CloseTradeResu
     } catch {}
   }
 
-  // VALIDATION: Abort profit-protection exits that went red during execution
-  const profitProtectionReasons = [
-    'erosion_cap_profit_lock', 'erosion_cap_protected', 'erosion_cap_exceeded',
-    'erosion_cap', 'erosion_full_giveback', 'green_to_red', 'profit_target',
-    'profit_lock_regime', 'breakeven_protection',
-  ];
-  if (profitProtectionReasons.includes(data.exitReason || '') && actualProfitLossPercent < 0) {
+  // VALIDATION: Only abort pure profit-target exits that went red during execution.
+  // Erosion cap exits MUST always execute — aborting them causes the trade to stay
+  // open and keep bleeding (trapped position bug observed 2026-03-24 23:09-23:19).
+  const profitTargetOnlyReasons = ['profit_target', 'profit_lock_regime'];
+  if (profitTargetOnlyReasons.includes(data.exitReason || '') && actualProfitLossPercent < 0) {
     return {
       ok: false, status: 400,
       error: 'Exit aborted - trade went red',

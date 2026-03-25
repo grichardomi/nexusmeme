@@ -402,7 +402,8 @@ class TradeSignalOrchestrator {
                   continue; // Move to next trade
                 } else {
                   if (closeResult.reason === 'profit_protection_invalid_for_red_trade') {
-                    logger.warn('⚠️ PROFIT PROTECTION EXIT ABORTED: Trade went red - letting underwater logic handle it', {
+                    // Only profit_target exits get aborted when red — erosion cap exits now always execute
+                    logger.warn('⚠️ PROFIT TARGET EXIT ABORTED: Trade went red during execution', {
                       tradeId: trade.id,
                       pair: trade.pair,
                       reason: 'Price slipped from green to red during execution',
@@ -721,7 +722,25 @@ class TradeSignalOrchestrator {
               }
             }
 
-            // NOTE: Position duplicate prevention handled PER-BOT in fan-out.ts
+            // OPEN POSITION GUARD: Skip AI/Claude entirely if any active bot already
+            // holds this pair. fan-out.ts does the per-bot DB check, but checking here
+            // first avoids burning Claude API calls on pairs that will be skipped anyway.
+            {
+              const baseAsset = pair.split('/')[0];
+              const openPos = await query<{ id: string }>(
+                `SELECT t.id FROM trades t
+                 JOIN bot_instances b ON b.id = t.bot_instance_id
+                 WHERE b.status = 'running'
+                 AND t.pair LIKE $1
+                 AND t.status = 'open'
+                 LIMIT 1`,
+                [`${baseAsset}/%`]
+              );
+              if (openPos.length > 0) {
+                logger.debug('Skipping analysis: open position already exists for pair', { pair, baseAsset });
+                return { type: 'skipped' };
+              }
+            }
 
             // ============================================
             // 5-STAGE RISK FILTER (/nexus parity - BEFORE AI)
@@ -813,6 +832,31 @@ class TradeSignalOrchestrator {
             console.log(`\n✅ RISK FILTER PASSED: ${pair} - 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | 1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
             logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
+            // CREEPING UPTREND DETECTION: slow sustained grind where volume may be low
+            // but price is making consistent higher highs. Tells AI to look for candle
+            // consistency rather than volume explosiveness.
+            let isCreepingUptrend = false;
+            if (env.CREEPING_UPTREND_ENABLED) {
+              const mom1hVal = indicators.momentum1h ?? 0;
+              const mom4hVal = indicators.momentum4h ?? 0;
+              const volRatio = indicators.volumeRatio ?? 1;
+              const recentHigh = Math.max(...candles.slice(-16).map(c => c.high));
+              const priceToHighRatio = recentHigh > 0 ? currentPrice / recentHigh : 0;
+
+              const mom1hOk = mom1hVal >= env.CREEPING_UPTREND_GATE_MIN_1H;
+              const mom4hOk = mom4hVal >= env.CREEPING_UPTREND_GATE_MIN_4H;
+              const volOk = volRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
+              const priceNearHigh = priceToHighRatio >= env.CREEPING_UPTREND_PRICE_TOP_THRESHOLD;
+              const noPullback = priceToHighRatio >= env.CREEPING_UPTREND_PULLBACK_THRESHOLD;
+
+              isCreepingUptrend = mom1hOk && mom4hOk && volOk && priceNearHigh && noPullback;
+
+              if (isCreepingUptrend) {
+                console.log(`\n📈 CREEPING UPTREND: ${pair} - mom1h: ${mom1hVal.toFixed(2)}% mom4h: ${mom4hVal.toFixed(2)}% vol: ${volRatio.toFixed(2)}x price/high: ${(priceToHighRatio * 100).toFixed(1)}%`);
+                logger.info('Orchestrator: creeping uptrend detected', { pair, mom1h: mom1hVal.toFixed(3), mom4h: mom4hVal.toFixed(3), volumeRatio: volRatio.toFixed(2), priceToHighRatio: priceToHighRatio.toFixed(4) });
+              }
+            }
+
             const analysis = await analyzeMarket({
               pair,
               timeframe: '1h',
@@ -820,6 +864,7 @@ class TradeSignalOrchestrator {
               includeRegime: true,
               currentPrice,
               indicators,
+              isCreepingUptrend,
             });
 
             console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
