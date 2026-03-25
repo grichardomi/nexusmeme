@@ -1409,9 +1409,11 @@ class TradeSignalOrchestrator {
           // Determine regime LIVE from current ADX — never use stale bot config value
           // Stale regime causes wrong profit targets (e.g. null → 'moderate' → 2% when market is choppy)
           let regime = 'moderate'; // safe fallback
+          let liveMomentum1h = 0;
           try {
             const regimeIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
             const liveAdx = regimeIndicators?.adx ?? 0;
+            liveMomentum1h = regimeIndicators?.momentum1h ?? 0;
             if (liveAdx >= 40) regime = 'strong';
             else if (liveAdx >= 25) regime = 'moderate';
             else if (liveAdx >= 15) regime = 'weak';
@@ -1643,6 +1645,39 @@ class TradeSignalOrchestrator {
                   exitReason,
                 });
               }
+            }
+          }
+
+          // CHECK 2.4: MOMENTUM THESIS INVALIDATED
+          // Entry required 1h momentum > RISK_MIN_MOMENTUM_1H_BINANCE (e.g. 0.3%).
+          // If that signal has since decayed below minimum AND trade is still underwater
+          // after MIN_AGE minutes → don't wait 25 min for stale_underwater. Cut early.
+          // This caught the Mar 24 pattern: 1h decayed 0.6% → 0.19% at age 15 min, -0.21% gross.
+          if (!shouldClose && grossProfitPct < 0 && env.ENTRY_THESIS_INVALIDATION_ENABLED) {
+            const minAge = env.ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES; // 10 min
+            const invalidationLoss = env.ENTRY_THESIS_INVALIDATION_LOSS_PCT * 100; // -0.2%
+            const minMom1h = env.RISK_MIN_MOMENTUM_1H_BINANCE; // 0.3%
+            const peakData = positionTracker.getPeakProfit(trade.id);
+            const peakPct = peakData?.peakPct || 0;
+
+            if (
+              tradeAgeMinutes >= minAge &&
+              peakPct < profitCollapseMinPeakPct && // never confirmed (< 0.5% peak)
+              grossProfitPct < invalidationLoss && // underwater enough
+              liveMomentum1h < minMom1h // entry thesis gone
+            ) {
+              shouldClose = true;
+              exitReason = 'momentum_thesis_invalidated';
+              logger.info('📉 THESIS INVALIDATED — 1h momentum decayed below entry minimum while underwater', {
+                tradeId: trade.id,
+                pair: trade.pair,
+                liveMomentum1h: liveMomentum1h.toFixed(2) + '%',
+                minMom1h: minMom1h.toFixed(2) + '%',
+                grossProfitPct: grossProfitPct.toFixed(2) + '%',
+                invalidationLoss: invalidationLoss.toFixed(2) + '%',
+                peakPct: peakPct.toFixed(2) + '%',
+                ageMinutes: tradeAgeMinutes.toFixed(1),
+              });
             }
           }
 

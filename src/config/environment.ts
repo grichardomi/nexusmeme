@@ -334,6 +334,11 @@ const envSchema = z.object({
   STALE_UNDERWATER_MINUTES: z.string().transform(Number).default('30'), // Exit after 30 min underwater with zero peak
   STALE_UNDERWATER_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (avoids spread noise)
 
+  /* Momentum Thesis Invalidation - exit early when entry signal has decayed */
+  ENTRY_THESIS_INVALIDATION_ENABLED: z.string().transform(v => v === 'true').default('true'),
+  ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES: z.string().transform(Number).default('10'), // Don't fire in first 10 min (entry noise)
+  ENTRY_THESIS_INVALIDATION_LOSS_PCT: z.string().transform(Number).default('-0.002'), // Must be ≥ -0.2% underwater
+
   /* BTC Dump Exit - exit underwater trades immediately when BTC is panic-selling */
   BTC_DUMP_MOM1H_THRESHOLD: z.string().transform(Number).default('-0.5'),   // BTC 1h momentum below this = dump (-0.5%)
   BTC_DUMP_VOLUME_MIN: z.string().transform(Number).default('2.5'),          // BTC volume ratio above this = panic (2.5x avg)
@@ -614,6 +619,9 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_DAILY: -0.003,
     STALE_UNDERWATER_MINUTES: 30,
     STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
+    ENTRY_THESIS_INVALIDATION_ENABLED: true,
+    ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES: 10,
+    ENTRY_THESIS_INVALIDATION_LOSS_PCT: -0.002,
     BTC_DUMP_MOM1H_THRESHOLD: -0.5,
     BTC_DUMP_VOLUME_MIN: 2.5,
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,
