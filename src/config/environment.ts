@@ -375,8 +375,8 @@ const envSchema = z.object({
 
   /* Capital Preservation - 3-Layer Automated Downtrend Protection */
   CP_BTC_TREND_GATE_ENABLED: z.string().transform(val => val === 'true').default('false'),
-  CP_BTC_EMA_SHORT_PERIOD: z.string().transform(Number).default('50'),
-  CP_BTC_EMA_LONG_PERIOD: z.string().transform(Number).default('200'),
+  CP_BTC_MOMENTUM_BEAR_4H: z.string().transform(Number).default('-2'), // 4h BTC momentum <= -2% → 25% size
+  CP_BTC_MOMENTUM_WEAK_1H: z.string().transform(Number).default('-0.5'), // 1h BTC momentum <= -0.5% → 50% size
   CP_DRAWDOWN_ENABLED: z.string().transform(val => val === 'true').default('true'),
   CP_DRAWDOWN_REDUCE_PCT: z.string().transform(Number).default('5'), // 5% rolling loss → reduce size
   CP_DRAWDOWN_PAUSE_PCT: z.string().transform(Number).default('10'), // 10% rolling loss → pause 24h
@@ -620,8 +620,8 @@ function getDefaultEnvironment(): Environment {
     EMAIL_BATCH_SIZE: 100,
     EMAIL_TRADE_ALERTS_DEFAULT: false,
     CP_BTC_TREND_GATE_ENABLED: false,
-    CP_BTC_EMA_SHORT_PERIOD: 50,
-    CP_BTC_EMA_LONG_PERIOD: 200,
+    CP_BTC_MOMENTUM_BEAR_4H: -2,
+    CP_BTC_MOMENTUM_WEAK_1H: -0.5,
     CP_DRAWDOWN_ENABLED: true,
     CP_DRAWDOWN_REDUCE_PCT: 5,
     CP_DRAWDOWN_PAUSE_PCT: 10,

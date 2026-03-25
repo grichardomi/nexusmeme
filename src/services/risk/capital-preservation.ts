@@ -4,7 +4,7 @@
  * Prevents "death by a thousand cuts" in sustained downtrends.
  * Called once per orchestrator cycle before signal generation.
  *
- * Layer 1: BTC Daily Trend Gate (market-wide) - EMA50/EMA200
+ * Layer 1: BTC Momentum Trend Gate (market-wide) - 4h and 1h momentum
  * Layer 2: Rolling Drawdown Circuit Breaker (per-bot) - 7-day P&L tracking
  * Layer 3: Consecutive Loss Detection (per-bot) - streak counting
  */
@@ -22,23 +22,9 @@ export interface CapitalPreservationResult {
 }
 
 interface BtcTrendCache {
-  ema50: number;
-  ema200: number;
-  btcClose: number;
+  momentum1h: number;
+  momentum4h: number;
   timestamp: number;
-}
-
-/**
- * Calculate EMA (Exponential Moving Average) from an array of close prices
- */
-function calculateEMA(closes: number[], period: number): number {
-  if (closes.length === 0) return 0;
-  const multiplier = 2 / (period + 1);
-  let ema = closes[0];
-  for (let i = 1; i < closes.length; i++) {
-    ema = closes[i] * multiplier + ema * (1 - multiplier);
-  }
-  return ema;
 }
 
 class CapitalPreservationService {
@@ -46,12 +32,11 @@ class CapitalPreservationService {
   private readonly BTC_CACHE_TTL_MS = 3600000; // 1 hour
 
   /**
-   * Layer 1: BTC Daily Trend Gate (market-wide)
-   * Checks BTC position relative to EMA50 and EMA200 on daily chart.
-   * - BTC > EMA50: full trading (multiplier 1.0)
-   * - BTC < EMA50 but > EMA200: reduced size (multiplier 0.5)
-   * - BTC < EMA200: block all entries
-   * Auto-resume: next cycle where BTC > EMA50
+   * Layer 1: BTC Momentum Trend Gate (market-wide)
+   * Checks BTC momentum on 4h and 1h timeframes.
+   * - BTC 4h momentum <= bearThreshold (default -2%): sustained bear → 25% size
+   * - BTC 1h momentum <= weakThreshold (default -0.5%): short-term weakness → 50% size
+   * - Otherwise: full trading
    */
   async checkBtcTrendGate(): Promise<CapitalPreservationResult> {
     const env = getEnvironmentConfig();
@@ -68,98 +53,73 @@ class CapitalPreservationService {
         return this.evaluateBtcTrend(this.btcTrendCache);
       }
 
-      // Fetch daily candles (250 days for EMA200)
-      const candles = await fetchOHLC('BTC/USDT', 250, '1d');
+      // Fetch 15m candles — 16 candles = 4h window, 4 candles = 1h window
+      const candles = await fetchOHLC('BTC/USDT', 20, '15m');
 
-      if (!candles || candles.length < env.CP_BTC_EMA_LONG_PERIOD) {
-        logger.warn('Capital preservation: insufficient BTC daily candles', {
+      if (!candles || candles.length < 16) {
+        logger.warn('Capital preservation: insufficient BTC candles', {
           received: candles?.length || 0,
-          required: env.CP_BTC_EMA_LONG_PERIOD,
+          required: 16,
         });
-        // Fail open - allow trading if we can't determine trend
         return { allowTrading: true, sizeMultiplier: 1.0, reason: 'Insufficient BTC data, allowing trading' };
       }
 
-      // Get current live BTC price (more responsive than yesterday's close)
-      let btcClose: number;
-      try {
-        const baseUrl = getEnvironmentConfig().BINANCE_MARKET_DATA_URL;
-        const tickerUrl = `${baseUrl}/api/v3/ticker/price?symbol=BTCUSDT`;
-        const tickerResponse = await fetch(tickerUrl);
-        if (tickerResponse.ok) {
-          const tickerData = await tickerResponse.json();
-          btcClose = parseFloat(tickerData.price);
-          logger.debug('Capital preservation: using live BTC price', { btcClose });
-        } else {
-          // Fallback to last candle close if ticker fails
-          btcClose = candles[candles.length - 1].close;
-          logger.debug('Capital preservation: ticker failed, using candle close', { btcClose });
-        }
-      } catch (error) {
-        // Fallback to last candle close if ticker fails
-        btcClose = candles[candles.length - 1].close;
-        logger.debug('Capital preservation: ticker error, using candle close', { btcClose });
-      }
+      const currentClose = candles[candles.length - 1].close;
+      const close4hAgo = candles[candles.length - 17]?.close ?? candles[0].close;
+      const close1hAgo = candles[candles.length - 5]?.close ?? candles[candles.length - 4].close;
 
-      // Use historical closes for EMA, but current price for comparison
-      const closes = candles.map(c => c.close);
-      const ema50 = calculateEMA(closes, env.CP_BTC_EMA_SHORT_PERIOD);
-      const ema200 = calculateEMA(closes, env.CP_BTC_EMA_LONG_PERIOD);
+      const momentum4h = ((currentClose - close4hAgo) / close4hAgo) * 100;
+      const momentum1h = ((currentClose - close1hAgo) / close1hAgo) * 100;
 
-      // Cache the result
-      this.btcTrendCache = { ema50, ema200, btcClose, timestamp: now };
+      this.btcTrendCache = { momentum1h, momentum4h, timestamp: now };
 
       return this.evaluateBtcTrend(this.btcTrendCache);
     } catch (error) {
       logger.error('Capital preservation: BTC trend gate error', error instanceof Error ? error : null);
-      // Fail open - allow trading on error
       return { allowTrading: true, sizeMultiplier: 1.0, reason: 'BTC trend gate error, allowing trading' };
     }
   }
 
   private evaluateBtcTrend(cache: BtcTrendCache): CapitalPreservationResult {
-    const { btcClose, ema50, ema200 } = cache;
+    const env = getEnvironmentConfig();
+    const { momentum1h, momentum4h } = cache;
 
-    // BTC below EMA200 (daily) = sustained bear market — 25% size (still trades, just cautious)
-    // Never block completely: individual pairs can still have valid signals in a bear market
-    if (btcClose < ema200) {
-      console.log(`\n⚠️ [BTC TREND] BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) — 25% size`);
-      logger.info('Capital preservation: BTC below EMA200, reducing to 25% size', {
-        btcClose: btcClose.toFixed(2),
-        ema50: ema50.toFixed(2),
-        ema200: ema200.toFixed(2),
+    // BTC 4h momentum deeply negative = sustained bear — 25% size
+    if (momentum4h <= env.CP_BTC_MOMENTUM_BEAR_4H) {
+      console.log(`\n⚠️ [BTC TREND] BTC 4h momentum ${momentum4h.toFixed(2)}% <= ${env.CP_BTC_MOMENTUM_BEAR_4H}% — 25% size (bear)`);
+      logger.info('Capital preservation: BTC bearish 4h momentum, reducing to 25% size', {
+        momentum1h: momentum1h.toFixed(2),
+        momentum4h: momentum4h.toFixed(2),
       });
       return {
         allowTrading: true,
         sizeMultiplier: 0.25,
-        reason: `BTC below EMA200 ($${btcClose.toFixed(0)} < $${ema200.toFixed(0)}) — bear market, 25% size`,
+        reason: `BTC 4h momentum ${momentum4h.toFixed(2)}% — sustained bear, 25% size`,
         layer: 'btc_trend',
       };
     }
 
-    // BTC below EMA50 but above EMA200 = weakening trend — 50% size
-    if (btcClose < ema50) {
-      console.log(`\n⚠️ [BTC TREND] BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) — 50% size`);
-      logger.info('Capital preservation: BTC below EMA50, reducing size 50%', {
-        btcClose: btcClose.toFixed(2),
-        ema50: ema50.toFixed(2),
-        ema200: ema200.toFixed(2),
+    // BTC 1h momentum negative = short-term weakness — 50% size
+    if (momentum1h <= env.CP_BTC_MOMENTUM_WEAK_1H) {
+      console.log(`\n⚠️ [BTC TREND] BTC 1h momentum ${momentum1h.toFixed(2)}% <= ${env.CP_BTC_MOMENTUM_WEAK_1H}% — 50% size`);
+      logger.info('Capital preservation: BTC weak 1h momentum, reducing to 50% size', {
+        momentum1h: momentum1h.toFixed(2),
+        momentum4h: momentum4h.toFixed(2),
       });
       return {
         allowTrading: true,
         sizeMultiplier: 0.5,
-        reason: `BTC below EMA50 ($${btcClose.toFixed(0)} < $${ema50.toFixed(0)}) — weakening trend, 50% size`,
+        reason: `BTC 1h momentum ${momentum1h.toFixed(2)}% — short-term weakness, 50% size`,
         layer: 'btc_trend',
       };
     }
 
-    console.log(`\n✅ [BTC TREND] BTC above EMA50 ($${btcClose.toFixed(0)} > $${ema50.toFixed(0)}) — full trading`);
-    logger.debug('Capital preservation: BTC above EMA50, full trading', {
-      btcClose: btcClose.toFixed(2),
-      ema50: ema50.toFixed(2),
-      ema200: ema200.toFixed(2),
+    console.log(`\n✅ [BTC TREND] BTC momentum 1h=${momentum1h.toFixed(2)}% 4h=${momentum4h.toFixed(2)}% — full trading`);
+    logger.debug('Capital preservation: BTC momentum positive, full trading', {
+      momentum1h: momentum1h.toFixed(2),
+      momentum4h: momentum4h.toFixed(2),
     });
-    return { allowTrading: true, sizeMultiplier: 1.0, reason: 'BTC above EMA50 — full trading' };
+    return { allowTrading: true, sizeMultiplier: 1.0, reason: `BTC momentum 1h=${momentum1h.toFixed(2)}% 4h=${momentum4h.toFixed(2)}% — full trading` };
   }
 
   /**
@@ -434,7 +394,6 @@ class CapitalPreservationService {
 
   /**
    * Manually clear BTC trend cache to force fresh data fetch
-   * Useful when EMA data appears stale or after market volatility
    */
   public clearBtcCache(): void {
     this.btcTrendCache = null;
