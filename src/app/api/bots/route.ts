@@ -339,7 +339,6 @@ export async function POST(request: NextRequest) {
             underwaterExitThresholdPct: -0.005,  // -0.5% underwater threshold (hybrid: more aggressive than /nexus)
             underwaterExitMinTimeMinutes: 15,    // 15 minutes minimum (parity with /nexus)
             // ===== RISK MANAGEMENT (5-STAGE FILTER) =====
-            minADXForEntry: 20,              // Chop detection threshold
             btcDumpThreshold1h: -0.015,      // BTC dump protection for alts
             volumeSpikeMax: 3.0,             // Volume panic threshold (3x normal)
             spreadMaxPercent: 0.005,         // Max spread tolerance

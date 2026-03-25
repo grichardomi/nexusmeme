@@ -99,8 +99,9 @@ class RegimeGatekeeper {
 
   /**
    * Determine if trade execution should be allowed for a specific pair
-   * Uses ADX-based regime classification (matching Nexus)
-   * Choppy (ADX<20), Weak (20-30), Moderate (30-35), Strong (>=35)
+   * Regime is momentum-based: strong/moderate/weak/transitioning/choppy
+   * All regimes allow execution — position sizing and profit targets adjust per regime.
+   * Entry gating is handled by the health gate (4h/1h momentum) in risk-manager.ts.
    */
   async shouldAllowExecution(pair: string): Promise<boolean> {
     const regime = await this.getMarketRegime(pair);
@@ -111,43 +112,8 @@ class RegimeGatekeeper {
       confidence: regime.confidence,
     });
 
-    // ADX-based regime decision logic (matching Nexus RiskManager)
-    switch (regime.type) {
-      case 'strong':
-        // Strong trend (ADX >= 35): Allow all entries aligned with trend
-        // This is the most favorable condition for trading
-        logRegimeDecision('strong', true, `Strong trend regime for ${pair} - allowing execution`);
-        return true;
-
-      case 'moderate':
-        // Moderate trend (ADX 30-35): Allow entries with good confluence
-        logRegimeDecision('moderate', true, `Moderate trend regime for ${pair} - allowing execution`);
-        return true;
-
-      case 'weak':
-        // Weak trend (ADX 20-30): More cautious, require additional confirmation
-        // Allow but with stricter entry conditions (enforced in AI gates)
-        logRegimeDecision('weak', true, `Weak trend regime for ${pair} - allowing execution with strict gates`);
-        return true;
-
-      case 'transitioning':
-        // Transitioning (ADX 15-20 but rising fast): Early trend forming
-        // Allow with reduced position size (enforced in fan-out via regime multiplier)
-        logRegimeDecision('transitioning', true, `Transition zone for ${pair} - allowing at reduced size (ADX rising)`);
-        return true;
-
-      case 'choppy':
-        // Choppy regime (ADX < 20): Most restrictive
-        // Allow only if momentum is VERY strong (e.g., volume breakout, oversold reversals)
-        // Risk manager will enforce stricter AI confidence threshold
-        logRegimeDecision('choppy', true, `Choppy regime for ${pair} - allowing only strong momentum entries`);
-        return true;
-
-      default:
-        // Unknown regime - fail safe to allow trading but be cautious
-        logger.warn('Unknown regime type, defaulting to allow', { pair, regime: regime.type });
-        return true;
-    }
+    logRegimeDecision(regime.type, true, `${regime.type} regime for ${pair} - allowing execution`);
+    return true;
   }
 
   /**

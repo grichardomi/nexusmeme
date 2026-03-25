@@ -772,7 +772,7 @@ class TradeSignalOrchestrator {
               spreadPct = (ask - bid) / bid;
             }
 
-            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | ADX: ${indicators.adx?.toFixed(1) || 'N/A'} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
+            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Mom4h: ${(indicators.momentum4h || 0).toFixed(2)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
 
             // PRE-CHECK: Block entry if spread exceeds maximum
             const maxEntrySpreadPct = env.MAX_ENTRY_SPREAD_PCT || 0.003;
@@ -806,12 +806,12 @@ class TradeSignalOrchestrator {
 
             if (!riskFilter.pass) {
               console.log(`\n🚫 RISK FILTER BLOCKED: ${pair} - ${riskFilter.reason}`);
-              logger.info('Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), adx: indicators.adx?.toFixed(1) });
+              logger.info('Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), momentum4h: indicators.momentum4h?.toFixed(3) });
               return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: riskFilter.reason, stage: riskFilter.stage } };
             }
 
             console.log(`\n✅ RISK FILTER PASSED: ${pair} - 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | 1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
-            logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3), adx: indicators.adx?.toFixed(1) });
+            logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
             const analysis = await analyzeMarket({
               pair,
@@ -857,7 +857,6 @@ class TradeSignalOrchestrator {
                 },
                 capitalPreservationMultiplier: globalCpMultiplier,
                 entryNotes: {
-                  adx: indicators.adx ?? 0,
                   momentum1h: indicators.momentum1h ?? 0,
                   momentum4h: indicators.momentum4h ?? 0,
                   confidence: analysis.signal.confidence,
@@ -873,14 +872,10 @@ class TradeSignalOrchestrator {
                 logger.info('Orchestrator: ETH position halved — BTC 1h momentum negative', { pair, btcMomentum1h: btcMomentum1h.toFixed(3), newMultiplier: decision.capitalPreservationMultiplier });
               }
 
-              const adxVal = indicators.adx ?? 0;
-              const adxMod = env.ADX_MODERATE_MAX; // 40
-              const adxWeak = env.ADX_WEAK_MAX;     // 25
-              const adxTrans = env.ADX_TRANSITION_ZONE_MIN; // 15
-              const regimeClass = adxVal >= adxMod ? 'STRONG' : adxVal >= adxWeak ? 'MODERATE' : adxVal >= env.RISK_MIN_ADX_FOR_ENTRY ? 'WEAK' : adxVal >= adxTrans ? 'TRANSITIONING' : 'CHOPPY';
-              const expectedTarget = adxVal >= adxMod ? `${(env.PROFIT_TARGET_STRONG * 100).toFixed(0)}%` : adxVal >= adxWeak ? `${(env.PROFIT_TARGET_MODERATE * 100).toFixed(0)}%` : adxVal >= env.RISK_MIN_ADX_FOR_ENTRY ? `${(env.PROFIT_TARGET_WEAK * 100).toFixed(1)}%` : adxVal >= adxTrans ? `${(env.PROFIT_TARGET_TRANSITIONING * 100).toFixed(1)}%` : `${(env.PROFIT_TARGET_CHOPPY * 100).toFixed(1)}%`;
-              console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
-              logger.info('Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: analysis.regime.regime, adx: adxVal.toFixed(1), regimeClass, expectedProfitTarget: expectedTarget, btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
+              const regimeClass = effectiveRegime.toUpperCase();
+              const expectedTarget = `${(riskManager.getProfitTarget(effectiveRegime) * 100).toFixed(1)}%`;
+              console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
+              logger.info('Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
 
               return { type: 'decision', decision };
 
@@ -1427,18 +1422,14 @@ class TradeSignalOrchestrator {
           const botConfig = typeof trade.config === 'string' ? JSON.parse(trade.config) : trade.config;
           const emergencyLossLimit = parseFloat(botConfig?.emergencyLossLimit || '-0.06'); // -6% emergency exit
 
-          // Determine regime LIVE from current ADX — never use stale bot config value
-          // Stale regime causes wrong profit targets (e.g. null → 'moderate' → 2% when market is choppy)
+          // Determine regime LIVE from momentum — never use stale bot config value
           let regime = 'moderate'; // safe fallback
           let liveMomentum1h = 0;
           try {
             const regimeIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
-            const liveAdx = regimeIndicators?.adx ?? 0;
             liveMomentum1h = regimeIndicators?.momentum1h ?? 0;
-            if (liveAdx >= 40) regime = 'strong';
-            else if (liveAdx >= 25) regime = 'moderate';
-            else if (liveAdx >= 15) regime = 'weak';
-            else regime = 'choppy';
+            const liveMomentum4h = regimeIndicators?.momentum4h ?? 0;
+            regime = riskManager.getRegime(liveMomentum1h, liveMomentum4h);
           } catch {
             // fallback to stored config regime if live fetch fails
             regime = botConfig?.regime || 'moderate';
@@ -1496,39 +1487,7 @@ class TradeSignalOrchestrator {
           let profitTarget: number;
 
           // Fetch current ADX slope for dynamic profit target adjustment
-          let adxSlope = 0;
-          try {
-            const exitIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
-            adxSlope = exitIndicators?.adxSlope ?? 0;
-          } catch {
-            // Safe fallback: slope=0 means no adjustment (uses static regime targets)
-          }
-          const slopeFallingThreshold = env.ADX_SLOPE_FALLING_THRESHOLD;
-          switch (regime.toLowerCase()) {
-            case 'choppy':
-              profitTarget = env.PROFIT_TARGET_CHOPPY;  // 1.5% - fast exit
-              break;
-            case 'transitioning':
-              profitTarget = env.PROFIT_TARGET_TRANSITIONING; // 2.5% - early trend
-              break;
-            case 'weak':
-              profitTarget = env.PROFIT_TARGET_WEAK;    // 2.5% - weak trends
-              break;
-            case 'moderate':
-              profitTarget = env.PROFIT_TARGET_MODERATE; // 5% - developing trends
-              break;
-            case 'strong':
-              // ADX slope downgrade: if trend exhausting, use moderate target
-              if (adxSlope <= slopeFallingThreshold) {
-                profitTarget = env.PROFIT_TARGET_MODERATE;
-                console.log(`📉 [ORCHESTRATOR] Profit target downgraded: strong → moderate (slope ${adxSlope.toFixed(2)} <= ${slopeFallingThreshold})`);
-              } else {
-                profitTarget = env.PROFIT_TARGET_STRONG;   // default 8% — configurable via PROFIT_TARGET_STRONG
-              }
-              break;
-            default:
-              profitTarget = env.PROFIT_TARGET_MODERATE; // Default to 5%
-          }
+          profitTarget = riskManager.getProfitTarget(regime);
 
           logger.debug('Regime-based profit target selected', {
             tradeId: trade.id,
@@ -2002,44 +1961,38 @@ class TradeSignalOrchestrator {
           }
 
           // CHECK L1: Add at L1 trigger % profit (requires ADX > PYRAMID_L1_MIN_ADX)
-          // Confidence inferred from ADX: ADX >= 35 = strong trend = high confidence
-          // (Using stale bot-config confidence caused perpetual rejection — ADX IS the confidence signal)
+          // Pyramid gate: momentum-based (no ADX). Trade already profitable at trigger % = trend confirmed.
+          // Require 1h momentum still positive to confirm trend is continuing, not reversing.
           const l1TriggerPct = env.PYRAMID_L1_TRIGGER_PCT * 100;
           if (!hasL1 && currentProfitPct >= l1TriggerPct) {
-            // Check ADX for trend strength first — ADX IS the confidence gate
-            let adx = 0;
+            let mom1hL1 = 0;
             try {
               const indicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
-              adx = indicators.adx || 0;
+              mom1hL1 = indicators.momentum1h || 0;
             } catch (indicatorError) {
-              logger.warn('Failed to fetch ADX for pyramid check', {
+              logger.warn('Failed to fetch momentum for L1 pyramid check', {
                 pair: trade.pair,
                 error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
               });
-              adx = 0;
             }
 
-            const minAdxL1 = env.PYRAMID_L1_MIN_ADX;
-            // Infer AI confidence from ADX: ADX >= 35 → 87%, ADX >= 40 → 92%
-            // A trade up 4.5% in a strong trend IS high-confidence by definition
-            const inferredConfidence = adx >= 40 ? 92 : adx >= 35 ? 87 : 70;
+            // Infer confidence from momentum strength: strong = 87%, moderate = 75%
+            const inferredConfidence = mom1hL1 >= 1.0 ? 92 : mom1hL1 >= 0.4 ? 87 : 70;
             const l1ConfidenceCheck = riskManager.canAddPyramidLevel(1, inferredConfidence);
             if (!l1ConfidenceCheck.pass) {
               logger.debug('L1 pyramid rejected - insufficient confidence', {
                 pair: trade.pair,
                 reason: l1ConfidenceCheck.reason,
-                adx: adx.toFixed(2),
+                mom1h: mom1hL1.toFixed(2),
                 inferredConfidence,
                 currentProfitPct: currentProfitPct.toFixed(2),
               });
             } else {
-              if (adx < minAdxL1) {
-                logger.debug('L1 pyramid rejected - insufficient trend strength', {
+              if (mom1hL1 <= 0) {
+                logger.debug('L1 pyramid rejected - 1h momentum not positive', {
                   pair: trade.pair,
-                  adx: adx.toFixed(2),
-                  minRequired: minAdxL1,
+                  mom1h: mom1hL1.toFixed(2),
                   currentProfitPct: currentProfitPct.toFixed(2),
-                  note: 'Need strong trend (ADX 35+) for safe pyramiding',
                 });
               } else {
                 const l1Quantity = parseFloat(String(trade.quantity)) * env.PYRAMID_ADD_SIZE_PCT_L1;
@@ -2096,34 +2049,30 @@ class TradeSignalOrchestrator {
             }
           }
 
-          // CHECK L2: Add at L2 trigger % profit (only if L1 exists, requires ADX > PYRAMID_L2_MIN_ADX)
-          // Confidence inferred from ADX (same fix as L1 — stale bot-config caused perpetual rejection)
+          // CHECK L2: Add at L2 trigger % profit (only if L1 exists, requires strong momentum)
           const l2TriggerPct = env.PYRAMID_L2_TRIGGER_PCT * 100;
           if (!hasL2 && hasL1 && currentProfitPct >= l2TriggerPct) {
-            let adxL2 = 0;
+            let mom1hL2 = 0;
             try {
               const indicatorsL2 = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
-              adxL2 = indicatorsL2.adx || 0;
+              mom1hL2 = indicatorsL2.momentum1h || 0;
             } catch (indicatorError) {
-              logger.warn('Failed to fetch ADX for L2 pyramid check', {
+              logger.warn('Failed to fetch momentum for L2 pyramid check', {
                 pair: trade.pair,
                 error: indicatorError instanceof Error ? indicatorError.message : String(indicatorError),
               });
-              adxL2 = 0;
             }
 
-            const minAdxL2 = env.PYRAMID_L2_MIN_ADX;
-            // ADX >= 40 → 92% confidence (above L2 minimum of 90%)
-            const inferredConfidenceL2 = adxL2 >= 40 ? 92 : 70;
+            // L2 requires strong momentum (>= 1.0%) → 92% confidence
+            const inferredConfidenceL2 = mom1hL2 >= 1.0 ? 92 : 70;
             const l2ConfidenceCheck = riskManager.canAddPyramidLevel(2, inferredConfidenceL2);
 
-            if (!l2ConfidenceCheck.pass || adxL2 < minAdxL2) {
+            if (!l2ConfidenceCheck.pass || mom1hL2 <= 0) {
               logger.debug('L2 pyramid rejected', {
                 pair: trade.pair,
-                adx: adxL2.toFixed(2),
-                minAdxRequired: minAdxL2,
+                mom1h: mom1hL2.toFixed(2),
                 inferredConfidence: inferredConfidenceL2,
-                reason: !l2ConfidenceCheck.pass ? l2ConfidenceCheck.reason : `ADX ${adxL2.toFixed(1)} < ${minAdxL2}`,
+                reason: !l2ConfidenceCheck.pass ? l2ConfidenceCheck.reason : `1h momentum ${mom1hL2.toFixed(2)}% not positive`,
                 currentProfitPct: currentProfitPct.toFixed(2),
               });
             } else {

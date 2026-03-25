@@ -41,7 +41,7 @@ class ExecutionFanOut {
     });
 
     // IMPORTANT: Trade decision has ALREADY passed 5-stage risk filter in orchestrator:
-    // Stage 1: Health Gate (ADX chop detection)
+    // Stage 1: Health Gate (momentum gate)
     // Stage 2: Drop Protection (BTC dumps, volume panics, spreads)
     // Stage 3: Entry Quality (no tops, no extreme overbought, requires momentum)
     // Stage 4: AI Validation (confidence threshold)
@@ -438,7 +438,7 @@ class ExecutionFanOut {
       strong: env.REGIME_SIZE_STRONG,
       moderate: env.REGIME_SIZE_MODERATE,
       weak: env.REGIME_SIZE_WEAK,
-      transitioning: env.ADX_TRANSITION_SIZE_MULTIPLIER,
+      transitioning: env.REGIME_SIZE_TRANSITIONING,
       choppy: env.REGIME_SIZE_CHOPPY,
     };
     const regimeType = decision.regime?.type || 'moderate';

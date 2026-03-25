@@ -44,7 +44,6 @@ async function createDefaultBotForUser(userId: string): Promise<void> {
           profitTargetAggressive: 0.12,
           maxHoldHours: 336,
           emergencyLossLimit: -0.06,
-          minADXForEntry: 20,
           btcDumpThreshold1h: -0.015,
           volumeSpikeMax: 3.0,
           spreadMaxPercent: 0.005,

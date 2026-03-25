@@ -105,7 +105,6 @@ const envSchema = z.object({
   // Requires BOTH 1h and 4h momentum positive = sustained directional drift, not a momentary tick
   CREEPING_UPTREND_GATE_MIN_1H: z.string().transform(Number).default('0.20'),  // 0.20% min 1h momentum — real directional pressure, not a tick
   CREEPING_UPTREND_GATE_MIN_4H: z.string().transform(Number).default('0.15'),  // 0.15% min 4h momentum (hours of sustained move)
-  CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: z.string().transform(Number).default('-0.3'), // ADX must be roughly flat — declining = fading trend
 
   /* AI Configuration */
   AI_MIN_CONFIDENCE_THRESHOLD: z.string().transform(Number).default('70'),         // Base fallback (all regimes)
@@ -146,7 +145,6 @@ const envSchema = z.object({
   BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: z.string().transform(Number).default('0.008'),
 
   /* Risk Management Guardrails */
-  RISK_MIN_ADX_FOR_ENTRY: z.string().transform(Number).default('20'),
   RISK_BTC_DUMP_THRESHOLD: z.string().transform(Number).default('-0.015'),
   RISK_VOLUME_SPIKE_MAX: z.string().transform(Number).default('4.5'),
   RISK_SPREAD_MAX_PERCENT: z.string().transform(Number).default('0.005'),
@@ -260,33 +258,19 @@ const envSchema = z.object({
   STALE_FLAT_TRADE_HOURS: z.string().transform(Number).default('6'), // Exit if flat for 6+ hours
   STALE_FLAT_TRADE_BAND_PCT: z.string().transform(Number).default('0.5'), // "Flat" = within +/-0.5%
 
-  /* Pyramid ADX Requirements - Global (applies to all exchanges) */
-  PYRAMID_L1_MIN_ADX: z.string().transform(Number).default('35'), // L1: Moderate trend minimum
-  PYRAMID_L2_MIN_ADX: z.string().transform(Number).default('40'), // L2: Strong trend minimum
-
   /* Pyramid Profit Triggers & Sizing - Universal (exchange-independent trading strategy) */
   PYRAMID_L1_TRIGGER_PCT: z.string().transform(Number).default('0.045'), // 4.5% profit to trigger L1
   PYRAMID_L2_TRIGGER_PCT: z.string().transform(Number).default('0.080'), // 8.0% profit to trigger L2
   PYRAMID_ADD_SIZE_PCT_L1: z.string().transform(Number).default('0.35'),  // Add 35% of base position at L1
   PYRAMID_ADD_SIZE_PCT_L2: z.string().transform(Number).default('0.50'),  // Add 50% of base position at L2
 
-  /* ADX Slope - Regime Transition Detection (zero API cost, pure math) */
-  /* Detects regime changes ~45min faster than ADX value alone */
-  ADX_SLOPE_RISING_THRESHOLD: z.string().transform(Number).default('2.0'), // +2/candle = trend forming (allow entry in transition zone)
-  ADX_SLOPE_FALLING_THRESHOLD: z.string().transform(Number).default('-2.0'), // -2/candle = trend exhausting (downgrade profit target)
-  ADX_TRANSITION_ZONE_MIN: z.string().transform(Number).default('15'), // ADX floor for transition detection (below = deep chop, no rescue)
-  ADX_WEAK_MAX: z.string().transform(Number).default('25'),    // ADX < 25 = weak (2% target)
-  ADX_MODERATE_MAX: z.string().transform(Number).default('40'), // ADX 25-40 = moderate (5% target), >= 40 = strong (12% target)
-  ADX_TRANSITION_SIZE_MULTIPLIER: z.string().transform(Number).default('0.5'), // 50% position size for transitioning regime entries
-  REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),       // 150% position size in strong trend
-  REGIME_SIZE_MODERATE: z.string().transform(Number).default('1.0'),     // 100% position size in moderate trend
-  REGIME_SIZE_WEAK: z.string().transform(Number).default('0.75'),        // 75% position size in weak trend
-  REGIME_SIZE_CHOPPY: z.string().transform(Number).default('0.5'),       // 50% position size in choppy market
-  DEFAULT_STOP_LOSS_PCT: z.string().transform(Number).default('0.05'),   // 5% default stop loss if not in signal
-  MOMENTUM_OVERRIDE_MIN_1H: z.string().transform(Number).default('1.5'), // 1.5% 1h momentum = clear directional move (overrides low ADX)
-  MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE: z.string().transform(Number).default('0.25'), // Reduced momentum bar when slope >= 2x threshold (slope alone confirms trend)
-  MOMENTUM_STRONG_ALONE_MIN: z.string().transform(Number).default('0.75'), // 1.5% 1h momentum alone (no slope required) — catches real breakouts where ADX still lags
-  VOLUME_SURGE_ADX_OVERRIDE_RATIO: z.string().transform(Number).default('4.0'), // Volume >= 4x + positive momentum overrides low ADX in transition zone
+  /* Position sizing by regime */
+  REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),        // 150% — confirmed strong momentum
+  REGIME_SIZE_MODERATE: z.string().transform(Number).default('1.0'),      // 100% — moderate momentum
+  REGIME_SIZE_WEAK: z.string().transform(Number).default('0.75'),         // 75% — weak momentum
+  REGIME_SIZE_TRANSITIONING: z.string().transform(Number).default('0.5'), // 50% — trend forming slowly
+  REGIME_SIZE_CHOPPY: z.string().transform(Number).default('0.5'),        // 50% — 4h negative, minimal exposure
+  DEFAULT_STOP_LOSS_PCT: z.string().transform(Number).default('0.05'),    // 5% default stop loss
 
   /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
   PROFIT_TARGET_CHOPPY: z.string().transform(Number).default('0.005'),       // 0.5% - scalp and move on
@@ -474,7 +458,6 @@ function getDefaultEnvironment(): Environment {
     CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
     CREEPING_UPTREND_GATE_MIN_1H: 0.20,
     CREEPING_UPTREND_GATE_MIN_4H: 0.15,
-    CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: -0.3,
     CREEPING_UPTREND_PULLBACK_THRESHOLD: 0.95,
     AI_MIN_CONFIDENCE_THRESHOLD: 70,
     AI_MIN_CONFIDENCE_CHOPPY: 68,
@@ -507,7 +490,6 @@ function getDefaultEnvironment(): Environment {
     BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
     BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
     BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
-    RISK_MIN_ADX_FOR_ENTRY: 20,
     RISK_BTC_DUMP_THRESHOLD: -0.015,
     RISK_VOLUME_SPIKE_MAX: 4.5,
     RISK_SPREAD_MAX_PERCENT: 0.005,
@@ -571,23 +553,12 @@ function getDefaultEnvironment(): Environment {
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,
     STALE_FLAT_TRADE_BAND_PCT: 0.5,
-    ADX_SLOPE_RISING_THRESHOLD: 2.0,
-    ADX_SLOPE_FALLING_THRESHOLD: -2.0,
-    ADX_TRANSITION_ZONE_MIN: 15,
-    ADX_WEAK_MAX: 25,
-    ADX_MODERATE_MAX: 40,
-    ADX_TRANSITION_SIZE_MULTIPLIER: 0.5,
     REGIME_SIZE_STRONG: 1.5,
     REGIME_SIZE_MODERATE: 1.0,
     REGIME_SIZE_WEAK: 0.75,
+    REGIME_SIZE_TRANSITIONING: 0.5,
     REGIME_SIZE_CHOPPY: 0.5,
     DEFAULT_STOP_LOSS_PCT: 0.05,
-    MOMENTUM_OVERRIDE_MIN_1H: 1.5, // 1.5% 1h momentum override for low-ADX breakouts
-    MOMENTUM_OVERRIDE_MIN_1H_STRONG_SLOPE: 0.25,
-    MOMENTUM_STRONG_ALONE_MIN: 0.75,
-    VOLUME_SURGE_ADX_OVERRIDE_RATIO: 4.0, // Volume >= 4x + positive momentum overrides low ADX in transition zone
-    PYRAMID_L1_MIN_ADX: 35,
-    PYRAMID_L2_MIN_ADX: 40,
     PYRAMID_L1_TRIGGER_PCT: 0.045,
     PYRAMID_L2_TRIGGER_PCT: 0.080,
     PYRAMID_ADD_SIZE_PCT_L1: 0.35,
@@ -729,7 +700,6 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
       CREEPING_UPTREND_GATE_MIN_1H: 0.20,
       CREEPING_UPTREND_GATE_MIN_4H: 0.15,
-      CREEPING_UPTREND_GATE_MAX_ADX_SLOPE: -0.3,
       KRAKEN_BOT_PYRAMIDING_ENABLED: true,
       KRAKEN_BOT_PYRAMID_LEVELS: 2,
       KRAKEN_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,

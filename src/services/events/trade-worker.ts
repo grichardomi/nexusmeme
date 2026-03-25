@@ -216,9 +216,8 @@ class TradeWorkerService {
           await positionTracker.updatePeakIfHigher(trade.id, currentProfitPct, currentPrice);
         }
 
-        // Determine regime based on ADX (fetch from indicators or use default)
-        // TODO: Cache indicators per pair to avoid redundant OHLC fetches
-        const regime = 'moderate'; // Default regime for now
+        // Regime used for erosion cap tolerance — default to moderate (conservative)
+        const regime = 'moderate';
 
         // Check erosion cap (primary exit)
         const erosionCheck = positionTracker.checkErosionCap(
@@ -409,11 +408,6 @@ class TradeWorkerService {
     // Calculate technical indicators
     const indicators = calculateTechnicalIndicators(candles);
 
-    if (!indicators.adx) {
-      logger.warn('TradeWorker: Missing ADX indicator', { pair });
-      return;
-    }
-
     // Calculate intrabar momentum (current price vs current candle open)
     // CRITICAL: This shows if price is currently rising (green candle) or falling (red candle)
     const currentCandleOpen = candles[candles.length - 1].open;
@@ -426,8 +420,8 @@ class TradeWorkerService {
     // Update BTC momentum (for drop protection)
     riskManager.updateBTCMomentum(pair === 'BTC/USDT' ? (indicators.momentum1h || 0) : 0);
 
-    // Run 5-stage risk filter (pass adxSlope for transition zone detection)
-    const healthGate = riskManager.checkHealthGate(indicators.adx || 0, indicators.adxSlope, indicators.momentum1h);
+    // Run health gate (momentum-based)
+    const healthGate = riskManager.checkHealthGate(0, 0, indicators.momentum1h, undefined, indicators.momentum4h);
     if (!healthGate.pass) {
       logger.debug('TradeWorker: Health gate blocked', {
         botId: bot.id,
@@ -459,10 +453,10 @@ class TradeWorkerService {
     }
 
     // All filters passed - create trade decision
-    const adxValue = indicators.adx || 0;
-    const adxSlope = indicators.adxSlope ?? 0;
-    // Use riskManager.getRegime() for consistent regime classification (includes transitioning)
-    const regimeType = riskManager.getRegime(adxValue, adxSlope) as import('@/types/market').RegimeType;
+    const mom1h = indicators.momentum1h ?? 0;
+    const mom4h = indicators.momentum4h ?? 0;
+    // Momentum-based regime classification (no ADX)
+    const regimeType = riskManager.getRegime(mom1h, mom4h) as import('@/types/market').RegimeType;
     const decision: TradeDecision = {
       pair,
       side: 'buy',
@@ -476,7 +470,7 @@ class TradeWorkerService {
       regime: {
         type: regimeType,
         confidence: 75,
-        reason: `ADX ${adxValue.toFixed(1)} (slope ${adxSlope.toFixed(2)}) indicates ${regimeType} trend`,
+        reason: `1h=${mom1h.toFixed(2)}% 4h=${mom4h.toFixed(2)}% momentum indicates ${regimeType} trend`,
         timestamp: new Date(),
       },
     };

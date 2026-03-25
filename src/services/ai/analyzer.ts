@@ -110,8 +110,6 @@ export async function analyzeMarket(
     };
 
     // Market Regime Analysis (FREE - no AI call, always calculate fresh)
-    // CRITICAL FIX: Never use cached database regime - always calculate fresh from live indicators
-    // Caching caused stale "choppy" regime even when ADX was 32.8 (should be "moderate")
     // Per CLAUDE.md: "no cached data" - fresh regime detection is critical for trading decisions
     if (request.includeRegime !== false) {
       result.regime = detectMarketRegime(candles, indicators);
@@ -120,7 +118,8 @@ export async function analyzeMarket(
         pair: request.pair,
         regime: result.regime.regime,
         confidence: result.regime.confidence,
-        adx: indicators.adx,
+        momentum1h: indicators.momentum1h,
+        momentum4h: indicators.momentum4h,
       });
     }
 

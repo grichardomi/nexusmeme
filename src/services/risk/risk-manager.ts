@@ -14,12 +14,7 @@ export interface RiskFilterResult {
   pass: boolean;
   reason?: string;
   stage?: string;
-  adx?: number;
-  adxSlope?: number;
   btcMomentum1h?: number;
-  isTransitioning?: boolean; // ADX 15-20 but slope rising fast — use reduced position size
-  isCreepingUptrend?: boolean; // ADX < 25 but sustained 1h+4h momentum — use 'weak' profit target (1.5%)
-  isVolumeSurge?: boolean; // Extraordinary volume (4x+) confirmed breakout despite low ADX
 }
 
 export interface MarketData {
@@ -35,7 +30,6 @@ export interface MarketData {
 class RiskManager {
   private btcMomentum1h = 0; // Updated per trading iteration
   private config = {
-    minADXForEntry: 20,
     btcDumpThreshold1h: -0.015,
     volumeSpikeMax: 3.0,
     spreadMaxPercent: 0.005,
@@ -82,7 +76,6 @@ class RiskManager {
     // Environment variables are authoritative for RISK_* settings (system-wide governance)
     // This ensures new .env.local settings override stale botConfig values in database
     this.config = {
-      minADXForEntry: parseFloat(env.RISK_MIN_ADX_FOR_ENTRY.toString()),
       btcDumpThreshold1h: parseFloat(env.RISK_BTC_DUMP_THRESHOLD.toString()),
       volumeSpikeMax: parseFloat(env.RISK_VOLUME_SPIKE_MAX.toString()),
       spreadMaxPercent: parseFloat(env.RISK_SPREAD_MAX_PERCENT.toString()),
@@ -126,19 +119,18 @@ class RiskManager {
    * Why: ADX is a lagging derivative of price. It told us "strong trend" (47.8) while BTC was
    * making lower highs and lower lows. 4h/1h price momentum IS the source of truth.
    */
-  checkHealthGate(adx: number, adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number): RiskFilterResult {
-    const slope = adxSlope ?? 0;
+  checkHealthGate(_adx: number, _adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number): RiskFilterResult {
     const mom1h = momentum1h ?? 0;
     const mom4h = momentum4h ?? 0;
 
-    console.log(`\n🏥 HEALTH GATE: 4h=${mom4h.toFixed(2)}% | 1h=${mom1h.toFixed(2)}% | ADX=${adx?.toFixed(1) || 'N/A'} (for profit target only)`);
-    logger.debug('RiskManager: Stage 1 - Health Gate (price momentum)', { momentum4h: mom4h, momentum1h: mom1h, adx });
+    console.log(`\n🏥 HEALTH GATE: 4h=${mom4h.toFixed(2)}% | 1h=${mom1h.toFixed(2)}%`);
+    logger.debug('RiskManager: Stage 1 - Health Gate (price momentum)', { momentum4h: mom4h, momentum1h: mom1h });
 
     // 1h momentum must exceed minimum
     if (mom1h < this.config.minMomentum1h) {
       console.log(`\n🚫 1H BLOCKED: 1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`);
       logger.info('RiskManager: Entry blocked - 1h momentum below minimum', { momentum1h: mom1h.toFixed(3), minimum: this.config.minMomentum1h });
-      return { pass: false, reason: `1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`, stage: 'Health Gate', adx };
+      return { pass: false, reason: `1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`, stage: 'Health Gate' };
     }
 
     // 4h momentum must be positive — higher timeframe confirms uptrend direction.
@@ -149,11 +141,11 @@ class RiskManager {
     if (mom4h <= 0) {
       console.log(`\n🚫 4H BLOCKED: 4h momentum ${mom4h.toFixed(2)}% ≤ 0% — higher timeframe still down`);
       logger.info('RiskManager: Entry blocked - 4h momentum non-positive', { momentum4h: mom4h.toFixed(3), momentum1h: mom1h.toFixed(3) });
-      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% ≤ 0% (wait for higher timeframe to confirm recovery)`, stage: 'Health Gate', adx };
+      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% ≤ 0% (wait for higher timeframe to confirm recovery)`, stage: 'Health Gate' };
     }
 
     console.log(`\n✅ HEALTH GATE PASSED: 4h=${mom4h.toFixed(2)}% > 0 | 1h=${mom1h.toFixed(2)}% >= ${this.config.minMomentum1h}%`);
-    return { pass: true, stage: 'Health Gate', adx, adxSlope: slope };
+    return { pass: true, stage: 'Health Gate' };
   }
 
   /**
@@ -334,20 +326,25 @@ class RiskManager {
   }
 
   /**
-   * Classify market regime based on ADX (with optional slope for transition detection)
+   * Classify market regime based on 1h and 4h momentum strength (no ADX/EMA)
+   * Regimes drive profit targets and erosion caps — not entry gating (that's Stage 1).
+   *
+   * Thresholds:
+   *   Strong:       1h > 1.0% AND 4h > 0.8%
+   *   Moderate:     1h > 0.4% AND 4h > 0.2%
+   *   Weak:         1h > min  AND 4h > 0%
+   *   Transitioning: 4h > 0   AND 1h near flat (< 0.2%)
+   *   Choppy:       4h <= 0 or both flat
    */
-  getRegime(adx: number, adxSlope?: number): string {
-    const slope = adxSlope ?? 0;
-    const env = getEnvironmentConfig();
-    const transitionZoneMin = env.ADX_TRANSITION_ZONE_MIN;
-    const slopeRisingThreshold = env.ADX_SLOPE_RISING_THRESHOLD;
+  getRegime(momentum1h: number, momentum4h: number): string {
+    const mom1h = momentum1h ?? 0;
+    const mom4h = momentum4h ?? 0;
 
-    if (adx < transitionZoneMin) return 'choppy'; // Deep chop, no rescue
-    if (adx < 20 && slope >= slopeRisingThreshold) return 'transitioning'; // Trend forming
-    if (adx < 20) return 'choppy';
-    if (adx < 30) return 'weak';
-    if (adx < 35) return 'moderate';
-    return 'strong';
+    if (mom4h <= 0) return 'choppy';
+    if (mom1h >= 1.0 && mom4h >= 0.8) return 'strong';
+    if (mom1h >= 0.4 && mom4h >= 0.2) return 'moderate';
+    if (mom1h >= 0.2) return 'weak';
+    return 'transitioning'; // 4h > 0 but 1h flat — trend forming slowly
   }
 
   /**
@@ -386,37 +383,20 @@ class RiskManager {
    * OPTIMIZED: Lower targets for weak/choppy to book profits faster
    * CRITICAL: Strong regime at 20% to give L2 pyramid room to develop (enters at +8%)
    */
-  getProfitTarget(regime: string, adxSlope?: number): number {
+  getProfitTarget(regime: string): number {
     const env = getEnvironmentConfig();
-    const slope = adxSlope ?? 0;
-    const slopeFallingThreshold = env.ADX_SLOPE_FALLING_THRESHOLD; // -2.0/candle
 
     // Dynamic profit targets by regime — ALL from env vars (no hard-coded constants)
+    // Strong 20% target removed: fired 4 times in 682 trades — unrealistic, replaced with 5%
     const targets: Record<string, number> = {
-      choppy: env.PROFIT_TARGET_CHOPPY,             // 1.5% default
-      transitioning: env.PROFIT_TARGET_TRANSITIONING, // 2.5% default
-      weak: env.PROFIT_TARGET_WEAK,                 // 2.5% default
-      moderate: env.PROFIT_TARGET_MODERATE,          // 5.0% default
-      strong: env.PROFIT_TARGET_STRONG,              // 20% default
+      choppy: env.PROFIT_TARGET_CHOPPY,               // 1.0% default
+      transitioning: env.PROFIT_TARGET_TRANSITIONING,  // 1.5% default
+      weak: env.PROFIT_TARGET_WEAK,                   // 2.0% default
+      moderate: env.PROFIT_TARGET_MODERATE,            // 3.0% default
+      strong: env.PROFIT_TARGET_STRONG,                // 5.0% default
     };
 
-    let target = targets[regime] || env.PROFIT_TARGET_MODERATE; // Fallback to moderate
-
-    // ADX slope downgrade: if trend is exhausting (falling fast), use lower target
-    // Strong + falling fast → use moderate target (5% instead of 20%)
-    // This prevents holding for 20% while the trend is dying
-    if (regime === 'strong' && slope <= slopeFallingThreshold) {
-      target = targets['moderate'];
-      console.log(`📉 PROFIT TARGET DOWNGRADE: strong → moderate (ADX slope ${slope.toFixed(2)} <= ${slopeFallingThreshold})`);
-      logger.info('RiskManager: Profit target downgraded due to ADX exhaustion', {
-        regime,
-        adxSlope: slope,
-        originalTarget: (targets['strong'] * 100).toFixed(1) + '%',
-        newTarget: (target * 100).toFixed(1) + '%',
-      });
-    }
-
-    return target;
+    return targets[regime] ?? env.PROFIT_TARGET_MODERATE;
   }
 
   /**
@@ -455,14 +435,10 @@ class RiskManager {
     ticker: { bid?: number; ask?: number; last?: number; spread?: number },
     _profitTarget?: number
   ): Promise<RiskFilterResult> {
-    const adx = indicators.adx ?? 0;
-    const adxSlope = indicators.adxSlope ?? 0;
-
-    // STAGE 1: Health Gate - Check ADX for choppy markets (with slope + momentum + volume surge override)
     const momentum1h = indicators.momentum1h ?? 0;
     const momentum4h = indicators.momentum4h ?? 0;
     const volumeRatio = indicators.volumeRatio ?? 1;
-    const stage1 = this.checkHealthGate(adx, adxSlope, momentum1h, volumeRatio, momentum4h);
+    const stage1 = this.checkHealthGate(0, 0, momentum1h, volumeRatio, momentum4h);
     if (!stage1.pass) {
       return stage1;
     }
@@ -480,9 +456,9 @@ class RiskManager {
     }
 
     // STAGE 5: Cost Floor (/nexus parity - validate BEFORE AI to save API calls)
-    // Use ADX-based profit target percentage (not dollar amount)
-    const regime = this.getRegime(adx, adxSlope);
-    const profitTargetPct = this.getProfitTarget(regime, adxSlope);
+    // Use momentum-based profit target percentage (not dollar amount)
+    const regime = this.getRegime(momentum1h, momentum4h);
+    const profitTargetPct = this.getProfitTarget(regime);
     const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct, this.config.exchange);
     if (!stage5.pass) {
       return stage5;
@@ -490,23 +466,13 @@ class RiskManager {
 
     logger.debug('RiskManager: All 5 stages passed (pre-AI)', {
       pair,
-      adx: adx.toFixed(1),
-      adxSlope: adxSlope.toFixed(2),
       regime,
       profitTargetPct: (profitTargetPct * 100).toFixed(2) + '%',
-      momentum1h: (indicators.momentum1h ?? 0).toFixed(3),
-      isTransitioning: stage1.isTransitioning ?? false,
+      momentum1h: momentum1h.toFixed(3),
+      momentum4h: momentum4h.toFixed(3),
     });
 
-    return {
-      pass: true,
-      stage: 'All Stages Passed',
-      adx,
-      adxSlope,
-      isTransitioning: stage1.isTransitioning,
-      isCreepingUptrend: stage1.isCreepingUptrend,
-      isVolumeSurge: stage1.isVolumeSurge,
-    };
+    return { pass: true, stage: 'All Stages Passed' };
   }
 }
 

@@ -41,7 +41,6 @@ export interface TradeDecision {
   takeProfit?: number; // Dynamic profit target based on regime
   capitalPreservationMultiplier?: number; // 0.25-1.0: position size reduction from capital preservation layers
   entryNotes?: {
-    adx: number;
     momentum1h: number;
     momentum4h: number;
     confidence: number;
@@ -63,7 +62,6 @@ export interface ExecutionPlan {
   stopLoss?: number; // Risk management: exit price on loss
   takeProfit?: number; // Dynamic profit target based on regime
   entryNotes?: {
-    adx: number;
     momentum1h: number;
     momentum4h: number;
     confidence: number;

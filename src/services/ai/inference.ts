@@ -338,42 +338,16 @@ export async function generateTradeSignalAI(
   const momentum1h = indicators.momentum1h || 0;
   const momentum4h = indicators.momentum4h || 0;
   const volumeRatio = indicators.volumeRatio || 1;
-  const adx = indicators.adx;
-
-  // Signal decision: Use same thresholds as risk filter's 3-path gate
-  // Read from environment to match risk-manager.ts exactly
-  // Binance is primary exchange (0.20% round-trip fee) → use Binance threshold
+  // Signal decision: Use same thresholds as risk filter's health gate
   const minMomentum1h = getEnv('RISK_MIN_MOMENTUM_1H_BINANCE') ?? 0.2;
   const minMomentum4h = getEnv('RISK_MIN_MOMENTUM_4H') ?? 0.15;
   const volumeBreakoutRatio = getEnv('RISK_VOLUME_BREAKOUT_RATIO') ?? 1.3;
 
-  // 4-path gate (matches risk-manager.ts + strong trend consolidation)
   const hasStrongMomentum = momentum1h >= minMomentum1h;
   const hasBothPositive = momentum1h >= minMomentum1h && momentum4h >= minMomentum4h;
   const hasVolumeBreakout = volumeRatio >= volumeBreakoutRatio && momentum1h > 0;
-  // Path 4: Trending pullback — mirrors risk-manager.ts exactly
-  // ADX >= 20 (trending), 4h > 0.3% (uptrend intact), 1h > -0.3% (shallow dip, not -0.5% for moderate)
-  const isStrongTrend = adx >= 35;
-  const shallowDipThreshold = isStrongTrend ? -0.5 : -0.3;
-  const hasStrongTrendConsolidation = adx >= 20 && momentum4h > 0.3 && momentum1h > shallowDipThreshold;
 
-  // Path 5: Creeping uptrend — slow sustained directional drift with low ADX
-  // Both 1h AND 4h momentum must be positive to confirm hours of sustained move, not a momentary tick.
-  // ADX slope must be flat-to-rising — a declining ADX in an already-weak trend = move is fading, not building.
-  // ADX < 25 is explicitly required — this path is for markets the other 4 paths miss.
-  // Only active when CREEPING_UPTREND_ENABLED=true (opt-in, not default behaviour).
-  const creepingEnabled = getEnv('CREEPING_UPTREND_ENABLED');
-  const creepMin1h = getEnv('CREEPING_UPTREND_GATE_MIN_1H');  // 0.20%
-  const creepMin4h = getEnv('CREEPING_UPTREND_GATE_MIN_4H');  // 0.15%
-  const creepMaxSlope = getEnv('CREEPING_UPTREND_GATE_MAX_ADX_SLOPE'); // -0.3
-  const adxSlope = indicators.adxSlope ?? 0;
-  const hasCreepingUptrend = creepingEnabled
-    && adx < 25
-    && momentum1h >= creepMin1h
-    && momentum4h >= creepMin4h
-    && adxSlope >= creepMaxSlope; // ADX must not be actively declining — fading trend = bad entry
-
-  const signal: TradeSignal = (hasStrongMomentum || hasBothPositive || hasVolumeBreakout || hasStrongTrendConsolidation || hasCreepingUptrend) ? 'buy' : 'hold';
+  const signal: TradeSignal = (hasStrongMomentum || hasBothPositive || hasVolumeBreakout) ? 'buy' : 'hold';
 
   // Confidence score: base 50, apply boosters and penalties, clamp 0-100
   let confidence = 50;
@@ -391,15 +365,6 @@ export async function generateTradeSignalAI(
     }
   }
 
-  if (adx > 25) {
-    confidence += 10;
-    factors.push(`ADX ${adx.toFixed(1)} trending`);
-  }
-  if (adx > 35) {
-    confidence += 5;
-    factors.push(`ADX ${adx.toFixed(1)} strong trend`);
-  }
-
   if (volumeRatio > 1.3) {
     confidence += 5;
     factors.push(`volume ${volumeRatio.toFixed(1)}x (breakout)`);
@@ -410,29 +375,16 @@ export async function generateTradeSignalAI(
     factors.push(`4h momentum aligned +${momentum4h.toFixed(2)}%`);
   }
 
-  // Trending pullback boost (path 4: 4h trend + shallow 1h dip)
-  if (momentum4h > 0.3 && adx >= 20 && momentum1h > shallowDipThreshold) {
+  // 4h trend alignment boost
+  if (momentum4h > 0.3 && momentum1h > 0) {
     confidence += 20;
-    factors.push(`trending pullback 4h=${momentum4h.toFixed(2)}% ADX=${adx.toFixed(1)} (+20)`);
-  }
-
-  // Creeping uptrend boost (path 5: sustained slow drift)
-  // Confidence starts at 50 — apply moderate boost since the move is real but weak.
-  // Claude's AI layer will make the final call on whether the pattern is convincing.
-  if (hasCreepingUptrend) {
-    confidence += 12;
-    factors.push(`creeping uptrend 1h=${momentum1h.toFixed(2)}% 4h=${momentum4h.toFixed(2)}% ADX=${adx.toFixed(1)} slope=${adxSlope.toFixed(2)} (+12)`);
+    factors.push(`4h trend aligned 4h=${momentum4h.toFixed(2)}% 1h=${momentum1h.toFixed(2)}% (+20)`);
   }
 
   // Penalties
   if (momentum4h < -2.0) {
     confidence -= 5;
     factors.push(`4h momentum bearish ${momentum4h.toFixed(2)}% (-5)`);
-  }
-
-  if (adx < 15) {
-    confidence -= 5;
-    factors.push(`ADX ${adx.toFixed(1)} directionless (-5)`);
   }
 
   confidence = Math.min(100, Math.max(0, confidence));
@@ -464,7 +416,7 @@ export async function generateTradeSignalAI(
   const riskRewardRatio = reward > 0 ? reward / risk : 1;
 
   const analysis = signal === 'buy'
-    ? `Buy signal: ${momentum1h.toFixed(2)}% 1h momentum, ADX ${adx.toFixed(1)}, confidence ${confidence}%`
+    ? `Buy signal: ${momentum1h.toFixed(2)}% 1h, ${momentum4h.toFixed(2)}% 4h momentum, confidence ${confidence}%`
     : `Hold: momentum1h ${momentum1h.toFixed(2)}% insufficient`;
 
   const result = {
@@ -493,7 +445,7 @@ export async function generateTradeSignalAI(
     confidence,
     strength,
     momentum1h: momentum1h.toFixed(2),
-    adx: adx.toFixed(1),
+    momentum4h: momentum4h.toFixed(2),
     regime: regime.regime,
   });
 
@@ -521,7 +473,8 @@ Predict future price levels for ${pair}.
 Current Price: $${currentPrice.toFixed(2)}
 24h Change: ${priceChange24h}%
 Market Regime: ${regime.regime}
-ADX: ${indicators.adx.toFixed(2)}
+1h Momentum: ${(indicators.momentum1h || 0).toFixed(2)}%
+4h Momentum: ${(indicators.momentum4h || 0).toFixed(2)}%
 
 Provide price predictions for:
 1. Short term (1-4 hours)
@@ -714,7 +667,7 @@ export async function aiConfidenceBoost(
   indicators: TechnicalIndicators,
   deterministicSignal: TradeSignal,
   deterministicConfidence: number,
-  regime: string,
+  _regime: string,
   isVolumeSurge = false,
   isCreepingUptrend = false
 ): Promise<AIConfidenceBoostResult> {
@@ -731,11 +684,11 @@ export async function aiConfidenceBoost(
   const recentCandles = candles.slice(-10);
 
   const volumeSurgeContext = isVolumeSurge
-    ? `\nVOLUME SURGE BREAKOUT: Volume is ${(indicators.volumeRatio || 1).toFixed(1)}x normal — extraordinary buying pressure detected. ADX lags price by 2-3 candles during breakouts; low ADX here reflects the PAST, not the current move. RSI going overbought during a volume surge is a sign of STRENGTH, not exhaustion. Do NOT penalize ADX or RSI in this context.`
+    ? `\nVOLUME SURGE BREAKOUT: Volume is ${(indicators.volumeRatio || 1).toFixed(1)}x normal — extraordinary buying pressure detected. RSI going overbought during a volume surge is a sign of STRENGTH, not exhaustion. Do NOT penalize RSI in this context.`
     : '';
 
   const creepingUptrendContext = isCreepingUptrend
-    ? `\nCREEPING UPTREND MODE: This is a slow sustained directional grind — NOT a breakout. Low ADX is EXPECTED and correct here; do NOT penalize it. The profit target is small (1.5%) with a quick exit plan. You are validating whether the grind is real and continuing. APPROVE (+adjustment) if you see: consistent small green candles with no large rejection wicks, 1h momentum sustained positive across multiple candles, no sudden large red candle breaking the pattern. REJECT (-adjustment) if you see: a large red candle interrupting the sequence, multiple consecutive lower lows, or a sharp reversal wick on the most recent candle. Volume does not need to be high — steady low volume grind is valid.`
+    ? `\nCREEPING UPTREND MODE: This is a slow sustained directional grind — NOT a breakout. The profit target is small (1.5%) with a quick exit plan. APPROVE (+adjustment) if you see: consistent small green candles with no large rejection wicks, 1h momentum sustained positive across multiple candles, no sudden large red candle breaking the pattern. REJECT (-adjustment) if you see: a large red candle interrupting the sequence, multiple consecutive lower lows, or a sharp reversal wick on the most recent candle. Volume does not need to be high — steady low volume grind is valid.`
     : '';
 
   const mom4h = indicators.momentum4h ?? 0;
@@ -750,7 +703,6 @@ RECENT CANDLES (oldest to newest):
 ${formatCandlesForPrompt(recentCandles)}
 
 CURRENT INDICATORS:
-- ADX: ${indicators.adx.toFixed(1)} (regime: ${regime})
 - 1h momentum: ${mom1h.toFixed(3)}%
 - 4h momentum: ${mom4h.toFixed(3)}%
 - Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${creepingUptrendContext}${downtrend4hContext}
