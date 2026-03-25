@@ -175,20 +175,40 @@ async function callClaude(prompt: string, maxTokens = 300): Promise<string> {
   const startTime = Date.now();
   logger.info('🤖 Claude API call starting', { model: CLAUDE_MODEL, maxTokens });
 
+  const attemptFetch = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: maxTokens,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      return response;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: maxTokens,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    let response: Response;
+    try {
+      response = await attemptFetch();
+    } catch (firstErr) {
+      // Single retry on network/timeout error
+      logger.warn('🔄 Claude API transient error, retrying once', { error: firstErr instanceof Error ? firstErr.message : String(firstErr) });
+      await new Promise(r => setTimeout(r, 1000));
+      response = await attemptFetch();
+    }
 
     const durationMs = Date.now() - startTime;
 

@@ -148,7 +148,24 @@ class MarketDataAggregator {
     const baseUrl = getEnvironmentConfig().BINANCE_MARKET_DATA_URL;
     const url = `${baseUrl}/api/v3/ticker/24hr?symbol=${symbol}`;
 
-    const response = await fetch(url);
+    const fetchWithTimeout = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        return await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    let response: Response;
+    try {
+      response = await fetchWithTimeout();
+    } catch {
+      // Single retry on transient network error
+      await new Promise(r => setTimeout(r, 500));
+      response = await fetchWithTimeout();
+    }
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Binance API error: ${response.status} ${response.statusText} - ${errorText.slice(0, 200)}`);
