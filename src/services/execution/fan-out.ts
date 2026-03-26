@@ -520,22 +520,10 @@ class ExecutionFanOut {
       aiConfidence: `${aiConfidence.toFixed(0)}%`,
     });
 
-    // Adapt pair quote currency to match user's dominant balance (USD vs USDT)
-    // e.g. BTC/USDT → BTC/USD when user has USD and no USDT
-    const [pairBase, pairQuote] = decision.pair.split('/');
-    const normalizedQuote = pairQuote === 'USD' ? 'USD' : 'USDT'; // canonical form in signals
-    const effectivePair = normalizedQuote !== dominantQuote
-      ? `${pairBase}/${dominantQuote}`
-      : decision.pair;
-
-    if (effectivePair !== decision.pair) {
-      logger.info('Pair quote adapted to match account currency', {
-        botId: bot.id,
-        original: decision.pair,
-        adapted: effectivePair,
-        dominantQuote,
-      });
-    }
+    // Always use the configured pair as-is — BTC/USDT stays BTC/USDT.
+    // USDC is reserved for performance fee payments only and must never be used for trading pairs.
+    // Balance sizing uses USDT free balance; USDC balance is excluded from trading.
+    const effectivePair = decision.pair;
 
     // Apply LOT_SIZE rounding for both paper and live — ensures paper quantities
     // match exactly what live would execute, surfacing precision errors during free trial.
@@ -1024,25 +1012,19 @@ class ExecutionFanOut {
       const apiBase = getEnvironmentConfig().BINANCE_API_BASE_URL;
       const supportsUsdPairs = apiBase.includes('binance.us');
 
-      // Pick dominant quote using ONLY that currency's free balance for sizing.
-      // Mixing currencies would size the order larger than what's available in the chosen pair.
+      // Trading pairs are always USDT-quoted (BTC/USDT, ETH/USDT).
+      // USDC is reserved for performance fee payments — never used for position sizing.
+      // USD is used on Binance US where BTC/USD pairs exist.
       let dominantQuote: string;
       let available: number;
-      if (supportsUsdPairs) {
-        // USD, USDT, or USDC — pick whichever has most free balance
-        const max = Math.max(freeUSDT, freeUSDC, freeUSD);
-        if (freeUSD >= max) { dominantQuote = 'USD'; available = freeUSD; }
-        else if (freeUSDC >= max) { dominantQuote = 'USDC'; available = freeUSDC; }
-        else { dominantQuote = 'USDT'; available = freeUSDT; }
+      if (supportsUsdPairs && freeUSD > freeUSDT) {
+        // Binance US: prefer USD if it's larger (BTC/USD pairs available)
+        dominantQuote = 'USD';
+        available = freeUSD;
       } else {
-        // Global Binance: no USD pairs — USDT primary, USDC fallback
-        if (freeUSDC > freeUSDT) {
-          dominantQuote = 'USDC';
-          available = freeUSDC;
-        } else {
-          dominantQuote = 'USDT';
-          available = freeUSDT;
-        }
+        // Always USDT — never switch to USDC for trading
+        dominantQuote = 'USDT';
+        available = freeUSDT;
       }
 
       const totalFreeStable = freeUSDT + freeUSDC + freeUSD;
