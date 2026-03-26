@@ -318,19 +318,19 @@ export async function analyzeMarket(
             `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
           );
 
-          // AI VETO: any negative adjustment = block.
-          // With vetoThreshold=94 and maxAdj=15, a negative adjustment NEVER produces
-          // a final confidence ≥ 94 at realistic deterministic scores (would need det ≥ 99+|adj|).
-          // The threshold was dead logic — simplify to: negative = veto, zero/positive = allow.
-          // Claude is called only when 4h >= -0.5% (genuinely uncertain), so any negative
-          // response is meaningful signal that the setup is flawed.
-          if (boostResult.adjustment < 0) {
+          // AI VETO: veto only if adjusted confidence drops BELOW the regime minimum threshold.
+          // A small negative adjustment (-8) on a strong signal (100→92) should NOT block —
+          // 92 is well above the 68 moderate minimum. Only veto when Claude's penalty actually
+          // drags confidence below what the regime requires (e.g. -15 on a 68 = 53 → veto).
+          const regimeMinConfidence = aiConfig.getMinConfidenceForRegime(regime.regime);
+          if (boostResult.adjustment < 0 && result.signal.confidence < regimeMinConfidence) {
             logger.warn('AI VETO: trade blocked', {
               pair: request.pair,
               regime: regime.regime,
               originalConfidence,
               adjustment: boostResult.adjustment,
               newConfidence: result.signal.confidence,
+              regimeMinConfidence,
               reasoning: boostResult.reasoning,
               provider: boostResult.provider,
             });
