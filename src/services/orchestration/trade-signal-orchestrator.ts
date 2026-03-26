@@ -71,6 +71,9 @@ class TradeSignalOrchestrator {
     quantity: number;
     feeDollars: number;
     botInstanceId: string;
+    entryTimeMs: number;
+    stopLoss: number | null;
+    emergencyLossLimit: number;
   }>();
   // Unsubscribe functions keyed by pair (one active trade per pair)
   private tickUnsubs = new Map<string, () => void>();
@@ -85,6 +88,8 @@ class TradeSignalOrchestrator {
     id: string; pair: string; exchange: string;
     entry_price: string | number; quantity: string | number;
     bot_instance_id: string; fee: string | null;
+    entry_time?: any; stop_loss?: string | number | null;
+    emergencyLossLimit?: number;
   }): void {
     const ex = (trade.exchange || 'binance').toLowerCase();
     if (ex !== 'binance') return; // Only WS-fed pairs
@@ -95,6 +100,9 @@ class TradeSignalOrchestrator {
 
     // Snapshot trade data for use inside the tick callback (no DB access needed)
     const feeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(ex));
+    const entryTimeMs = trade.entry_time ? this.parseEntryTime(trade.entry_time) : Date.now();
+    const stopLoss = trade.stop_loss ? parseFloat(String(trade.stop_loss)) : null;
+    const emergencyLossLimit = trade.emergencyLossLimit ?? -0.06;
     this.tickTradeCache.set(trade.id, {
       tradeId: trade.id,
       pair: trade.pair,
@@ -103,6 +111,9 @@ class TradeSignalOrchestrator {
       quantity,
       feeDollars,
       botInstanceId: trade.bot_instance_id,
+      entryTimeMs,
+      stopLoss,
+      emergencyLossLimit,
     });
 
     // Avoid double-registering the same pair (one active trade per pair)
@@ -117,28 +128,105 @@ class TradeSignalOrchestrator {
       }
       if (!foundId || !cached!) return;
 
-      const exitFee = tickPrice * cached!.quantity * getCachedTakerFee(cached!.exchange);
+      // Use bid price for exit calculations — this is the actual fill price when selling.
+      // Last trade price (tickPrice) overestimates exit value vs what exchange will pay.
+      const liveData = livePriceStore.get(_pair);
+      const exitPrice = (liveData?.bid && liveData.bid > 0) ? liveData.bid : tickPrice;
+
+      const exitFee = exitPrice * cached!.quantity * getCachedTakerFee(cached!.exchange);
       const totalFee = cached!.feeDollars + exitFee;
       const totalFeePct = (totalFee / (cached!.entryPrice * cached!.quantity)) * 100;
-      const grossPct = ((tickPrice - cached!.entryPrice) / cached!.entryPrice) * 100;
+      const grossPct = ((exitPrice - cached!.entryPrice) / cached!.entryPrice) * 100;
       const netPct = grossPct - totalFeePct;
 
-      if (netPct <= 0) return; // Only check erosion when trade is profitable
-
-      // Update peak (non-blocking, deferred write)
-      positionTracker.updatePeakIfHigher(foundId, netPct, tickPrice, totalFee).catch(() => {});
-
-      // Check erosion cap
       const cachedRegime = this.regimeCache.get(_pair);
       const regime = (cachedRegime && (Date.now() - cachedRegime.timestamp) < this.REGIME_CACHE_TTL_MS)
         ? cachedRegime.regime : 'moderate';
-      const erosionResult = positionTracker.checkErosionCap(foundId, _pair, netPct, regime, tickPrice);
+
+      // ── UNDERWATER PROTECTION (tick-speed) ──────────────────────────────────
+      // These checks run on every WS tick (~100ms) to catch sudden crashes before
+      // the 20s orchestrator cycle can react. Critical for flash crashes.
+      if (grossPct < 0) {
+        const tradeAgeMinutes = (Date.now() - cached!.entryTimeMs) / 60000;
+        let exitReason: string | null = null;
+
+        // 1. STOP LOSS — price crossed the stop loss price
+        if (cached!.stopLoss && exitPrice <= cached!.stopLoss) {
+          exitReason = 'stop_loss';
+          logger.warn('⚡ STOP LOSS HIT (tick-driven)', {
+            tradeId: foundId, pair: _pair, exitPrice, stopLoss: cached!.stopLoss, grossPct: grossPct.toFixed(3),
+          });
+        }
+
+        // 2. EMERGENCY STOP — catastrophic loss safety net
+        if (!exitReason && netPct < cached!.emergencyLossLimit * 100) {
+          exitReason = 'emergency_stop';
+          logger.warn('🚨 EMERGENCY STOP (tick-driven)', {
+            tradeId: foundId, pair: _pair, netPct: netPct.toFixed(3),
+            limit: (cached!.emergencyLossLimit * 100).toFixed(1) + '%',
+          });
+        }
+
+        // 3. EARLY LOSS — time-scaled threshold, only when past 1-minute noise window
+        if (!exitReason && tradeAgeMinutes >= 1) {
+          const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes, regime) * 100;
+          if (grossPct < earlyLossThreshold) {
+            // Check profitable collapse: peaked ≥ PROFIT_COLLAPSE_MIN_PEAK_PCT, now underwater
+            const env = getEnvironmentConfig();
+            const peakData = positionTracker.getPeakProfit(foundId);
+            const peakPct = peakData?.peakPct || 0;
+            const profitCollapseMinPeakPct = env.PROFIT_COLLAPSE_MIN_PEAK_PCT * 100;
+
+            if (peakPct >= profitCollapseMinPeakPct) {
+              exitReason = 'underwater_profitable_collapse';
+              logger.warn('🚨 PROFITABLE COLLAPSE (tick-driven)', {
+                tradeId: foundId, pair: _pair, peakPct: peakPct.toFixed(3), grossPct: grossPct.toFixed(3),
+              });
+            } else {
+              exitReason = peakPct > 0 ? 'underwater_small_peak_timeout' : 'underwater_never_profited';
+              logger.warn(`🔴 EARLY LOSS (tick-driven) — ${exitReason}`, {
+                tradeId: foundId, pair: _pair, grossPct: grossPct.toFixed(3),
+                threshold: earlyLossThreshold.toFixed(3) + '%', ageMinutes: tradeAgeMinutes.toFixed(1),
+              });
+            }
+          }
+        }
+
+        if (exitReason) {
+          this.unregisterTickErosion(_pair, foundId);
+          const profitLoss = (exitPrice - cached!.entryPrice) * cached!.quantity;
+          closeTrade({
+            botInstanceId: cached!.botInstanceId,
+            tradeId: foundId,
+            pair: _pair,
+            exitTime: new Date().toISOString(),
+            exitPrice,
+            profitLoss,
+            profitLossPercent: grossPct,
+            exitReason,
+            entryPrice: cached!.entryPrice,
+          }).then(r => {
+            if (r.ok) {
+              positionTracker.clearPosition(foundId!);
+              logger.info('⚡ Loss cut (tick-driven)', { tradeId: foundId, pair: _pair, exitReason, profitLoss: profitLoss.toFixed(2) });
+            }
+          }).catch(() => {});
+        }
+        return; // Done — no peak update needed for underwater trades
+      }
+      // ── END UNDERWATER PROTECTION ────────────────────────────────────────────
+
+      // Update peak (non-blocking, deferred write)
+      positionTracker.updatePeakIfHigher(foundId, netPct, exitPrice, totalFee).catch(() => {});
+
+      // Check erosion cap
+      const erosionResult = positionTracker.checkErosionCap(foundId, _pair, netPct, regime, exitPrice);
 
       if (erosionResult.shouldExit) {
         // Unsubscribe immediately to prevent re-firing while close is in-flight
         this.unregisterTickErosion(_pair, foundId);
 
-        const profitLoss = (tickPrice - cached!.entryPrice) * cached!.quantity;
+        const profitLoss = (exitPrice - cached!.entryPrice) * cached!.quantity;
         logger.info('⚡ EROSION CAP (tick-driven): Locking profit', {
           tradeId: foundId, pair: _pair, netPct: netPct.toFixed(4),
           peak: erosionResult.peakProfitPct.toFixed(4), reason: erosionResult.reason,
@@ -149,7 +237,7 @@ class TradeSignalOrchestrator {
           tradeId: foundId,
           pair: _pair,
           exitTime: new Date().toISOString(),
-          exitPrice: tickPrice,
+          exitPrice,
           profitLoss,
           profitLossPercent: grossPct,
           exitReason: erosionResult.reason || 'erosion_cap_exceeded',
@@ -363,8 +451,10 @@ class TradeSignalOrchestrator {
         user_id: string;
         fee: string | null;
         exchange: string;
+        stop_loss: string | null;
+        config: any;
       }>(
-        `SELECT t.id, t.bot_instance_id, t.pair, t.entry_price, t.quantity, t.entry_time, b.user_id, t.fee, b.exchange
+        `SELECT t.id, t.bot_instance_id, t.pair, t.entry_price, t.quantity, t.entry_time, b.user_id, t.fee, b.exchange, t.stop_loss, b.config
          FROM trades t
          INNER JOIN bot_instances b ON t.bot_instance_id = b.id
          WHERE t.status = 'open'`
@@ -467,8 +557,12 @@ class TradeSignalOrchestrator {
             totalFeeDollars
           );
           updatedCount++;
-          // Register event-driven tick callback so erosion fires at WS cadence (~100ms)
-          this.registerTickErosion(trade);
+          // Register event-driven tick callback so erosion AND crash protection fire at WS cadence (~100ms)
+          const botCfg = typeof trade.config === 'string' ? JSON.parse(trade.config || '{}') : (trade.config || {});
+          this.registerTickErosion({
+            ...trade,
+            emergencyLossLimit: parseFloat(botCfg?.emergencyLossLimit || '-0.06'),
+          });
           logger.debug('Peak tracking: recorded initial position data (NET profit)', {
             tradeId: trade.id,
             pair: trade.pair,

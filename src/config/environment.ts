@@ -128,6 +128,7 @@ const envSchema = z.object({
   AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: z.string().transform(Number).default('15'), // Max ±15 confidence adjustment
   AI_CONFIDENCE_BOOST_TIMEOUT_MS: z.string().transform(Number).default('5000'), // 5s timeout for AI call
   AI_CLAUDE_MIN_DETERMINISTIC: z.string().transform(Number).default('60'), // Min deterministic score before calling Claude — skip weak signals
+  AI_CLAUDE_MAX_DETERMINISTIC: z.string().transform(Number).default('83'), // Max score before skipping Claude — above 83, even max -15 can't veto (84-15=69 > 68 min)
 
   /* Pyramiding Rules - Binance */
   BINANCE_BOT_PYRAMIDING_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -474,6 +475,7 @@ function getDefaultEnvironment(): Environment {
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
     AI_CLAUDE_MIN_DETERMINISTIC: 60,
+    AI_CLAUDE_MAX_DETERMINISTIC: 83,
     ENCRYPTION_KEY: 'build-phase-encryption-key-1234567890',
     LOG_LEVEL: 'info',
     LOG_FORMAT: 'json',
@@ -962,6 +964,9 @@ export const aiConfig = {
   },
   get claudeMinDeterministic() {
     return getEnv('AI_CLAUDE_MIN_DETERMINISTIC') as number;
+  },
+  get claudeMaxDeterministic() {
+    return getEnv('AI_CLAUDE_MAX_DETERMINISTIC') as number;
   },
   get aiVetoThreshold() {
     return getEnv('AI_VETO_THRESHOLD') as number;

@@ -251,30 +251,36 @@ export async function analyzeMarket(
       // Use the regime-specific threshold so the call/skip gate is accurate per regime
       // Call Claude only when signal is 'buy' — veto is only meaningful on entries.
       // Skipped for 'sell'/'hold' signals (orchestrator rejects non-buy anyway).
-      // Only call Claude when deterministic score is strong enough to be worth evaluating.
-      // Below AI_CLAUDE_MIN_DETERMINISTIC (default 60), the signal is too weak — Claude
-      // can't rescue it and calling just wastes API credits.
+      // Only call Claude in the window where its judgment can actually change the outcome.
+      // Below AI_CLAUDE_MIN_DETERMINISTIC (60): signal too weak — Claude can't rescue it.
+      // Above AI_CLAUDE_MAX_DETERMINISTIC (83): signal too strong — even max -15 penalty
+      //   lands at 84-15=69 which still clears the regime min (68), so Claude is decorative.
+      // Claude is only useful in the 60-83 window where its penalty could actually veto.
       const minDeterministic = aiConfig.claudeMinDeterministic ?? 60;
+      const maxDeterministic = aiConfig.claudeMaxDeterministic ?? 83;
       const mom4hForGate = indicators.momentum4h ?? 0;
-      // Skip Claude when 4h momentum < -0.5%: the downtrend4hContext prompt guarantees
-      // a strong negative adjustment (-8 to -12) and the veto math guarantees a block.
-      // Claude adds zero information here — the outcome is deterministic without the API call.
-      // Only call Claude when 4h >= -0.5% where its judgment is genuinely uncertain.
+      // Skip Claude when 4h momentum < -0.5%: outcome is deterministic (would always veto).
       const claudeWouldBeUseful = mom4hForGate >= -0.5;
+      const scoreInVetoWindow = result.signal.confidence >= minDeterministic
+        && result.signal.confidence <= maxDeterministic;
       const shouldCallAI = aiConfig.confidenceBoostEnabled
         && result.signal.signal === 'buy'
-        && result.signal.confidence >= minDeterministic
+        && scoreInVetoWindow
         && claudeWouldBeUseful;
-      if (!claudeWouldBeUseful && result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled) {
-        // AI boost not useful (4h < -0.5% means Claude would veto), but DON'T kill the signal.
-        // The deterministic signal already passed all 5 risk filter stages — let it stand.
-        // Skip the Claude API call to save cost, but the trade is still valid.
+      if (result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled && !claudeWouldBeUseful) {
+        // 4h downtrend — Claude would always veto. Skip API call, keep deterministic signal.
         logger.info('AI boost skipped: 4h downtrend, signal passes on deterministic strength', {
           pair: request.pair,
           momentum4h: mom4hForGate.toFixed(3),
           deterministicConfidence: result.signal.confidence,
         });
-        // Do NOT null result.signal — fall through with deterministic signal intact
+      } else if (result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled && !scoreInVetoWindow) {
+        // Score above veto window — Claude's max -15 can't drop below regime min. API call wasted.
+        logger.info('AI boost skipped: score above veto window, trade passes on deterministic strength', {
+          pair: request.pair,
+          deterministicConfidence: result.signal.confidence,
+          maxDeterministic,
+        });
       }
       if (shouldCallAI) {
         const currentPrice = candles[candles.length - 1]?.close ?? 0;
