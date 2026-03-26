@@ -242,13 +242,24 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
       []
     );
     const flatFeeUsdc = flatFeeRows[0] ? parseFloat(String(flatFeeRows[0].value)) : env.FLAT_FEE_USDC;
-    const invoiceTotal = userFees.total_fees + (flatFeeUsdc > 0 ? flatFeeUsdc : 0);
+
+    // Flat fee only applies to users on performance_fees plan (not during live_trial)
+    const userPlanRows = await query(
+      `SELECT plan FROM user_subscriptions WHERE user_id = $1 AND status NOT IN ('cancelled') ORDER BY created_at DESC LIMIT 1`,
+      [userFees.user_id]
+    );
+    const userPlan = userPlanRows[0]?.plan ?? 'live_trial';
+    const applicableFlatFee = userPlan === 'performance_fees' && flatFeeUsdc > 0 ? flatFeeUsdc : 0;
+
+    const invoiceTotal = userFees.total_fees + applicableFlatFee;
 
     // Create a USDC invoice (only payment method)
+    // Pass flat fee separately so it's recorded on the invoice row for future reinstatement lookup
     const invoice = await createUSDCInvoice(
       userFees.user_id,
       userFees.fee_ids,
-      invoiceTotal
+      invoiceTotal,
+      applicableFlatFee
     );
     chargeReference = invoice.payment_reference;
     chargeUrl = billingUrl;
@@ -275,18 +286,19 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
       });
     }
 
-    // Create charge history record
+    // Create charge history record — snapshot flat fee at billing time
     await query(
       `INSERT INTO fee_charge_history
        (user_id, billing_period_start, billing_period_end, total_fees_amount,
-        total_fees_count, payment_reference, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+        total_fees_count, flat_fee_usdc, payment_reference, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
       [
         userFees.user_id,
         getStartOfLastMonth(),
         getEndOfLastMonth(),
         invoiceTotal,
         userFees.fee_count,
+        applicableFlatFee,
         chargeReference,
       ]
     );

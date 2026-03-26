@@ -20,6 +20,7 @@ export interface USDCInvoice {
   payment_reference: string;
   amount_usd: number;
   amount_usdc_raw: string; // exact raw USDC units (6 decimals) expected — unique per invoice
+  flat_fee_usdc: number;   // platform flat fee snapshot at invoice creation time
   fee_ids: string[];
   status: 'pending' | 'paid' | 'expired';
   wallet_address: string;
@@ -77,7 +78,8 @@ function computeUniqueRawAmount(totalAmountUSD: number, microOffsetMax: number):
 export async function createUSDCInvoice(
   userId: string,
   feeIds: string[],
-  totalAmount: number
+  totalAmount: number,
+  flatFeeUsdc: number = 0
 ): Promise<USDCInvoice> {
   const env = getEnvironmentConfig();
 
@@ -116,9 +118,9 @@ export async function createUSDCInvoice(
 
   const result = await query(
     `INSERT INTO usdc_payment_references
-     (user_id, payment_reference, amount_usd, amount_usdc_raw, fee_ids, status,
+     (user_id, payment_reference, amount_usd, amount_usdc_raw, fee_ids, flat_fee_usdc, status,
       wallet_address, usdc_contract, expires_at, created_at)
-     VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, NOW())
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, NOW())
      RETURNING *`,
     [
       userId,
@@ -126,6 +128,7 @@ export async function createUSDCInvoice(
       displayAmountUSD,
       amountUsdcRaw,
       feeIds,
+      flatFeeUsdc,
       env.USDC_WALLET_ADDRESS,
       env.USDC_CONTRACT_ADDRESS,
       expiresAt,
@@ -135,12 +138,125 @@ export async function createUSDCInvoice(
   logger.info('USDC invoice created', {
     userId,
     paymentReference,
-    amount: totalAmount,
+    performanceFees: totalAmount - flatFeeUsdc,
+    flatFeeUsdc,
+    totalAmount,
     feeCount: feeIds.length,
     expiresAt,
   });
 
   return result[0] as USDCInvoice;
+}
+
+/**
+ * Create a reinstatement invoice for a suspended user.
+ *
+ * After a monthly invoice expires (day 30), fees are marked `uncollectible` —
+ * meaning we stopped chasing them, NOT that the debt is forgiven.
+ *
+ * Reinstatement requires paying the FULL outstanding debt (all uncollectible fees
+ * + current platform flat fee). Allowing users back in for just a flat fee while
+ * writing off $9,000+ in performance fees creates an exploit: don't pay → wait
+ * 30 days → pay $1 → repeat indefinitely with zero consequences.
+ *
+ * Returns null if user is not suspended or already has an active invoice.
+ */
+export async function createReinstatementInvoice(userId: string): Promise<USDCInvoice | null> {
+  const env = getEnvironmentConfig();
+
+  // Only create if user is actually suspended
+  const billingRows = await query<{ billing_status: string }>(
+    `SELECT billing_status FROM user_billing WHERE user_id = $1`,
+    [userId]
+  );
+  if (billingRows[0]?.billing_status !== 'suspended') {
+    return null;
+  }
+
+  // Don't create if there's already an active invoice
+  const existing = await getUserActiveUSDCInvoice(userId);
+  if (existing) return existing;
+
+  // Collect ALL outstanding debt: uncollectible fees (written off but not forgiven)
+  // + any pending_billing fees that haven't been invoiced yet
+  const outstandingFees = await query<{ id: string; fee_amount: string; status: string }>(
+    `SELECT id, fee_amount, status FROM performance_fees
+     WHERE user_id = $1 AND status IN ('uncollectible', 'pending_billing')`,
+    [userId]
+  );
+
+  const outstandingTotal = outstandingFees.reduce(
+    (sum, f) => sum + parseFloat(String(f.fee_amount)), 0
+  );
+  const outstandingFeeIds = outstandingFees.map(f => f.id);
+
+  // Collect the flat fee(s) snapshotted on expired invoices only.
+  // These are the months the user was actively trading and owed a platform fee.
+  // We do NOT charge flat fees for suspended months — the user got zero value
+  // from the platform while bots were paused, so no fee is owed for that period.
+  // The next billing cycle after reinstatement will naturally include the flat fee
+  // for the month they actually trade in.
+  const expiredInvoiceRows = await query<{ flat_fee_usdc: string }>(
+    `SELECT flat_fee_usdc FROM usdc_payment_references
+     WHERE user_id = $1 AND status = 'expired'`,
+    [userId]
+  );
+  const unpaidFlatFees = expiredInvoiceRows.reduce(
+    (sum, r) => sum + parseFloat(String(r.flat_fee_usdc ?? 0)), 0
+  );
+
+  // Total = all outstanding performance fees + flat fees from months they actually traded
+  // Floor at PERFORMANCE_FEE_MIN_INVOICE_USD so there's always something to match on-chain
+  const reinstatementAmount = Math.max(
+    outstandingTotal + unpaidFlatFees,
+    env.PERFORMANCE_FEE_MIN_INVOICE_USD
+  );
+  const totalFlatFeeOwed = unpaidFlatFees;
+
+  // Mark uncollectible fees back to 'billed' so they're tracked in the new invoice
+  if (outstandingFeeIds.length > 0) {
+    await query(
+      `UPDATE performance_fees
+       SET status = 'billed', updated_at = NOW()
+       WHERE id = ANY($1) AND status = 'uncollectible'`,
+      [outstandingFeeIds]
+    );
+  }
+
+  // Create invoice covering full outstanding debt + all unpaid flat fees + current month flat fee
+  const invoice = await createUSDCInvoice(userId, outstandingFeeIds, reinstatementAmount, totalFlatFeeOwed);
+
+  logger.info('Reinstatement invoice created — full outstanding debt required', {
+    userId,
+    reference: invoice.payment_reference,
+    outstandingPerformanceFees: outstandingTotal,
+    flatFeesFromTradingMonths: unpaidFlatFees,
+    totalDue: reinstatementAmount,
+    feeCount: outstandingFeeIds.length,
+  });
+
+  // Notify user of full amount owed
+  try {
+    const { sendPerformanceFeeChargedEmail } = await import('@/services/email/triggers');
+    const userRows = await query<{ email: string; name: string }>(
+      `SELECT email, name FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (userRows[0]) {
+      await sendPerformanceFeeChargedEmail(
+        userRows[0].email,
+        userRows[0].name || 'Trader',
+        reinstatementAmount,
+        invoice.payment_reference,
+        `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing`,
+        outstandingFees.length
+      );
+    }
+  } catch (emailErr) {
+    logger.warn('Failed to send reinstatement invoice email', { userId });
+  }
+
+  return invoice;
 }
 
 /**
@@ -257,6 +373,7 @@ export async function processIncomingUSDCTransfer(transfer: {
   }
 
   // Mark invoice paid + fees paid atomically
+  let resumedBotCount = 0;
   await transaction(async (client) => {
     // Update invoice
     await client.query(
@@ -288,13 +405,32 @@ export async function processIncomingUSDCTransfer(transfer: {
       [invoice.user_id]
     );
 
-    // Resume any suspended bots
+    // Update fee_charge_history to reflect payment
     await client.query(
-      `UPDATE bot_instances
-       SET status = 'running', updated_at = NOW()
-       WHERE user_id = $1 AND status = 'paused'`,
-      [invoice.user_id]
+      `UPDATE fee_charge_history
+       SET status = 'paid', updated_at = NOW()
+       WHERE payment_reference = $1 AND status = 'pending'`,
+      [invoice.payment_reference]
     );
+
+    // Resume any suspended bots — only if no other pending invoices remain
+    const pendingInvoices = await client.query(
+      `SELECT COUNT(*) as cnt FROM usdc_payment_references
+       WHERE user_id = $1 AND status = 'pending' AND expires_at > NOW() AND id != $2`,
+      [invoice.user_id, invoice.id]
+    );
+    const hasPendingInvoices = parseInt(String(pendingInvoices.rows[0]?.cnt ?? 0), 10) > 0;
+
+    if (!hasPendingInvoices) {
+      const resumed = await client.query(
+        `UPDATE bot_instances
+         SET status = 'running', updated_at = NOW()
+         WHERE user_id = $1 AND status = 'paused'
+         RETURNING id`,
+        [invoice.user_id]
+      );
+      resumedBotCount = resumed.rows.length;
+    }
   });
 
   logger.info('USDC payment matched and confirmed', {
@@ -302,7 +438,30 @@ export async function processIncomingUSDCTransfer(transfer: {
     reference: invoice.payment_reference,
     txHash: transfer.txHash,
     amount: usdcAmount,
+    resumedBots: resumedBotCount,
   });
+
+  // Send "payment received / bots resumed" email (non-fatal)
+  try {
+    const { sendBotResumedEmail } = await import('@/services/email/triggers');
+    const userRows = await query<{ email: string; name: string }>(
+      `SELECT email, name FROM users WHERE id = $1`,
+      [invoice.user_id]
+    );
+    if (userRows[0] && resumedBotCount > 0) {
+      await sendBotResumedEmail(
+        userRows[0].email,
+        userRows[0].name || 'Trader',
+        `${resumedBotCount} bot(s)`,
+        `Payment of $${usdcAmount.toFixed(2)} USDC received (ref: ${invoice.payment_reference}). Your trading bot${resumedBotCount > 1 ? 's have' : ' has'} been resumed automatically.`
+      );
+    }
+  } catch (emailErr) {
+    logger.warn('Failed to send payment-confirmed/bots-resumed email', {
+      userId: invoice.user_id,
+      error: emailErr instanceof Error ? emailErr.message : String(emailErr),
+    });
+  }
 
   return {
     matched: true,
@@ -374,6 +533,30 @@ export async function expireOverdueInvoices(): Promise<number> {
             [inv.fee_ids]
           );
         }
+
+        // 3. Mark charge history as uncollectible
+        await client.query(
+          `UPDATE fee_charge_history
+           SET status = 'uncollectible', updated_at = NOW()
+           WHERE payment_reference = $1 AND status = 'pending'`,
+          [inv.payment_reference]
+        );
+
+        // 4. Safety-net suspension: mark billing suspended and pause any still-running bots.
+        //    Dunning should have suspended at day 14; this catches users dunning missed.
+        await client.query(
+          `UPDATE user_billing
+           SET billing_status = 'suspended'
+           WHERE user_id = $1 AND billing_status != 'suspended'`,
+          [inv.user_id]
+        );
+
+        await client.query(
+          `UPDATE bot_instances
+           SET status = 'paused', updated_at = NOW()
+           WHERE user_id = $1 AND status IN ('running', 'active')`,
+          [inv.user_id]
+        );
       });
 
       writeOffCount++;
@@ -394,8 +577,8 @@ export async function expireOverdueInvoices(): Promise<number> {
     }
   }
 
-  // Send expiry emails (non-fatal — revenue write-off already committed)
-  const { sendInvoiceExpiredEmail } = await import('@/services/email/triggers');
+  // Send expiry + bot-suspended emails (non-fatal — revenue write-off already committed)
+  const { sendInvoiceExpiredEmail, sendBotSuspendedEmail } = await import('@/services/email/triggers');
   const env = getEnvironmentConfig();
   const billingUrl = `${env.NEXT_PUBLIC_APP_URL}/dashboard/billing`;
 
@@ -410,6 +593,20 @@ export async function expireOverdueInvoices(): Promise<number> {
       );
     } catch {
       logger.warn('Failed to send invoice expired email', { invoiceId: inv.id });
+    }
+
+    // Also notify that bots are suspended (safety-net suspension above)
+    try {
+      await sendBotSuspendedEmail(
+        inv.email,
+        inv.name || 'Trader',
+        'your bot(s)',
+        `Invoice ${inv.payment_reference} ($${parseFloat(String(inv.amount_usd)).toFixed(2)} USDC) expired unpaid`,
+        'Pay your invoice at the billing page to resume trading immediately',
+        billingUrl
+      );
+    } catch {
+      logger.warn('Failed to send bot-suspended email on invoice expiry', { invoiceId: inv.id });
     }
   }
 

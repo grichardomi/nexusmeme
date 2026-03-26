@@ -12,8 +12,10 @@ import {
   isUSDCPaymentEnabled,
   createUSDCInvoice,
   getUserActiveUSDCInvoice,
+  createReinstatementInvoice,
 } from '@/services/billing/usdc-payment';
 import { getPendingFees, getUserFeeSummary } from '@/services/billing/performance-fee';
+import { query } from '@/lib/db';
 import { getEnvironmentConfig } from '@/config/environment';
 
 export const dynamic = 'force-dynamic';
@@ -67,13 +69,17 @@ export async function GET(req: NextRequest) {
     const env = getEnvironmentConfig();
     const enabled = isUSDCPaymentEnabled();
 
-    const [pendingFees, summary, activeInvoice] = await Promise.all([
+    const [pendingFees, summary, activeInvoice, billingRows] = await Promise.all([
       getPendingFees(userId),
       getUserFeeSummary(userId),
       getUserActiveUSDCInvoice(userId),
+      query<{ billing_status: string }>(`SELECT billing_status FROM user_billing WHERE user_id = $1`, [userId]),
     ]);
 
     const totalPending = pendingFees.reduce((sum, f) => sum + parseFloat(String(f.fee_amount)), 0);
+    const isSuspended = billingRows[0]?.billing_status === 'suspended';
+    // User is suspended with no pending fees and no active invoice — needs reinstatement
+    const needsReinstatement = isSuspended && pendingFees.length === 0 && !activeInvoice;
 
     return NextResponse.json({
       enabled,
@@ -81,6 +87,8 @@ export async function GET(req: NextRequest) {
       usdcContract: enabled ? env.USDC_CONTRACT_ADDRESS : null,
       chainId: env.USDC_CHAIN_ID,
       network: 'Base',
+      isSuspended,
+      needsReinstatement,
       pendingFees: {
         count: pendingFees.length,
         totalAmount: totalPending,
@@ -137,16 +145,34 @@ export async function POST(req: NextRequest) {
 
     // Get pending fees
     const pendingFees = await getPendingFees(userId);
+
+    let invoice;
+
     if (pendingFees.length === 0) {
-      return NextResponse.json({ error: 'No pending fees to pay' }, { status: 400 });
+      // No pending fees — check if user is suspended with expired invoices.
+      // In this case they need a reinstatement invoice to clear suspension.
+      const billingRows = await query<{ billing_status: string }>(
+        `SELECT billing_status FROM user_billing WHERE user_id = $1`,
+        [userId]
+      );
+      const isSuspended = billingRows[0]?.billing_status === 'suspended';
+
+      if (!isSuspended) {
+        return NextResponse.json({ error: 'No pending fees to pay' }, { status: 400 });
+      }
+
+      const reinstatement = await createReinstatementInvoice(userId);
+      if (!reinstatement) {
+        return NextResponse.json({ error: 'No pending fees to pay' }, { status: 400 });
+      }
+      invoice = reinstatement;
+    } else {
+      const totalAmount = pendingFees.reduce((sum, f) => sum + parseFloat(String(f.fee_amount)), 0);
+      const feeIds = pendingFees.map(f => f.id);
+      invoice = await createUSDCInvoice(userId, feeIds, totalAmount);
     }
 
-    const totalAmount = pendingFees.reduce((sum, f) => sum + parseFloat(String(f.fee_amount)), 0);
-    const feeIds = pendingFees.map(f => f.id);
-
-    const invoice = await createUSDCInvoice(userId, feeIds, totalAmount);
-
-    logger.info('USDC invoice created via API', { userId, reference: invoice.payment_reference, totalAmount });
+    logger.info('USDC invoice created via API', { userId, reference: invoice.payment_reference, amount: invoice.amount_usd });
 
     return NextResponse.json({
       invoice: {

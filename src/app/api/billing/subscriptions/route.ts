@@ -52,17 +52,28 @@ export async function GET() {
           );
           console.log('[BILLING] Auto-initialized trial subscription for user:', session.user.id);
 
-          // Restore any bots that were paused due to missing subscription
-          // Set back to 'running' since the trial is now active
-          const restored = await query(
-            `UPDATE bot_instances
-             SET status = 'running', updated_at = NOW()
-             WHERE user_id = $1 AND status = 'paused'
-             RETURNING id`,
+          // Restore bots only if there are no pending/overdue invoices
+          // (paused bots may be billing-suspended, not just missing-subscription)
+          const pendingInvoices = await query(
+            `SELECT COUNT(*) as cnt FROM usdc_payment_references
+             WHERE user_id = $1 AND status = 'pending' AND expires_at > NOW()`,
             [session.user.id]
           );
-          if (restored.length > 0) {
-            console.log(`[BILLING] Restored ${restored.length} bot(s) to running after trial initialization`);
+          const hasPendingInvoice = parseInt(String(pendingInvoices[0]?.cnt ?? 0), 10) > 0;
+
+          if (!hasPendingInvoice) {
+            const restored = await query(
+              `UPDATE bot_instances
+               SET status = 'running', updated_at = NOW()
+               WHERE user_id = $1 AND status = 'paused'
+               RETURNING id`,
+              [session.user.id]
+            );
+            if (restored.length > 0) {
+              console.log(`[BILLING] Restored ${restored.length} bot(s) to running after trial initialization`);
+            }
+          } else {
+            console.log(`[BILLING] Skipped bot restore for user ${session.user.id} — pending invoice exists`);
           }
         } catch (initErr) {
           console.error('Failed to auto-initialize subscription:', initErr);
