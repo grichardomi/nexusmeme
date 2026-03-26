@@ -144,10 +144,18 @@ class RiskManager {
 
     // DIRECTION SCORE GATE: need 2/3 signals confirming upward direction
     // Catches recoveries 1-3 candles after they start, regardless of how deep the prior dump was.
-    if (score >= 2) {
-      console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}%`);
+    // 4h floor >= -0.5%: slope+intrabar alone can score 2/3 on a single candle bounce while 4h is
+    // still deeply negative (e.g. -1.4%), causing immediate thesis invalidation after entry.
+    if (score >= 2 && mom4h >= -0.5) {
+      console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%`);
       logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
+    }
+
+    if (score >= 2 && mom4h < -0.5) {
+      console.log(`\n🚫 HEALTH GATE BLOCKED (4h downtrend): score=${score}/3 but 4h=${mom4h.toFixed(2)}% < -0.5% — not entering against 4h trend`);
+      logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3) });
+      return { pass: false, reason: `Direction score ${score}/3 met but 4h momentum ${mom4h.toFixed(2)}% < -0.5% (downtrend)`, stage: 'Health Gate' };
     }
 
     // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)

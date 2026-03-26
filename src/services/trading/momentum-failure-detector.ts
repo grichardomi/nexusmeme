@@ -106,9 +106,15 @@ export class MomentumFailureDetector {
     // Thesis invalidation: trade never went green AND 1h clearly reversed AND 4h weak/negative
     // 1h < -0.2% = clear reversal; 4h < 0.3% = trend not supporting entry (neutral or declining)
     // Entry thesis is gone — no reason to hold, exit immediately regardless of loss size
+    //
+    // Minimum hold guard: must match ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES (default 10 min)
+    // to stay consistent with the orchestrator's own CHECK 2.4. A trade that is 5 seconds old
+    // hasn't failed its thesis — it's just paying entry fees. Without this guard, every trade
+    // exits on the first momentum tick, creating a fee-drain loop.
     const momentum1hNow = indicators.momentum1h ?? 0;
     const momentum4hNow = indicators.momentum4h ?? 0;
-    if (position.profitPct <= 0 && momentum1hNow < -0.2 && momentum4hNow < 0.3) {
+    const thesisMinHoldMinutes = env.ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES ?? 10;
+    if (position.profitPct <= 0 && holdMins >= thesisMinHoldMinutes && momentum1hNow < -0.2 && momentum4hNow < 0.3) {
       result.shouldExit = true;
       result.signalCount = 2;
       result.signals.priceActionFailure = true;
