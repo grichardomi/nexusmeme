@@ -52,7 +52,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I manage my plan?',
-      answer: `NexusMeme uses a simple performance fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Manage your payment method\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading (Binance International or Binance US)\n- Full analytics and trade history\n- ${fee} on profits only — $0 on losses`,
+      answer: `NexusMeme uses a simple two-part fee model — no plan tiers to manage:\n\n1. Go to Account > Billing & Plans\n2. View your current fee status and billing history\n3. Pay your USDC invoice\n\nEveryone gets the same features:\n- 1 AI trading bot\n- BTC & ETH trading (Binance International or Binance US)\n- Full analytics and trade history\n- ${fee} performance fee on profits only — $0 on losing months\n- Small flat platform fee billed monthly`,
     },
     {
       question: 'How do I enable trade alerts?',
@@ -60,7 +60,7 @@ export function HowToGuides({ searchQuery }: HowToGuidesProps) {
     },
     {
       question: 'How do I stop paying fees?',
-      answer: `Since NexusMeme uses performance fees (not subscriptions), you stop paying by stopping trading:\n\n1. Go to Dashboard and pause or delete your bot\n2. No more trades = no more fees\n3. Any pending fees from past profits will still be billed on the 1st\n\nThere are no cancellation fees or penalties. You only ever pay for profits your bot already earned. To start again, just create a new bot.`,
+      answer: `To stop fees:\n\n1. Go to Dashboard and pause or delete your bot\n2. Contact support to cancel the flat platform fee\n3. Any pending performance fees from past profits will still be billed on the 1st\n\nThere are no cancellation fees or penalties. You only ever pay performance fees for profits your bot already earned. To start again, just create a new bot.`,
     },
   ];
 

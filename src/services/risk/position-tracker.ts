@@ -502,29 +502,39 @@ class PositionTracker {
       return result;
     }
 
-    // SINGLE RULE: if peak >= min threshold AND profit pulled back >= retention threshold → exit
-    // EROSION_PEAK_MIN_PCT: minimum peak as % of position cost before protection arms (default 0.2%)
-    // EROSION_PEAK_RELATIVE_THRESHOLD: max allowed pullback from peak before exit (default 0.15 = 15%)
     const totalCost = existing.entryPrice * existing.quantity;
     const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
-    const minPeakPct = env.EROSION_PEAK_MIN_PCT; // e.g. 0.2 = 0.2% of cost
-    const threshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g. 0.15 = exit when 15% pulled back
-    const erosionPct = (existing.peakProfit - currentProfitDollars) / existing.peakProfit;
+    const minPeakPct = env.EROSION_PEAK_MIN_PCT;
+    const erosionDollars = existing.peakProfit - currentProfitDollars;
+    const erosionPct = erosionDollars / existing.peakProfit;
 
-    result.erosionUsed = existing.peakProfit - currentProfitDollars;
+    result.erosionUsed = erosionDollars;
     result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
     result.peakProfit = existing.peakProfit;
     result.currentProfit = currentProfitDollars;
 
-    if (peakPctOfCost >= minPeakPct && erosionPct >= threshold) {
+    if (peakPctOfCost < minPeakPct) {
+      return result; // Peak too small — not yet armed
+    }
+
+    // PRIMARY: Dollar threshold — stable regardless of peak size, not distorted by tiny peaks
+    const dollarThreshold = env.EROSION_DOLLAR_THRESHOLD; // e.g. $0.40
+    const dollarFired = erosionDollars >= dollarThreshold;
+
+    // BACKSTOP: Percentage threshold — catches large peaks where $0.40 is too tight
+    const pctThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g. 8%
+    const pctFired = erosionPct >= pctThreshold;
+
+    if (dollarFired || pctFired) {
+      const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
       logger.info('🔒 TRAILING STOP - locking profit', {
         tradeId,
         pair,
         peakProfit: '$' + existing.peakProfit.toFixed(2),
         currentProfit: '$' + currentProfitDollars.toFixed(2),
-        peakPctOfCost: peakPctOfCost.toFixed(3) + '%',
+        erosionDollars: '$' + erosionDollars.toFixed(2),
         erosionPct: (erosionPct * 100).toFixed(1) + '%',
-        threshold: (threshold * 100).toFixed(1) + '%',
+        trigger,
       });
       result.shouldExit = true;
       result.reason = 'erosion_cap_exceeded';

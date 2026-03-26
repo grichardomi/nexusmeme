@@ -51,8 +51,6 @@ const envSchema = z.object({
   SUPPORTED_EXCHANGES: z.string().default('binance'),
 
   /* Exchange Trading Fees - Used as fallback when actual fees unavailable */
-  KRAKEN_TAKER_FEE_DEFAULT: z.string().transform(Number).default('0.0026'), // 0.26% tier 1
-  KRAKEN_MAKER_FEE_DEFAULT: z.string().transform(Number).default('0.0016'), // 0.16% tier 1
   BINANCE_TAKER_FEE_DEFAULT: z.string().transform(Number).default('0.001'), // 0.10% standard
 
   /* Trading Configuration */
@@ -92,7 +90,7 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
 
   /* Paper Trading Mode - Simulate orders without hitting exchange API */
-  KRAKEN_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
+  BINANCE_BOT_PAPER_TRADING: z.string().transform(val => val === 'true').default('false'),
 
   /* Creeping Uptrend Mode - Catches slow steady trends in low-volume conditions */
   CREEPING_UPTREND_ENABLED: z.string().transform(val => val === 'true').default('false'),
@@ -113,26 +111,25 @@ const envSchema = z.object({
   AI_MIN_CONFIDENCE_MODERATE: z.string().transform(Number).default('68'),         // Moderate trend: slightly opportunistic — trend confirmed
   AI_MIN_CONFIDENCE_STRONG: z.string().transform(Number).default('68'),           // Strong trend: raised from 62 — Claude -15 penalty (counter-trend bounces) was landing at 65 and still firing (2026-03-24)
 
+  // Transitioning regime guardrails — block thin/weak setups even if deterministic score is high
+  AI_TRANSITIONING_MIN_VOLUME_RATIO: z.string().transform(Number).default('1.0'),   // Require at least average volume
+  AI_TRANSITIONING_MIN_MOMENTUM_1H: z.string().transform(Number).default('0.10'),   // Require ≥0.10% 1h momentum
+
+  // Time/MAE guard for transitioning regime — exit early if no progress
+  TRANSITIONING_TIME_GUARD_MINUTES: z.string().transform(Number).default('10'),     // Exit if not making progress after 10 minutes
+  TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT: z.string().transform(Number).default('0.5'), // Require at least +0.5% by guard time
+
+  AI_VETO_THRESHOLD: z.string().transform(Number).default('88'),               // Veto when AI gives negative adjustment AND final confidence < this (e.g. 93→-8→85 blocked, 100→-8→92 allowed)
+
   /* AI Confidence Boost - Hybrid AI layer for entry decisions */
   /* Deterministic 3-path gate remains primary. AI adjusts confidence ±15 as advisor. */
   /* Uses Claude Haiku — ~$0.30/month at typical call volume (buy signals only) */
   AI_CONFIDENCE_BOOST_ENABLED: z.string().transform(val => val === 'true').default('true'),
   AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: z.string().transform(Number).default('15'), // Max ±15 confidence adjustment
   AI_CONFIDENCE_BOOST_TIMEOUT_MS: z.string().transform(Number).default('5000'), // 5s timeout for AI call
+  AI_CLAUDE_MIN_DETERMINISTIC: z.string().transform(Number).default('60'), // Min deterministic score before calling Claude — skip weak signals
 
-  /* Pyramiding Rules (from existing profitable bot - Kraken aggressive config) */
-  KRAKEN_BOT_PYRAMIDING_ENABLED: z.string().transform(val => val === 'true').default('true'),
-  KRAKEN_BOT_PYRAMID_LEVELS: z.string().transform(Number).default('2'),
-  KRAKEN_BOT_PYRAMID_L1_TRIGGER_PCT: z.string().transform(Number).default('0.045'),
-  KRAKEN_BOT_PYRAMID_L2_TRIGGER_PCT: z.string().transform(Number).default('0.080'),
-  KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L1: z.string().transform(Number).default('0.35'),
-  KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L2: z.string().transform(Number).default('0.50'),
-  KRAKEN_BOT_PYRAMID_L1_CONFIDENCE_MIN: z.string().transform(Number).default('85'),
-  KRAKEN_BOT_PYRAMID_L2_CONFIDENCE_MIN: z.string().transform(Number).default('90'),
-  KRAKEN_BOT_PYRAMID_EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.006'),
-  KRAKEN_BOT_PYRAMID_EROSION_CAP_TREND: z.string().transform(Number).default('0.008'),
-
-  /* Pyramiding Rules - Binance (matches Kraken config for parity) */
+  /* Pyramiding Rules - Binance */
   BINANCE_BOT_PYRAMIDING_ENABLED: z.string().transform(val => val === 'true').default('true'),
   BINANCE_BOT_PYRAMID_LEVELS: z.string().transform(Number).default('2'),
   BINANCE_BOT_PYRAMID_L1_TRIGGER_PCT: z.string().transform(Number).default('0.045'),
@@ -151,18 +148,15 @@ const envSchema = z.object({
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
   RISK_RSI_EXTREME_OVERBOUGHT: z.string().transform(Number).default('85'),
   RISK_RSI_OVERBOUGHT_TRENDING: z.string().transform(Number).default('92'), // RSI can stay elevated in sustained trends
-  RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Kraken default: 1% (2× 0.52% round-trip fee)
+  RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Legacy default — superseded by RISK_MIN_MOMENTUM_1H_BINANCE
   RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.25'), // Binance: 0.25% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   RISK_MAX_ADVERSE_4H_MOMENTUM: z.string().transform(Number).default('-0.5'), // Block path 1/3 entries when 4h is this negative (counter-trend protection)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
-  RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.02'), // 2.0% minimum target to avoid fee drag
+  RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.008'), // 0.8% minimum — Binance costs ~0.26% × 3 = 0.78% floor
+  RISK_COST_FLOOR_MULTIPLIER: z.string().transform(Number).default('3.0'), // Profit must be N× total costs (fees+spread+slippage) to enter
   RISK_EMA200_DOWNTREND_BLOCK_ENABLED: z.string().transform(val => val === 'true').default('false'), // Block entries when price < EMA200 (disable to catch reversals)
-
-  /* Loss Streak & Cooldown - Prevents trade churn after consecutive losses */
-  RISK_MAX_LOSS_STREAK: z.string().transform(Number).default('5'), // Max consecutive losses before extended cooldown
-  RISK_LOSS_COOLDOWN_HOURS: z.string().transform(Number).default('1'), // Extended cooldown after max loss streak
 
   /* Underwater Momentum Exit - Must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H) */
   UNDERWATER_MOMENTUM_THRESHOLD: z.string().transform(Number).default('0.003'), // 0.3% - only exit if momentum collapses
@@ -174,7 +168,7 @@ const envSchema = z.object({
   /* Minimum peak profit before collapse protection kicks in */
   /* Philosophy: Only protect peaks above fee round-trip + buffer; below this let time-gated early loss handle it */
   PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - above 0.2% fee round-trip + buffer
-  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('0.30'), // 0.30% minimum peak — ensures net-positive after fees at 85% retention
+  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('0.15'), // 0.15% minimum peak — arms early; 8% threshold means exit at 0.138% gross which still clears fees
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - meaningful peak, not noise
@@ -183,8 +177,10 @@ const envSchema = z.object({
   /* Underwater exit - minimum meaningful peak in dollars (/nexus port) */
   UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: z.string().transform(Number).default('0.50'), // $0.50 - profit collapse threshold
 
-  /* Peak-Relative Erosion (/nexus parity - 30% of peak eroded = exit) */
-  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.10'), // 10% - tight trailing, minimal giveback
+  /* Dollar-based Erosion — exit when peak profit drops by $X (not % of peak, which is unstable on tiny peaks) */
+  EROSION_DOLLAR_THRESHOLD: z.string().transform(Number).default('0.40'), // Exit when profit falls $0.40 from peak — covers fees, ignores % math on tiny wins
+  /* Peak-Relative Erosion — kept as secondary backstop for large peaks where dollar threshold is too tight */
+  EROSION_PEAK_RELATIVE_THRESHOLD: z.string().transform(Number).default('0.08'), // 8% backstop for large peaks
   EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: z.string().transform(Number).default('5'), // 5 min - fast response
   /* Profit Ratchet: tighten erosion threshold once peak reaches high-profit zone */
   EROSION_RATCHET_ACTIVATION_PCT: z.string().transform(Number).default('8.0'), // 8% of cost → ratchet arms
@@ -244,8 +240,13 @@ const envSchema = z.object({
   ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: z.string().transform(Number).default('0.10'), // +0.10% min intrabar momentum for weak/choppy — filters slow drift entries without chasing
   ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: z.string().transform(Number).default('0.05'), // Require rising candle even in trending markets
 
-  /* 4h downtrend block — prevents buying 1h bounces in a falling market */
-  ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD: z.string().transform(Number).default('-0.5'), // -0.5% = strong 4h downtrend → block
+  /* Early recovery gate — allows entry before 4h fully recovers to -0.1%
+   * when 1h is already rising strongly AND 4h downtrend is shallow (not a crash)
+   * Logic: pass if (4h > -0.1%) OR (earlyRecovery AND 1h >= min AND 4h >= floor AND intrabar > 0) */
+  ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD: z.string().transform(Number).default('-0.5'), // unused legacy — kept for compat
+  HEALTH_GATE_EARLY_RECOVERY_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  HEALTH_GATE_EARLY_RECOVERY_1H_MIN: z.string().transform(Number).default('0.5'),  // 1h must be at least +0.5% — real recovery, not noise
+  HEALTH_GATE_EARLY_RECOVERY_4H_FLOOR: z.string().transform(Number).default('-0.5'), // don't enter if 4h worse than -0.5% (crash protection)
 
   /* Green-to-Red Protection - Safeguards against entry noise */
   /* Only triggers if peak was meaningful OR trade has been open long enough */
@@ -345,6 +346,7 @@ const envSchema = z.object({
   // is unreachable (outage). Changing this has no effect in normal operation.
   PERFORMANCE_FEE_RATE: z.string().transform(Number).default('0.06'),
   PERFORMANCE_FEE_MIN_INVOICE_USD: z.string().transform(Number).default('1.00'), // Don't bill under $1
+  FLAT_FEE_USDC: z.string().transform(Number).default('0'), // Monthly flat fee in USDC (0 = disabled; admin sets via /admin/fees)
   BILLING_GRACE_PERIOD_DAYS: z.string().transform(Number).default('7'),   // Day 7: first dunning reminder
   DUNNING_WARNING_DAYS: z.string().transform(Number).default('10'),        // Day 10: final warning email
   BILLING_SUSPENSION_DAYS: z.string().transform(Number).default('21'),    // Day 21: bots suspended (extended for global users)
@@ -376,14 +378,16 @@ const envSchema = z.object({
   CP_BTC_MOMENTUM_BEAR_4H: z.string().transform(Number).default('-2'), // 4h BTC momentum <= -2% → 25% size
   CP_BTC_MOMENTUM_WEAK_1H: z.string().transform(Number).default('-0.5'), // 1h BTC momentum <= -0.5% → 50% size
   CP_DRAWDOWN_ENABLED: z.string().transform(val => val === 'true').default('true'),
-  CP_DRAWDOWN_REDUCE_PCT: z.string().transform(Number).default('5'), // 5% rolling loss → reduce size
-  CP_DRAWDOWN_PAUSE_PCT: z.string().transform(Number).default('10'), // 10% rolling loss → pause 24h
-  CP_DRAWDOWN_STOP_PCT: z.string().transform(Number).default('15'), // 15% drawdown from peak → pause until BTC recovers
-  CP_DRAWDOWN_PAUSE_HOURS: z.string().transform(Number).default('24'),
+  CP_DRAWDOWN_REDUCE_PCT: z.string().transform(Number).default('5'), // 5% rolling loss → reduce size (no pause)
+  CP_DRAWDOWN_FLOOR_PCT: z.string().transform(Number).default('10'), // 10% rolling loss → floor size (no pause)
+  CP_DRAWDOWN_CRITICAL_PCT: z.string().transform(Number).default('15'), // 15% drawdown from peak → floor size (no pause)
+  CP_DRAWDOWN_REDUCE_MULTIPLIER: z.string().transform(Number).default('0.5'), // Position size at reduce threshold
+  CP_DRAWDOWN_FLOOR_MULTIPLIER: z.string().transform(Number).default('0.25'), // Position size at floor/critical thresholds
   CP_LOSS_STREAK_ENABLED: z.string().transform(val => val === 'true').default('true'),
-  CP_LOSS_STREAK_REDUCE: z.string().transform(Number).default('3'), // 3 consecutive losses → half size
-  CP_LOSS_STREAK_PAUSE: z.string().transform(Number).default('7'), // 7 consecutive losses → pause 4h
-  CP_LOSS_STREAK_PAUSE_HOURS: z.string().transform(Number).default('4'),
+  CP_LOSS_STREAK_REDUCE: z.string().transform(Number).default('3'), // 3 consecutive losses → reduced size (no pause)
+  CP_LOSS_STREAK_SEVERE: z.string().transform(Number).default('5'), // 5 consecutive losses → floor size (no pause)
+  CP_LOSS_STREAK_REDUCE_MULTIPLIER: z.string().transform(Number).default('0.5'), // Position size at reduce threshold
+  CP_LOSS_STREAK_SEVERE_MULTIPLIER: z.string().transform(Number).default('0.25'), // Position size at severe threshold
 
   /* Logging */
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -432,8 +436,6 @@ function getDefaultEnvironment(): Environment {
     BINANCE_API_BASE_URL: 'https://api.binance.com',
     BINANCE_MARKET_DATA_URL: 'https://api.binance.com',
     SUPPORTED_EXCHANGES: 'binance',
-    KRAKEN_TAKER_FEE_DEFAULT: 0.0026,
-    KRAKEN_MAKER_FEE_DEFAULT: 0.0016,
     BINANCE_TAKER_FEE_DEFAULT: 0.001,
     TRADING_PAIRS: ['BTC/USDT', 'ETH/USDT'],
     SUPPORTED_QUOTE_CURRENCIES: ['USDT'],
@@ -448,7 +450,7 @@ function getDefaultEnvironment(): Environment {
     ENABLE_TRADE_ALERTS: true,
     ENABLE_BACKTESTING: false,
     LLM_PROVIDER: 'claude',
-    KRAKEN_BOT_PAPER_TRADING: false,
+    BINANCE_BOT_PAPER_TRADING: false,
     CREEPING_UPTREND_ENABLED: true,
     CREEPING_UPTREND_MIN_MOMENTUM: 0.003,
     CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
@@ -462,22 +464,18 @@ function getDefaultEnvironment(): Environment {
     AI_MIN_CONFIDENCE_TRANSITIONING: 70,
     AI_MIN_CONFIDENCE_MODERATE: 68,
     AI_MIN_CONFIDENCE_STRONG: 68,
+    AI_TRANSITIONING_MIN_VOLUME_RATIO: 1.0,
+    AI_TRANSITIONING_MIN_MOMENTUM_1H: 0.10,
+    TRANSITIONING_TIME_GUARD_MINUTES: 10,
+    TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT: 0.5,
+    AI_VETO_THRESHOLD: 88,
     AI_CONFIDENCE_BOOST_ENABLED: true,
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
+    AI_CLAUDE_MIN_DETERMINISTIC: 60,
     ENCRYPTION_KEY: 'build-phase-encryption-key-1234567890',
     LOG_LEVEL: 'info',
     LOG_FORMAT: 'json',
-    KRAKEN_BOT_PYRAMIDING_ENABLED: true,
-    KRAKEN_BOT_PYRAMID_LEVELS: 2,
-    KRAKEN_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,
-    KRAKEN_BOT_PYRAMID_L2_TRIGGER_PCT: 0.08,
-    KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L1: 0.35,
-    KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L2: 0.5,
-    KRAKEN_BOT_PYRAMID_L1_CONFIDENCE_MIN: 85,
-    KRAKEN_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
-    KRAKEN_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
-    KRAKEN_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
     BINANCE_BOT_PYRAMIDING_ENABLED: true,
     BINANCE_BOT_PYRAMID_LEVELS: 2,
     BINANCE_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,
@@ -494,25 +492,25 @@ function getDefaultEnvironment(): Environment {
     RISK_PRICE_TOP_THRESHOLD: 0.995,
     RISK_RSI_EXTREME_OVERBOUGHT: 85,
     RISK_RSI_OVERBOUGHT_TRENDING: 92,
-    RISK_MIN_MOMENTUM_1H: 1.0, // Kraken default
+    RISK_MIN_MOMENTUM_1H: 1.0, // Legacy default
     RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
     RISK_MAX_ADVERSE_4H_MOMENTUM: -0.5, // Block path 1/3 when 4h strongly negative
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)
-    RISK_PROFIT_TARGET_MINIMUM: 0.015, // 1.5% - covers fees
+    RISK_PROFIT_TARGET_MINIMUM: 0.008, // 0.8% - Binance costs ~0.26% × 3 = 0.78% floor
+    RISK_COST_FLOOR_MULTIPLIER: 3.0, // Profit must be 3× total costs to enter
     RISK_EMA200_DOWNTREND_BLOCK_ENABLED: false, // Allow reversal entries by default
-    RISK_MAX_LOSS_STREAK: 5,
-    RISK_LOSS_COOLDOWN_HOURS: 1,
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.008, // 0.8% - above fee round-trip + buffer
-    EROSION_PEAK_MIN_PCT: 0.30,
+    EROSION_PEAK_MIN_PCT: 0.35,
     EROSION_MIN_PEAK_PCT: 0.008, // 0.8% - meaningful peak, not noise
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
-    EROSION_PEAK_RELATIVE_THRESHOLD: 0.10, // 10% - tight trailing, minimal giveback
+    EROSION_DOLLAR_THRESHOLD: 0.40, // Exit when profit falls $0.40 from peak
+    EROSION_PEAK_RELATIVE_THRESHOLD: 0.08, // 8% backstop for large peaks
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_RATCHET_ACTIVATION_PCT: 0.8,   // arms at 0.8% peak (every real trade)
     EROSION_RATCHET_THRESHOLD: 0.10,       // 10% erosion - locks 90% of peak
@@ -547,6 +545,9 @@ function getDefaultEnvironment(): Environment {
     ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY: 0.10,
     ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING: -0.1,
     ENTRY_BLOCK_4H_MOMENTUM_THRESHOLD: -0.5,
+    HEALTH_GATE_EARLY_RECOVERY_ENABLED: true,
+    HEALTH_GATE_EARLY_RECOVERY_1H_MIN: 0.5,
+    HEALTH_GATE_EARLY_RECOVERY_4H_FLOOR: -0.5,
     GREEN_TO_RED_MIN_PEAK_PCT: 0.0002, // 0.02%
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,
@@ -600,6 +601,7 @@ function getDefaultEnvironment(): Environment {
     LIVE_TRADING_MIN_USDT_USD: 100,
     PERFORMANCE_FEE_RATE: 0.06,
     PERFORMANCE_FEE_MIN_INVOICE_USD: 1.00,
+    FLAT_FEE_USDC: 0,
     BILLING_GRACE_PERIOD_DAYS: 7,
     DUNNING_WARNING_DAYS: 10,
     BILLING_SUSPENSION_DAYS: 21,
@@ -622,13 +624,15 @@ function getDefaultEnvironment(): Environment {
     CP_BTC_MOMENTUM_WEAK_1H: -0.5,
     CP_DRAWDOWN_ENABLED: true,
     CP_DRAWDOWN_REDUCE_PCT: 5,
-    CP_DRAWDOWN_PAUSE_PCT: 10,
-    CP_DRAWDOWN_STOP_PCT: 15,
-    CP_DRAWDOWN_PAUSE_HOURS: 24,
+    CP_DRAWDOWN_FLOOR_PCT: 10,
+    CP_DRAWDOWN_CRITICAL_PCT: 15,
+    CP_DRAWDOWN_REDUCE_MULTIPLIER: 0.5,
+    CP_DRAWDOWN_FLOOR_MULTIPLIER: 0.25,
     CP_LOSS_STREAK_ENABLED: true,
     CP_LOSS_STREAK_REDUCE: 3,
-    CP_LOSS_STREAK_PAUSE: 7,
-    CP_LOSS_STREAK_PAUSE_HOURS: 4,
+    CP_LOSS_STREAK_SEVERE: 5,
+    CP_LOSS_STREAK_REDUCE_MULTIPLIER: 0.5,
+    CP_LOSS_STREAK_SEVERE_MULTIPLIER: 0.25,
   };
 }
 
@@ -698,16 +702,6 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
       CREEPING_UPTREND_GATE_MIN_1H: 0.20,
       CREEPING_UPTREND_GATE_MIN_4H: 0.15,
-      KRAKEN_BOT_PYRAMIDING_ENABLED: true,
-      KRAKEN_BOT_PYRAMID_LEVELS: 2,
-      KRAKEN_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,
-      KRAKEN_BOT_PYRAMID_L2_TRIGGER_PCT: 0.080,
-      KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L1: 0.35,
-      KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L2: 0.50,
-      KRAKEN_BOT_PYRAMID_L1_CONFIDENCE_MIN: 85,
-      KRAKEN_BOT_PYRAMID_L2_CONFIDENCE_MIN: 90,
-      KRAKEN_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
-      KRAKEN_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
       BINANCE_BOT_PYRAMIDING_ENABLED: true,
       BINANCE_BOT_PYRAMID_LEVELS: 2,
       BINANCE_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,
@@ -725,6 +719,10 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       AI_CONFIDENCE_BOOST_ENABLED: false,
       AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
       AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
+      AI_TRANSITIONING_MIN_VOLUME_RATIO: 1.0,
+      AI_TRANSITIONING_MIN_MOMENTUM_1H: 0.10,
+      TRANSITIONING_TIME_GUARD_MINUTES: 10,
+      TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT: 0.5,
     };
     return (testDefaults[key] ?? process.env[key]) as Environment[T];
   }
@@ -764,25 +762,24 @@ export function filterAllowedPairs(pairs: string[]): string[] {
  * Trading configuration (pyramiding rules from existing profitable /nexus bot)
  */
 export const tradingConfig = {
-  get krakenPyramiding() {
+  get binancePyramiding() {
     return {
-      enabled: getEnv('KRAKEN_BOT_PYRAMIDING_ENABLED'),
-      levels: getEnv('KRAKEN_BOT_PYRAMID_LEVELS'),
+      enabled: getEnv('BINANCE_BOT_PYRAMIDING_ENABLED'),
+      levels: getEnv('BINANCE_BOT_PYRAMID_LEVELS'),
       layer1: {
-        triggerPct: getEnv('KRAKEN_BOT_PYRAMID_L1_TRIGGER_PCT'),
-        addSizePct: getEnv('KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L1'),
-        confidenceMin: getEnv('KRAKEN_BOT_PYRAMID_L1_CONFIDENCE_MIN'),
+        triggerPct: getEnv('BINANCE_BOT_PYRAMID_L1_TRIGGER_PCT'),
+        addSizePct: getEnv('BINANCE_BOT_PYRAMID_ADD_SIZE_PCT_L1'),
+        confidenceMin: getEnv('BINANCE_BOT_PYRAMID_L1_CONFIDENCE_MIN'),
       },
       layer2: {
-        triggerPct: getEnv('KRAKEN_BOT_PYRAMID_L2_TRIGGER_PCT'),
-        addSizePct: getEnv('KRAKEN_BOT_PYRAMID_ADD_SIZE_PCT_L2'),
-        confidenceMin: getEnv('KRAKEN_BOT_PYRAMID_L2_CONFIDENCE_MIN'),
+        triggerPct: getEnv('BINANCE_BOT_PYRAMID_L2_TRIGGER_PCT'),
+        addSizePct: getEnv('BINANCE_BOT_PYRAMID_ADD_SIZE_PCT_L2'),
+        confidenceMin: getEnv('BINANCE_BOT_PYRAMID_L2_CONFIDENCE_MIN'),
       },
-      erosionCapChoppy: getEnv('KRAKEN_BOT_PYRAMID_EROSION_CAP_CHOPPY'),
-      erosionCapTrend: getEnv('KRAKEN_BOT_PYRAMID_EROSION_CAP_TREND'),
+      erosionCapChoppy: getEnv('BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY'),
+      erosionCapTrend: getEnv('BINANCE_BOT_PYRAMID_EROSION_CAP_TREND'),
     };
   },
-
   /**
    * Get allowed trading pairs (BTC/ETH only for profitability)
    * Filters from TRADING_PAIRS config to enforce profitability constraint
@@ -814,12 +811,6 @@ export const tradingConfig = {
  * Used as fallback when actual fees cannot be captured from order execution
  */
 export const exchangeFeesConfig = {
-  get krakenTakerFeeDefault() {
-    return getEnv('KRAKEN_TAKER_FEE_DEFAULT');
-  },
-  get krakenMakerFeeDefault() {
-    return getEnv('KRAKEN_MAKER_FEE_DEFAULT');
-  },
   get binanceTakerFeeDefault() {
     return getEnv('BINANCE_TAKER_FEE_DEFAULT');
   },
@@ -828,7 +819,7 @@ export const exchangeFeesConfig = {
 /**
  * Active exchanges — parsed from SUPPORTED_EXCHANGES env var (comma-separated).
  * To add a new exchange: add its adapter, then add its name here via env.
- * Example: SUPPORTED_EXCHANGES=binance,kraken
+ * Example: SUPPORTED_EXCHANGES=binance
  */
 export function getSupportedExchanges(): string[] {
   const env = getEnvironmentConfig();
@@ -839,32 +830,29 @@ export function getSupportedExchanges(): string[] {
 }
 
 /**
- * Get taker fee rate for a given exchange (decimal, e.g. 0.0026 for 0.26%)
+ * Get taker fee rate for a given exchange (decimal, e.g. 0.001 for 0.10%)
+ * Binance is the only supported exchange.
  */
-export function getExchangeTakerFee(exchange: string): number {
+export function getExchangeTakerFee(_exchange: string): number {
   const env = getEnvironmentConfig();
-  return exchange.toLowerCase() === 'binance'
-    ? env.BINANCE_TAKER_FEE_DEFAULT   // 0.001 (0.10%)
-    : env.KRAKEN_TAKER_FEE_DEFAULT;   // 0.0026 (0.26%)
+  return env.BINANCE_TAKER_FEE_DEFAULT; // 0.001 (0.10%)
 }
 
 /**
- * Get maker fee rate for a given exchange (decimal, e.g. 0.0016 for 0.16%)
- * Only Kraken has a separate maker fee; Binance uses same rate for maker/taker at standard tier
+ * Get maker fee rate for a given exchange (decimal)
+ * Binance uses same rate for maker/taker at standard tier.
  */
-export function getExchangeMakerFee(exchange: string): number {
+export function getExchangeMakerFee(_exchange: string): number {
   const env = getEnvironmentConfig();
-  return exchange.toLowerCase() === 'kraken'
-    ? env.KRAKEN_MAKER_FEE_DEFAULT   // 0.0016 (0.16%)
-    : env.BINANCE_TAKER_FEE_DEFAULT; // 0.001 (0.10%) - same maker/taker at standard tier
+  return env.BINANCE_TAKER_FEE_DEFAULT; // 0.001 (0.10%)
 }
 
 /**
  * Estimate round-trip fee in percent (entry + exit)
- * Kraken: 0.52%, Binance: 0.20%
+ * Binance: 0.20%
  */
-export function estimateRoundTripFeePct(exchange: string): number {
-  return getExchangeTakerFee(exchange) * 2 * 100;
+export function estimateRoundTripFeePct(_exchange: string): number {
+  return getExchangeTakerFee('binance') * 2 * 100;
 }
 
 /**
@@ -969,6 +957,24 @@ export const aiConfig = {
   },
   get confidenceBoostTimeoutMs() {
     return getEnv('AI_CONFIDENCE_BOOST_TIMEOUT_MS');
+  },
+  get claudeMinDeterministic() {
+    return getEnv('AI_CLAUDE_MIN_DETERMINISTIC') as number;
+  },
+  get aiVetoThreshold() {
+    return getEnv('AI_VETO_THRESHOLD') as number;
+  },
+  get transitioningMinVolumeRatio() {
+    return getEnv('AI_TRANSITIONING_MIN_VOLUME_RATIO') as number;
+  },
+  get transitioningMinMomentum1h() {
+    return getEnv('AI_TRANSITIONING_MIN_MOMENTUM_1H') as number;
+  },
+  get transitioningTimeGuardMinutes() {
+    return getEnv('TRANSITIONING_TIME_GUARD_MINUTES') as number;
+  },
+  get transitioningTimeGuardMinProfitPct() {
+    return getEnv('TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT') as number;
   },
   /**
    * Per-regime minimum confidence threshold.

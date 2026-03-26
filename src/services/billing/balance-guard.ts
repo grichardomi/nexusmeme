@@ -72,7 +72,7 @@ async function fetchDeployableBalance(
  * Check whether a user meets the minimum balance requirement for live trading.
  *
  * @param userId   - user attempting to start/create a live bot
- * @param exchange - exchange name (e.g. 'binance', 'kraken')
+ * @param exchange - exchange name (e.g. 'binance')
  * @param tradingMode - 'paper' | 'live'. Paper trading is always allowed.
  */
 export async function checkMinimumBalance(

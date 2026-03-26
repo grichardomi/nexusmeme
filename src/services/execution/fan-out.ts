@@ -816,7 +816,7 @@ class ExecutionFanOut {
     } else {
       // Paper trade: estimate entry fee using taker rate from admin-configured billing_settings (DB)
       // Falls back to BINANCE_TAKER_FEE_DEFAULT env var if DB unavailable
-      const exchangeFeeRates = await getExchangeFeeRates(exchange as 'binance' | 'kraken').catch(() => null);
+      const exchangeFeeRates = await getExchangeFeeRates('binance').catch(() => null);
       const feeRate = exchangeFeeRates?.taker_fee ?? getCachedTakerFee(exchange);
       entryFee = executionPrice * amount * feeRate;
 
@@ -1019,11 +1019,10 @@ class ExecutionFanOut {
       }
 
       // Determine which exchanges support USD pairs (not just USDT/USDC)
-      // Kraken: BTC/USD, BTC/USDT, BTC/USDC all valid
       // Binance US: BTC/USD, BTC/USDT valid
       // Global Binance (binance.com): only BTC/USDT, BTC/USDC — no USD pairs
       const apiBase = getEnvironmentConfig().BINANCE_API_BASE_URL;
-      const supportsUsdPairs = exchange === 'kraken' || apiBase.includes('binance.us');
+      const supportsUsdPairs = apiBase.includes('binance.us');
 
       // Pick dominant quote using ONLY that currency's free balance for sizing.
       // Mixing currencies would size the order larger than what's available in the chosen pair.

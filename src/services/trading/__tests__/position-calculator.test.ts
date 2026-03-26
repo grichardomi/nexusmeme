@@ -3,7 +3,7 @@ import { positionCalculator } from '../position-calculator';
 // Mock the trading config
 jest.mock('@/config/environment', () => ({
   tradingConfig: {
-    krakenPyramiding: {
+    binancePyramiding: {
       levels: 3,
       multiplier: 1.5,
       initialInvestment: 100,

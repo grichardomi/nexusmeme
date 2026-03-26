@@ -236,11 +236,19 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
     let chargeReference = '';
     let chargeUrl = billingUrl;
 
+    // Fetch flat fee from DB (admin-controlled via /admin/fees); fall back to env
+    const flatFeeRows = await query(
+      "SELECT value FROM billing_settings WHERE key = 'flat_fee_usdc'",
+      []
+    );
+    const flatFeeUsdc = flatFeeRows[0] ? parseFloat(String(flatFeeRows[0].value)) : env.FLAT_FEE_USDC;
+    const invoiceTotal = userFees.total_fees + (flatFeeUsdc > 0 ? flatFeeUsdc : 0);
+
     // Create a USDC invoice (only payment method)
     const invoice = await createUSDCInvoice(
       userFees.user_id,
       userFees.fee_ids,
-      userFees.total_fees
+      invoiceTotal
     );
     chargeReference = invoice.payment_reference;
     chargeUrl = billingUrl;
@@ -250,7 +258,9 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
     logger.info('USDC invoice created for monthly billing', {
       userId: userFees.user_id,
       reference: invoice.payment_reference,
-      amount: userFees.total_fees,
+      performanceFees: userFees.total_fees,
+      flatFeeUsdc,
+      invoiceTotal,
     });
 
     // Mark fees as billed
@@ -275,7 +285,7 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
         userFees.user_id,
         getStartOfLastMonth(),
         getEndOfLastMonth(),
-        userFees.total_fees,
+        invoiceTotal,
         userFees.fee_count,
         chargeReference,
       ]
@@ -286,7 +296,7 @@ async function processSingleUserBilling(userFees: PendingUserFees, billingRunId?
       await sendPerformanceFeeChargedEmail(
         userFees.email,
         userFees.name || 'Trader',
-        userFees.total_fees,
+        invoiceTotal,
         chargeReference,
         chargeUrl,
         userFees.fee_count

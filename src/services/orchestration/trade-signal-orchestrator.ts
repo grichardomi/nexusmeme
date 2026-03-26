@@ -21,10 +21,10 @@ import { jobQueueManager } from '@/services/job-queue/singleton';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 import { sendBotSuspendedEmail, sendLowBalanceEmail } from '@/services/email/triggers';
 import { startUserDataStreamsForAllLiveBots } from '@/services/exchanges/binance-user-data-stream';
-import { startKrakenStreamsForAllLiveBots } from '@/services/exchanges/kraken-user-data-stream';
 import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconciler';
 import type { TradeDecision } from '@/types/market';
 import { closeTrade } from '@/services/trading/close-trade';
+import { livePriceStore } from '@/services/market-data/live-price-store';
 
 interface BotInstance {
   id: string;
@@ -40,15 +40,14 @@ interface BotInstance {
  */
 class TradeSignalOrchestrator {
   private isRunning = false;
+  private isCycleRunning = false; // Per-cycle lock — prevents overlap when a cycle takes longer than the interval
   private interval: NodeJS.Timer | null = null;
   private peakTrackingInterval: NodeJS.Timer | null = null;
   private pyramidCheckInterval: NodeJS.Timer | null = null;
   private reconcileInterval: NodeJS.Timer | null = null;
   // Pairs exited for stale reasons in the current cycle — block re-entry until next cycle
   private staleExitedPairsThisCycle = new Set<string>();
-  // Pairs where thesis was invalidated — block re-entry for THESIS_INVALIDATION_BLOCK_MINUTES
-  // Prevents re-entering a pair that just proved its 1h momentum is broken
-  private thesisInvalidatedPairs = new Map<string, number>(); // pair → timestamp of invalidation
+
   private lowBalanceCheckInterval: NodeJS.Timer | null = null;
 
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
@@ -62,6 +61,117 @@ class TradeSignalOrchestrator {
   private regimeCache = new Map<string, { regime: string; timestamp: number }>();
   private readonly REGIME_CACHE_TTL_MS = 60000; // 60s — stale after one orchestrator cycle
 
+  // EVENT-DRIVEN EROSION: In-memory trade data for tick callbacks (no DB on each tick)
+  // Key: tradeId, Value: trade snapshot needed to compute net profit on every tick
+  private tickTradeCache = new Map<string, {
+    tradeId: string;
+    pair: string;
+    exchange: string;
+    entryPrice: number;
+    quantity: number;
+    feeDollars: number;
+    botInstanceId: string;
+  }>();
+  // Unsubscribe functions keyed by pair (one active trade per pair)
+  private tickUnsubs = new Map<string, () => void>();
+
+
+  /**
+   * Register a WS-tick erosion callback for a trade.
+   * Fires on every Binance ticker event (~100-500ms) instead of the 1.5s poll.
+   * Uses only in-memory data — zero DB hits per tick.
+   */
+  private registerTickErosion(trade: {
+    id: string; pair: string; exchange: string;
+    entry_price: string | number; quantity: string | number;
+    bot_instance_id: string; fee: string | null;
+  }): void {
+    const ex = (trade.exchange || 'binance').toLowerCase();
+    if (ex !== 'binance') return; // Only WS-fed pairs
+
+    const entryPrice = parseFloat(String(trade.entry_price));
+    const quantity = parseFloat(String(trade.quantity));
+    if (!isFinite(entryPrice) || entryPrice <= 0) return;
+
+    // Snapshot trade data for use inside the tick callback (no DB access needed)
+    const feeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(ex));
+    this.tickTradeCache.set(trade.id, {
+      tradeId: trade.id,
+      pair: trade.pair,
+      exchange: ex,
+      entryPrice,
+      quantity,
+      feeDollars,
+      botInstanceId: trade.bot_instance_id,
+    });
+
+    // Avoid double-registering the same pair (one active trade per pair)
+    if (this.tickUnsubs.has(trade.pair)) return;
+
+    const unsub = livePriceStore.onTick(trade.pair, (_pair, tickPrice) => {
+      // Find the active trade for this pair in our cache
+      let cached: typeof this.tickTradeCache extends Map<string, infer V> ? V : never;
+      let foundId: string | undefined;
+      for (const [tid, t] of this.tickTradeCache) {
+        if (t.pair === _pair) { cached = t as any; foundId = tid; break; }
+      }
+      if (!foundId || !cached!) return;
+
+      const exitFee = tickPrice * cached!.quantity * getCachedTakerFee(cached!.exchange);
+      const totalFee = cached!.feeDollars + exitFee;
+      const totalFeePct = (totalFee / (cached!.entryPrice * cached!.quantity)) * 100;
+      const grossPct = ((tickPrice - cached!.entryPrice) / cached!.entryPrice) * 100;
+      const netPct = grossPct - totalFeePct;
+
+      if (netPct <= 0) return; // Only check erosion when trade is profitable
+
+      // Update peak (non-blocking, deferred write)
+      positionTracker.updatePeakIfHigher(foundId, netPct, tickPrice, totalFee).catch(() => {});
+
+      // Check erosion cap
+      const cachedRegime = this.regimeCache.get(_pair);
+      const regime = (cachedRegime && (Date.now() - cachedRegime.timestamp) < this.REGIME_CACHE_TTL_MS)
+        ? cachedRegime.regime : 'moderate';
+      const erosionResult = positionTracker.checkErosionCap(foundId, _pair, netPct, regime, tickPrice);
+
+      if (erosionResult.shouldExit) {
+        // Unsubscribe immediately to prevent re-firing while close is in-flight
+        this.unregisterTickErosion(_pair, foundId);
+
+        const profitLoss = (tickPrice - cached!.entryPrice) * cached!.quantity;
+        logger.info('⚡ EROSION CAP (tick-driven): Locking profit', {
+          tradeId: foundId, pair: _pair, netPct: netPct.toFixed(4),
+          peak: erosionResult.peakProfitPct.toFixed(4), reason: erosionResult.reason,
+        });
+
+        closeTrade({
+          botInstanceId: cached!.botInstanceId,
+          tradeId: foundId,
+          pair: _pair,
+          exitTime: new Date().toISOString(),
+          exitPrice: tickPrice,
+          profitLoss,
+          profitLossPercent: grossPct,
+          exitReason: erosionResult.reason || 'erosion_cap_exceeded',
+          entryPrice: cached!.entryPrice,
+        }).then(r => {
+          if (r.ok) {
+            positionTracker.clearPosition(foundId!);
+            logger.info('💰 Profit locked (tick-driven)', { tradeId: foundId, pair: _pair, profitLoss: profitLoss.toFixed(2) });
+          }
+        }).catch(() => {});
+      }
+    });
+
+    this.tickUnsubs.set(trade.pair, unsub);
+  }
+
+  /** Remove tick callback for a pair/trade. Call when trade closes. */
+  private unregisterTickErosion(pair: string, tradeId: string): void {
+    const unsub = this.tickUnsubs.get(pair);
+    if (unsub) { unsub(); this.tickUnsubs.delete(pair); }
+    this.tickTradeCache.delete(tradeId);
+  }
 
   /**
    * Helper: Parse entry_time correctly (handle string or Date object from database)
@@ -120,10 +230,6 @@ class TradeSignalOrchestrator {
     startUserDataStreamsForAllLiveBots().catch(err => {
       logger.warn('Failed to start Binance user data streams on startup', { error: err instanceof Error ? err.message : String(err) });
     });
-    startKrakenStreamsForAllLiveBots().catch(err => {
-      logger.warn('Failed to start Kraken user data streams on startup', { error: err instanceof Error ? err.message : String(err) });
-    });
-
     // GHOST TRADE RECONCILIATION: On every startup, scan for open DB trades that actually
     // closed on the exchange (WebSocket missed fill during crash/restart). Runs once on
     // startup then every 5 minutes to catch any fills missed by the WebSocket.
@@ -177,10 +283,22 @@ class TradeSignalOrchestrator {
     }, pyramidCheckIntervalMs);
 
     this.interval = setInterval(async () => {
+      if (this.isCycleRunning) {
+        logger.warn('Orchestrator: previous cycle still running, skipping tick');
+        return;
+      }
+      this.isCycleRunning = true;
+      const cycleStart = Date.now();
       try {
         await this.analyzeAndExecuteSignals();
       } catch (error) {
         logger.error('Trade signal orchestrator error', error instanceof Error ? error : null);
+      } finally {
+        const cycleMs = Date.now() - cycleStart;
+        if (cycleMs > intervalMs * 0.8) {
+          logger.warn('Orchestrator: slow cycle', { cycleMs, intervalMs, utilizationPct: Math.round((cycleMs / intervalMs) * 100) });
+        }
+        this.isCycleRunning = false;
       }
     }, intervalMs);
   }
@@ -212,6 +330,10 @@ class TradeSignalOrchestrator {
       clearInterval(this.reconcileInterval as NodeJS.Timeout);
       this.reconcileInterval = null;
     }
+    // Unsubscribe all tick callbacks
+    for (const unsub of this.tickUnsubs.values()) { try { unsub(); } catch {} }
+    this.tickUnsubs.clear();
+    this.tickTradeCache.clear();
     logger.info('Trade signal orchestrator stopped');
   }
 
@@ -260,12 +382,31 @@ class TradeSignalOrchestrator {
         pairsByExchange.get(ex)!.add(trade.pair);
       }
 
-      // Fetch prices per exchange and merge into one map keyed by exchange:pair
+      // Fetch prices: prefer live WebSocket store (zero latency, no DB) for Binance,
+      // fall back to aggregator (PG kv_cache) for non-Binance or cold start.
       const pricesByExchangePair = new Map<string, any>();
       for (const [ex, pairs] of pairsByExchange.entries()) {
-        const data = await marketDataAggregator.getMarketData(Array.from(pairs), ex);
-        for (const [pair, priceData] of data.entries()) {
-          pricesByExchangePair.set(`${ex}:${pair}`, priceData);
+        if (ex === 'binance') {
+          // Use live in-process store — fed directly by WS ticker, no cache TTL lag
+          for (const pair of pairs) {
+            const live = livePriceStore.get(pair);
+            if (live && !livePriceStore.isStale(pair, 5000)) {
+              pricesByExchangePair.set(`${ex}:${pair}`, { price: live.price, bid: live.bid, ask: live.ask });
+            }
+          }
+          // Fall back to aggregator for any pairs not yet in live store (cold start)
+          const missing = Array.from(pairs).filter(p => !pricesByExchangePair.has(`${ex}:${p}`));
+          if (missing.length > 0) {
+            const data = await marketDataAggregator.getMarketData(missing, ex);
+            for (const [pair, priceData] of data.entries()) {
+              pricesByExchangePair.set(`${ex}:${pair}`, priceData);
+            }
+          }
+        } else {
+          const data = await marketDataAggregator.getMarketData(Array.from(pairs), ex);
+          for (const [pair, priceData] of data.entries()) {
+            pricesByExchangePair.set(`${ex}:${pair}`, priceData);
+          }
         }
       }
 
@@ -326,6 +467,8 @@ class TradeSignalOrchestrator {
             totalFeeDollars
           );
           updatedCount++;
+          // Register event-driven tick callback so erosion fires at WS cadence (~100ms)
+          this.registerTickErosion(trade);
           logger.debug('Peak tracking: recorded initial position data (NET profit)', {
             tradeId: trade.id,
             pair: trade.pair,
@@ -391,6 +534,7 @@ class TradeSignalOrchestrator {
                 if (closeResult.ok) {
                   exitCount++;
                   positionTracker.clearPosition(trade.id);
+                  this.unregisterTickErosion(trade.pair, trade.id);
                   logger.info('💰 Profit locked: Trade closed with gain', {
                     tradeId: trade.id,
                     pair: trade.pair,
@@ -455,6 +599,7 @@ class TradeSignalOrchestrator {
                   if (closeResult.ok) {
                     exitCount++;
                     positionTracker.clearPosition(trade.id);
+                    this.unregisterTickErosion(trade.pair, trade.id);
                     logger.info('🎯 Profit target reached (high-frequency)', {
                       tradeId: trade.id,
                       pair: trade.pair,
@@ -535,7 +680,7 @@ class TradeSignalOrchestrator {
         const botConfig = typeof activeBots[0].config === 'string'
           ? JSON.parse(activeBots[0].config)
           : activeBots[0].config;
-        const firstBotExchange = activeBots[0].exchange || 'kraken';
+        const firstBotExchange = activeBots[0].exchange || 'binance';
         riskManager.initializeFromBotConfig(botConfig, firstBotExchange);
       }
 
@@ -704,23 +849,6 @@ class TradeSignalOrchestrator {
               return { type: 'skipped' };
             }
 
-            // Skip pairs where thesis was recently invalidated — 1h momentum proven broken
-            const thesisBlockedAt = this.thesisInvalidatedPairs.get(pair);
-            if (thesisBlockedAt) {
-              const env = getEnvironmentConfig();
-              const blockMs = env.THESIS_INVALIDATION_BLOCK_MINUTES * 60 * 1000;
-              const elapsedMs = Date.now() - thesisBlockedAt;
-              if (elapsedMs < blockMs) {
-                logger.debug('Skipping entry: thesis invalidated recently', {
-                  pair,
-                  minutesAgo: (elapsedMs / 60000).toFixed(1),
-                  blockMinutes: env.THESIS_INVALIDATION_BLOCK_MINUTES,
-                });
-                return { type: 'skipped' };
-              } else {
-                this.thesisInvalidatedPairs.delete(pair); // block expired
-              }
-            }
 
             // OPEN POSITION GUARD: Skip AI/Claude entirely if any active bot already
             // holds this pair. fan-out.ts does the per-bot DB check, but checking here
@@ -768,8 +896,11 @@ class TradeSignalOrchestrator {
             const currentPrice = currentPriceData.price;
 
             // CRITICAL: Real-time intrabar momentum — checks if price is currently falling
+            // Uses last CLOSED candle's close (not open) as reference — the OHLC fetcher drops
+            // the in-progress candle (slice(0,-1)), so lastCandle.open is 0-29min stale.
+            // Comparing currentPrice to lastCandle.close answers: "is price up from last confirmed close?"
             const lastCandle = candles[candles.length - 1];
-            const intrabarMomentum = ((currentPrice - lastCandle.open) / lastCandle.open) * 100;
+            const intrabarMomentum = ((currentPrice - lastCandle.close) / lastCandle.close) * 100;
             indicators.intrabarMomentum = intrabarMomentum;
 
             // LIVE MOMENTUM: Override closed-candle momentum1h/4h with live price as current close.
@@ -784,6 +915,36 @@ class TradeSignalOrchestrator {
               indicators.momentum4h = ((currentPrice - base4h) / base4h) * 100;
             }
 
+            // TREND DIRECTION SCORE — zero/near-zero lag signals for fast recovery detection
+            // Replaces lagging ROC-based health gate: don't ask "are you above 4h ago?"
+            // Ask: "are you moving UP right now?" — fires 1-3 candles into any real recovery.
+            if (candles.length >= 6) {
+              // Signal 1: HIGHER CLOSES — last 2 candles each closed above the prior close
+              // Pure price action, zero lag. Filters noise (one green candle isn't enough).
+              // 2 consecutive (3 candles) catches slow creeping uptrends; 3 consecutive was
+              // too strict and blocked valid entries during sustained low-volatility grinds.
+              const c = candles;
+              const n = c.length;
+              const higherCloses =
+                c[n - 1].close > c[n - 2].close &&
+                c[n - 2].close > c[n - 3].close;
+              indicators.higherCloses = higherCloses;
+
+              // Signal 2: MOMENTUM SLOPE — is 1h ROC improving vs 30min ago?
+              // Even if still negative, -0.3% → -0.1% = direction change confirmed.
+              // base2h_30mAgo: the 1h-ago reference shifted 2 candles back
+              const mom1hNow = indicators.momentum1h ?? 0;
+              const base1h_30mAgo = c[n - 6].close; // reference for 1h ROC from 30min ago
+              const mom1h_30mAgo = ((c[n - 2].close - base1h_30mAgo) / base1h_30mAgo) * 100;
+              const momentumSlope = mom1hNow - mom1h_30mAgo;
+              indicators.momentumSlope = momentumSlope;
+
+              // Trend score: 2/3 signals = entry allowed (intrabar already gated separately)
+              const slopeImproving = momentumSlope > 0;
+              const intrabarUp = intrabarMomentum > 0;
+              indicators.trendScore = [higherCloses, slopeImproving, intrabarUp].filter(Boolean).length;
+            }
+
             const bid = currentPriceData.bid;
             const ask = currentPriceData.ask;
             let spreadPct = 0.001;
@@ -791,7 +952,7 @@ class TradeSignalOrchestrator {
               spreadPct = (ask - bid) / bid;
             }
 
-            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | Mom1h: ${(indicators.momentum1h || 0).toFixed(2)}% | Mom4h: ${(indicators.momentum4h || 0).toFixed(2)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
+            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | TrendScore: ${indicators.trendScore ?? '?'}/3 | HigherCloses: ${indicators.higherCloses} | Slope: ${(indicators.momentumSlope || 0).toFixed(3)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
 
             // PRE-CHECK: Block entry if spread exceeds maximum
             const maxEntrySpreadPct = env.MAX_ENTRY_SPREAD_PCT || 0.003;
@@ -801,23 +962,9 @@ class TradeSignalOrchestrator {
               return { type: 'rejected', signal: { pair, reason: 'spread_too_wide', details: `Spread ${(spreadPct * 100).toFixed(3)}% > ${(maxEntrySpreadPct * 100).toFixed(2)}% max`, stage: 'Pre-Filter' } };
             }
 
-            // INTRABAR MOMENTUM: flat rule — block if candle is actively falling beyond threshold
-            const minIntrabar = env.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? -0.1;
-            if (intrabarMomentum < minIntrabar) {
-              console.log(`\n🔴 INTRABAR BLOCKED: ${pair} - candle momentum ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}%`);
-              logger.info('Orchestrator: entry blocked - intrabar momentum falling', { pair, intrabarMomentum: intrabarMomentum.toFixed(3), minIntrabar });
-              return { type: 'rejected', signal: { pair, reason: 'intrabar_negative', details: `Intrabar ${intrabarMomentum.toFixed(2)}% < ${minIntrabar}%`, stage: 'Pre-Filter' } };
-            }
-
-            // 1H MOMENTUM: must be positive — no ADX-conditional dip exceptions
-            const mom1h = indicators.momentum1h ?? 0;
-            const minMom1h = pairExchange.startsWith('binance')
-              ? (env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.2)
-              : (env.RISK_MIN_MOMENTUM_1H ?? 1.0);
-            if (mom1h < minMom1h) {
-              console.log(`\n🔴 1H MOMENTUM BLOCKED: ${pair} - 1h momentum ${mom1h.toFixed(2)}% < ${minMom1h}% min`);
-              return { type: 'rejected', signal: { pair, reason: 'negative_1h_momentum', details: `1h momentum ${mom1h.toFixed(2)}% below minimum ${minMom1h}%`, stage: 'Pre-Filter' } };
-            }
+            // NOTE: Intrabar hard pre-filter removed — it blocked entries for entire 15m candles
+            // when price pulled back slightly from the candle open (same value cycle after cycle).
+            // trendScore already includes intrabar > 0 as one of three signals — redundant here.
 
             // Run 5-stage risk filter (Health Gate now requires 4h > 0 AND 1h > min)
             const ticker = { bid, ask, spread: spreadPct };
@@ -832,26 +979,28 @@ class TradeSignalOrchestrator {
             console.log(`\n✅ RISK FILTER PASSED: ${pair} - 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | 1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
             logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
-            // CREEPING UPTREND DETECTION: slow sustained grind where volume may be low
-            // but price is making consistent higher highs. Tells AI to look for candle
-            // consistency rather than volume explosiveness.
+            // CREEPING UPTREND DETECTION: slow sustained grind with low volume.
+            // Signals the AI to judge candle consistency, not volume explosiveness.
+            // Gates: both momentum timeframes positive + not in deep pullback.
+            // Volume NOT required — low volume IS the signature of a creeping grind.
+            // priceNearHigh removed — creeping uptrends can be mid-range, not just at highs.
             let isCreepingUptrend = false;
             if (env.CREEPING_UPTREND_ENABLED) {
               const mom1hVal = indicators.momentum1h ?? 0;
               const mom4hVal = indicators.momentum4h ?? 0;
-              const volRatio = indicators.volumeRatio ?? 1;
               const recentHigh = Math.max(...candles.slice(-16).map(c => c.high));
               const priceToHighRatio = recentHigh > 0 ? currentPrice / recentHigh : 0;
 
               const mom1hOk = mom1hVal >= env.CREEPING_UPTREND_GATE_MIN_1H;
               const mom4hOk = mom4hVal >= env.CREEPING_UPTREND_GATE_MIN_4H;
-              const volOk = volRatio >= env.CREEPING_UPTREND_VOLUME_RATIO_MIN;
-              const priceNearHigh = priceToHighRatio >= env.CREEPING_UPTREND_PRICE_TOP_THRESHOLD;
-              const noPullback = priceToHighRatio >= env.CREEPING_UPTREND_PULLBACK_THRESHOLD;
+              // Block only if price has pulled back more than PULLBACK_THRESHOLD from recent high
+              const noPullback = env.CREEPING_UPTREND_PULLBACK_THRESHOLD <= 0
+                || priceToHighRatio >= env.CREEPING_UPTREND_PULLBACK_THRESHOLD;
 
-              isCreepingUptrend = mom1hOk && mom4hOk && volOk && priceNearHigh && noPullback;
+              isCreepingUptrend = mom1hOk && mom4hOk && noPullback;
 
               if (isCreepingUptrend) {
+                const volRatio = indicators.volumeRatio ?? 1;
                 console.log(`\n📈 CREEPING UPTREND: ${pair} - mom1h: ${mom1hVal.toFixed(2)}% mom4h: ${mom4hVal.toFixed(2)}% vol: ${volRatio.toFixed(2)}x price/high: ${(priceToHighRatio * 100).toFixed(1)}%`);
                 logger.info('Orchestrator: creeping uptrend detected', { pair, mom1h: mom1hVal.toFixed(3), mom4h: mom4hVal.toFixed(3), volumeRatio: volRatio.toFixed(2), priceToHighRatio: priceToHighRatio.toFixed(4) });
               }
@@ -882,6 +1031,7 @@ class TradeSignalOrchestrator {
                 return { type: 'rejected', signal: { pair, reason: 'not_buy', signal: analysis.signal.signal, confidence: analysis.signal.confidence } };
               }
 
+              // Cost floor validated pre-AI in Risk Manager Stage 5 (uses live spread + RISK_COST_FLOOR_MULTIPLIER)
               const effectiveRegime = analysis.regime.regime as any;
               const entryPath = 'momentum';
               const decision: TradeDecision = {
@@ -1002,7 +1152,7 @@ class TradeSignalOrchestrator {
   }
 
   /**
-   * Fetch OHLC candles from Kraken API and calculate technical indicators
+   * Fetch OHLC candles from Binance API and calculate technical indicators
    * CRITICAL: Do NOT return default indicators on error - only use real data for risk assessment
    *
    * PARITY REQUIREMENT: Must use 15m candles (not 1h) to match /nexus behavior!
@@ -1011,7 +1161,7 @@ class TradeSignalOrchestrator {
    */
   /**
    * Get cached OHLC data or fetch fresh if needed (OPTIMIZATION: Priority #1)
-   * Reduces Kraken API calls from N per cycle to 1 per pair per 30 seconds
+   * Reduces API calls from N per cycle to 1 per pair per 30 seconds
    */
   private async getCachedOHLC(pair: string, timeframe: string, limit: number, exchange: string = 'binance'): Promise<any[]> {
     const cacheKey = `${exchange}:${pair}:${timeframe}:${limit}`;
@@ -1039,7 +1189,7 @@ class TradeSignalOrchestrator {
       );
     }
 
-    // Calculate technical indicators from real Kraken candles
+    // Calculate technical indicators from real candles
     return calculateTechnicalIndicators(candles);
   }
 
@@ -1164,7 +1314,7 @@ class TradeSignalOrchestrator {
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
           const quantity = parseFloat(String(trade.quantity));
-          const momExchange = trade.exchange || 'kraken';
+          const momExchange = trade.exchange || 'binance';
 
           // Calculate NET profit for momentum check
           const momGrossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
@@ -1191,12 +1341,20 @@ class TradeSignalOrchestrator {
           }
 
           // Build OpenPosition object for momentum failure detector
+          const entryTimeForPos = this.parseEntryTime(trade.entry_time);
+          const holdTimeMinutes = (Date.now() - entryTimeForPos) / 60_000;
+          const cachedRegime = this.regimeCache.get(trade.pair);
+          const regime = (cachedRegime && (Date.now() - cachedRegime.timestamp) < this.REGIME_CACHE_TTL_MS)
+            ? cachedRegime.regime
+            : 'moderate';
           const position: OpenPosition = {
             pair: trade.pair,
             entryPrice,
             currentPrice,
             profitPct,
-            pyramidLevelsActivated: 0, // Default - can be enhanced later if tracking multi-level entries
+            pyramidLevelsActivated: 0,
+            holdTimeMinutes,
+            regime,
           };
 
           // Update peak profit tracking (same as profit target pass)
@@ -1223,7 +1381,8 @@ class TradeSignalOrchestrator {
           // Run momentum failure detector
           const momentumResult = momentumFailureDetector.detectMomentumFailure(
             position,
-            indicators
+            indicators,
+            regime
           );
 
           // If momentum failure detected, close the trade
@@ -1621,7 +1780,7 @@ class TradeSignalOrchestrator {
           // Stale flat trade exit (6h) catches anything that lingers.
 
           // CHECK 2: UNDERWATER EXIT (/nexus PositionTracker.ts:446-523)
-          // CRITICAL: Uses GROSS profit (/nexus has no fees; NET triggers too early on Kraken)
+          // CRITICAL: Uses GROSS profit (/nexus has no fees; NET triggers too early on low-fee exchanges)
           // Three exit reasons, each with its own trigger — NO blanket time gate.
           // The time-scaled thresholds ARE the protection against exiting on entry noise.
           //
@@ -1879,14 +2038,6 @@ class TradeSignalOrchestrator {
                     exitReason === 'underwater_small_peak_timeout' || exitReason === 'underwater_never_profited') {
                   this.staleExitedPairsThisCycle.add(trade.pair);
                   logger.info('Loss exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });
-                }
-                if (exitReason === 'momentum_thesis_invalidated') {
-                  this.thesisInvalidatedPairs.set(trade.pair, Date.now());
-                  const env = getEnvironmentConfig();
-                  logger.info('Thesis invalidated: blocking re-entry', {
-                    pair: trade.pair,
-                    blockMinutes: env.THESIS_INVALIDATION_BLOCK_MINUTES,
-                  });
                 }
                 exitCount++;
               } else {

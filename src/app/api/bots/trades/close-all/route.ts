@@ -68,8 +68,7 @@ export async function POST(request: NextRequest) {
       // Fall back to using entry prices if market data unavailable
     }
 
-    const botExchange = ((bot[0] as any).exchange || 'binance').toLowerCase();
-    const exchangeKey = botExchange === 'kraken' ? 'kraken' : 'binance';
+    const exchangeKey = 'binance';
     const feeRates = await getExchangeFeeRates(exchangeKey);
     const feeRate = feeRates.taker_fee;
 

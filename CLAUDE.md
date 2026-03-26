@@ -39,6 +39,13 @@ Source: `REGIME_SIZE_*` env vars in `.env.local`. Capital preservation (BTC EMA 
 - `src/config/environment.ts` validates and exports all env vars
 - Code reads from environment, never hardcodes
 
+**No Redis — PG-backed kv_cache ONLY**
+- This project does NOT use Redis, Upstash, or any Redis client
+- All cache operations go through `src/lib/redis.ts` which is a drop-in API backed by the Postgres `kv_cache` table
+- NEVER suggest adding Redis, ioredis, @upstash/redis, or any Redis dependency
+- NEVER assume a Redis server is running — there is none
+- For latency-critical in-process caching (e.g. peak tracking), use `livePriceStore` (`src/services/market-data/live-price-store.ts`) which is a plain in-memory Map fed by the WebSocket, with zero DB overhead
+
 ## Trading Philosophy & Best Practices
 
 **Core Motto: "Make Money No Matter What"**

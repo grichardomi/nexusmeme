@@ -16,6 +16,7 @@ import type { PriceUpdate, BinanceTickerEvent, PriceSubscriber, WebSocketState }
 import { WebSocketState as StateEnum } from '@/types/market-data';
 import { publishPriceToRedis } from './redis-price-distribution';
 import { getPriceLeaderElection } from './leader-election';
+import { livePriceStore } from './live-price-store';
 import { getEnvironmentConfig } from '@/config/environment';
 
 /**
@@ -309,16 +310,21 @@ export class BinanceWebSocketClient {
    * Called by leader election to notify when leadership status changes
    */
   async handleLeadershipChange(isLeader: boolean): Promise<void> {
-    if (isLeader && !this.isLeader && this.subscribedPairs.size > 0) {
+    if (isLeader && !this.isLeader) {
       // Gained leadership - reconnect to Binance
-      logger.warn('Gained price stream leadership, reconnecting to Binance WebSocket');
       this.isLeader = true;
       this.intentionalDisconnect = false; // Reset flag
-      const pairs = Array.from(this.subscribedPairs);
-      try {
-        await this.connect(pairs);
-      } catch (error) {
-        logger.error('Failed to reconnect after gaining leadership', error instanceof Error ? error : undefined);
+      if (this.subscribedPairs.size > 0) {
+        logger.warn('Gained price stream leadership, reconnecting to Binance WebSocket');
+        const pairs = Array.from(this.subscribedPairs);
+        try {
+          await this.connect(pairs);
+        } catch (error) {
+          logger.error('Failed to reconnect after gaining leadership', error instanceof Error ? error : undefined);
+        }
+      } else {
+        // Cold start — background-fetcher will call connect() on its next 4s tick
+        logger.info('Became WS leader (cold start) — background-fetcher will initiate connection');
       }
     } else if (!isLeader && this.isLeader) {
       // Lost leadership - disconnect gracefully
@@ -423,7 +429,10 @@ export class BinanceWebSocketClient {
         timestamp,
       };
 
-      // Publish to Redis for multi-instance distribution and fallback
+      // Update in-process live price store — zero latency, used by peak tracking / erosion cap
+      livePriceStore.update(pair, price, bid, ask, timestamp);
+
+      // Publish to PG-backed kv_cache for multi-instance distribution and fallback
       publishPriceToRedis(update).catch(error => {
         logger.error('Failed to publish price to Redis', error instanceof Error ? error : null, { pair });
       });

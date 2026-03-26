@@ -34,6 +34,7 @@ export default function BillingPage() {
   const [showGoLiveWizard, setShowGoLiveWizard] = useState(false);
   const [feePercent, setFeePercent] = useState<number | null>(null);
   const [trialDays, setTrialDays] = useState<number | null>(null);
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
   const [activeInvoiceAmount, setActiveInvoiceAmount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -79,6 +80,10 @@ export default function BillingPage() {
       fetch('/api/billing/usdc/invoice')
         .then(r => r.json())
         .then(d => setActiveInvoiceAmount(d.activeInvoice?.amount ?? null))
+        .catch(() => null);
+      fetch('/api/billing/flat-fee')
+        .then(r => r.json())
+        .then(d => setFlatFeeUsdc(typeof d.flatFeeUsdc === 'number' ? d.flatFeeUsdc : null))
         .catch(() => null);
     }
   }, [status]);
@@ -151,16 +156,17 @@ export default function BillingPage() {
     switch (userPlan?.plan) {
       case 'live_trial':
         return userPlan?.tradingMode === 'live'
-          ? `You are live trading during your free trial. ${feeDisplay}% on profitable trades only.`
+          ? `You are live trading during your free trial. After trial: ${flatDisplay ? `${flatDisplay} flat + ` : ''}${feeDisplay} on profitable trades.`
           : 'You are on a free trial with paper trading. Switch to live trading to trade with real money.';
       case 'performance_fees':
-        return `${feeDisplay}% only on profitable trades. No subscription fees, no monthly charges. We only earn when you do.`;
+        return `${flatDisplay ? `${flatDisplay} flat fee + ` : ''}${feeDisplay} on profitable trades. ${flatDisplay ? `Flat fee billed monthly. Performance fee is $0 on losing months.` : 'We only earn when you do.'}`;
       default:
         return 'You are on a free trial. Upgrade to live trading when ready.';
     }
   };
 
   const feeDisplay = feePercent !== null ? `${feePercent}%` : '…';
+  const flatDisplay = flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc} USDC/mo` : null;
 
   const colors = getPlanColor();
 
@@ -244,7 +250,7 @@ export default function BillingPage() {
                 <li>✓ {trialDays ?? '…'} days to test live trading</li>
                 <li>✓ No capital limits</li>
                 <li>✓ No payment required</li>
-                <li>✓ After trial: {feeDisplay}% on profits</li>
+                <li>✓ After trial: {flatDisplay ? `${flatDisplay} flat + ` : ''}{feeDisplay} on profits</li>
               </ul>
             </details>
           )}
@@ -257,7 +263,7 @@ export default function BillingPage() {
               <div>
                 <h3 className="text-base font-bold text-red-800 dark:text-red-200">Your trial has ended — bots are paused</h3>
                 <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                  Upgrade to continue. You pay {feeDisplay}% only on profitable trades — no monthly fee.
+                  Upgrade to continue. {flatDisplay ? `${flatDisplay} flat/mo + ` : ''}{feeDisplay} on profitable trades. $0 performance fee on losing months.
                 </p>
               </div>
               <button
@@ -279,7 +285,7 @@ export default function BillingPage() {
                   Ready to trade with real money?
                 </h3>
                 <p className="text-sm text-green-600 dark:text-green-400 mt-1">
-                  {feeDisplay}% on profits only — paid monthly via crypto
+                  {flatDisplay ? `${flatDisplay} flat + ` : ''}{feeDisplay} on profits — paid monthly via USDC
                 </p>
               </div>
               <button
@@ -293,7 +299,7 @@ export default function BillingPage() {
         ) : !isTrialExpired ? (
           <section className="bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800 p-3 sm:p-4">
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              💡 <strong>No subscriptions.</strong> {feeDisplay}% on profits — we only earn when you do.{' '}
+              💡 {flatDisplay ? <><strong>{flatDisplay}</strong> flat/mo + </> : ''}<strong>{feeDisplay}</strong> on profits — performance fee is $0 on losing months.{' '}
               <a href="/help/performance-fees" className="underline">Learn more →</a>
             </p>
           </section>
@@ -317,7 +323,7 @@ export default function BillingPage() {
         <section className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">How Payments Work</h2>
           <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
-            <p>Performance fees are billed monthly on the 1st. Pay directly with USDC on Base:</p>
+            <p>{flatDisplay ? `${flatDisplay} flat fee + ` : ''}{feeDisplay} performance fee on profits — both billed monthly on the 1st. Pay directly with USDC on Base:</p>
             <div className="flex flex-wrap gap-2 mt-2">
               <span className="px-2 py-1 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded text-xs font-medium">USDC on Base</span>
               <span className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded text-xs font-medium">MetaMask</span>

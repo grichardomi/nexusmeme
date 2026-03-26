@@ -63,6 +63,19 @@ export class PriceLeaderElection {
         return true;
       }
 
+      // If WE are the current leader, renew and return true (same instance re-check)
+      if (currentLeader.instanceId === this.instanceId) {
+        const leaderInfo: LeaderInfo = {
+          instanceId: this.instanceId,
+          hostname: getHostname(),
+          timestamp: Date.now(),
+        };
+        await setCached(LEADER_KEY, leaderInfo, LEADER_HEARTBEAT_TTL);
+        this.isLeader = true;
+        logger.debug('Renewed price stream leadership', { instanceId: this.instanceId });
+        return true;
+      }
+
       // Check if leader heartbeat is stale (older than TTL)
       const ageMs = Date.now() - currentLeader.timestamp;
       if (ageMs > LEADER_HEARTBEAT_TTL * 1000) {

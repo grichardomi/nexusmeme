@@ -35,7 +35,7 @@ class RiskManager {
     spreadMaxPercent: 0.005,
     priceTopThreshold: 0.995,
     rsiExtremeOverbought: 85,
-    minMomentum1h: 1.0,   // 1.0% - must exceed Kraken's 0.52% fee drag (2× fees)
+    minMomentum1h: 1.0,   // 1.0% legacy default — superseded by RISK_MIN_MOMENTUM_1H_BINANCE (0.25%)
     minMomentum4h: 0.5,   // 0.5% - 4h confirmation threshold
     volumeBreakoutRatio: 1.3,
     minVolumeRatio: 0.50,
@@ -54,12 +54,12 @@ class RiskManager {
    * Creeping uptrend mode can override momentum thresholds when enabled
    * Called once per orchestrator cycle with the bot's config
    * @param botConfig - Bot configuration object
-   * @param exchange - Exchange name (kraken or binance) to determine which pyramid env vars to use
+   * @param exchange - Exchange name (default: 'binance') to determine which pyramid env vars to use
    */
-  initializeFromBotConfig(botConfig: Record<string, any>, exchange: string = 'kraken'): void {
+  initializeFromBotConfig(botConfig: Record<string, any>, exchange: string = 'binance'): void {
     const env = getEnvironmentConfig();
     // Momentum thresholds from ENVIRONMENT (authoritative, not stale botConfig)
-    // Exchange-aware: Binance round-trip = 0.20%, Kraken = 0.52%
+    // Exchange-aware: Binance round-trip = 0.20%
     // Threshold = 2× round-trip fees so momentum must at minimum cover fee drag
     const isBinance = exchange.toLowerCase().startsWith('binance');
     let minMomentum1h = isBinance
@@ -70,8 +70,8 @@ class RiskManager {
     let priceTopThreshold = parseFloat(botConfig?.priceTopThreshold || '0.995');
 
 
-    // Determine pyramid env var prefix based on exchange (kraken vs binance)
-    const exchangePrefix = exchange.toLowerCase() === 'binance' ? 'BINANCE_BOT' : 'KRAKEN_BOT';
+    // Determine pyramid env var prefix (always BINANCE_BOT)
+    const exchangePrefix = 'BINANCE_BOT';
 
     // Environment variables are authoritative for RISK_* settings (system-wide governance)
     // This ensures new .env.local settings override stale botConfig values in database
@@ -112,40 +112,64 @@ class RiskManager {
   }
 
   /**
-   * STAGE 1: Health Gate - Pure price momentum gate
-   * Entry requires 4h momentum > 0 (higher timeframe trending up)
-   * AND 1h momentum > minimum (medium-term momentum is real)
-   * ADX is NOT used for entry gating — only for profit target scaling (getRegime/getProfitTarget).
-   * Why: ADX is a lagging derivative of price. It told us "strong trend" (47.8) while BTC was
-   * making lower highs and lower lows. 4h/1h price momentum IS the source of truth.
+   * STAGE 1: Health Gate - Trend Direction Score
+   * Ask: "is price moving UP right now?" — not "is price above where it was 4h ago?"
+   *
+   * Old approach (ROC-based): compared price to a fixed point 4h ago.
+   * Problem: after a dump, 4h ROC stays deeply negative for hours even during genuine recovery.
+   * The bot missed entire recoveries waiting for a stale reference to age out.
+   *
+   * New approach (direction score): 3 zero/near-zero lag signals, need 2/3 to pass.
+   *   1. higherCloses — last 3 candles each closed above prior (pure price action, 0 lag)
+   *   2. momentumSlope — 1h ROC improving vs 30min ago (detects direction change mid-recovery)
+   *   3. intrabar > 0 — current price above last close (real-time)
+   *
+   * Crash guard: if 4h ROC < -3% (genuine crash/panic), block regardless of direction signals.
+   * This prevents entering during dead-cat bounces in the middle of a crash.
    */
-  checkHealthGate(_adx: number, _adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number): RiskFilterResult {
-    const mom1h = momentum1h ?? 0;
+  checkHealthGate(_adx: number, _adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number, intrabarMomentum?: number, trendScore?: number, higherCloses?: boolean, momentumSlope?: number): RiskFilterResult {
     const mom4h = momentum4h ?? 0;
+    const intrabar = intrabarMomentum ?? 0;
+    const score = trendScore ?? 0;
 
-    console.log(`\n🏥 HEALTH GATE: 4h=${mom4h.toFixed(2)}% | 1h=${mom1h.toFixed(2)}%`);
-    logger.debug('RiskManager: Stage 1 - Health Gate (price momentum)', { momentum4h: mom4h, momentum1h: mom1h });
+    console.log(`\n🏥 HEALTH GATE: trendScore=${score}/3 | higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%`);
+    logger.debug('RiskManager: Stage 1 - Health Gate (direction score)', { trendScore: score, higherCloses, momentumSlope, intrabar, momentum4h: mom4h, momentum1h });
 
-    // 1h momentum must exceed minimum
-    if (mom1h < this.config.minMomentum1h) {
-      console.log(`\n🚫 1H BLOCKED: 1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`);
-      logger.info('RiskManager: Entry blocked - 1h momentum below minimum', { momentum1h: mom1h.toFixed(3), minimum: this.config.minMomentum1h });
-      return { pass: false, reason: `1h momentum ${mom1h.toFixed(2)}% < ${this.config.minMomentum1h}% minimum`, stage: 'Health Gate' };
+    // CRASH GUARD: 4h < -3% = genuine crash or panic — dead-cat bounces are traps
+    if (mom4h < -3.0) {
+      console.log(`\n🚫 CRASH GUARD: 4h=${mom4h.toFixed(2)}% — too deep to enter safely`);
+      logger.info('RiskManager: Entry blocked - crash guard (4h < -3%)', { momentum4h: mom4h.toFixed(3) });
+      return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < -3% (panic/crash protection)`, stage: 'Health Gate' };
     }
 
-    // 4h momentum must be positive — higher timeframe confirms uptrend direction.
-    // This is the single most important filter: if price is lower now than 4h ago,
-    // any 1h bounce is counter-trend. Today's losses (12:27, 12:38, 12:45) were all
-    // 1h bounces with negative 4h. Wait for 4h to turn — miss the first 0.5% of a
-    // recovery, but avoid buying fake bounces in a continuing downtrend.
-    if (mom4h <= 0) {
-      console.log(`\n🚫 4H BLOCKED: 4h momentum ${mom4h.toFixed(2)}% ≤ 0% — higher timeframe still down`);
-      logger.info('RiskManager: Entry blocked - 4h momentum non-positive', { momentum4h: mom4h.toFixed(3), momentum1h: mom1h.toFixed(3) });
-      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% ≤ 0% (wait for higher timeframe to confirm recovery)`, stage: 'Health Gate' };
+    // DIRECTION SCORE GATE: need 2/3 signals confirming upward direction
+    // Catches recoveries 1-3 candles after they start, regardless of how deep the prior dump was.
+    if (score >= 2) {
+      console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}%`);
+      logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3) });
+      return { pass: true, stage: 'Health Gate' };
     }
 
-    console.log(`\n✅ HEALTH GATE PASSED: 4h=${mom4h.toFixed(2)}% > 0 | 1h=${mom1h.toFixed(2)}% >= ${this.config.minMomentum1h}%`);
-    return { pass: true, stage: 'Health Gate' };
+    // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)
+    const mom1h = momentum1h ?? 0;
+    if (mom4h >= -0.1 && (intrabar > 0 || mom1h >= -0.1)) {
+      console.log(`\n✅ HEALTH GATE PASSED (4h stable): 4h=${mom4h.toFixed(2)}% | intrabar=${intrabar.toFixed(2)}% | 1h=${mom1h.toFixed(2)}%`);
+      return { pass: true, stage: 'Health Gate' };
+    }
+
+    // FALLBACK B: Creeping uptrend — slope clearly improving AND 4h near-neutral (not downtrending)
+    // Only fires when 4h >= -0.5% so we don't enter dead-cat bounces in an ongoing downtrend.
+    // Catches slow sideways-to-up grinds where brief flat candles prevent higherCloses from firing.
+    const slope = momentumSlope ?? 0;
+    if (slope > 0.03 && mom4h >= -0.5 && intrabar >= -0.1) {
+      console.log(`\n✅ HEALTH GATE PASSED (creeping uptrend): slope=${slope.toFixed(3)}% | 4h=${mom4h.toFixed(2)}% | intrabar=${intrabar.toFixed(2)}%`);
+      logger.info('RiskManager: Health gate passed via creeping uptrend', { momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
+      return { pass: true, stage: 'Health Gate' };
+    }
+
+    console.log(`\n🚫 HEALTH GATE BLOCKED: score=${score}/3 | 4h=${mom4h.toFixed(2)}% — no upward direction confirmed`);
+    logger.info('RiskManager: Entry blocked - direction not confirmed', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3) });
+    return { pass: false, reason: `Direction score ${score}/3 (need 2) — higherCloses=${higherCloses}, slope=${(momentumSlope ?? 0).toFixed(2)}%, intrabar=${intrabar.toFixed(2)}%`, stage: 'Health Gate' };
   }
 
   /**
@@ -178,7 +202,9 @@ class RiskManager {
     // Volume panic check (/nexus parity): ONLY block if high volume + selling pressure
     // High volume + positive momentum = healthy breakout (ALLOW)
     // High volume + negative momentum = panic selling (BLOCK)
-    const volumeRatio = indicators.volumeRatio ?? 1;
+    // Treat volumeRatio = 0 as missing data (BTC/ETH never have 0 volume in reality) — default to 1.0x
+    const rawVolumeRatio = indicators.volumeRatio ?? 1;
+    const volumeRatio = rawVolumeRatio <= 0 ? 1 : rawVolumeRatio;
     const momentum1h = indicators.momentum1h ?? 0;
     if (volumeRatio > this.config.volumeSpikeMax && momentum1h < -0.005) {
       logger.info('RiskManager: Entry blocked - volume panic spike with selling pressure', {
@@ -190,6 +216,20 @@ class RiskManager {
       return {
         pass: false,
         reason: `Volume panic spike (${volumeRatio.toFixed(2)}x + mom ${(momentum1h * 100).toFixed(2)}%)`,
+        stage: 'Drop Protection',
+      };
+    }
+
+    // Volume floor: block entries with extremely thin volume (no real buying pressure)
+    if (volumeRatio < this.config.minVolumeRatio) {
+      logger.info('RiskManager: Entry blocked - volume too thin', {
+        pair,
+        volumeRatio: volumeRatio.toFixed(3),
+        minVolumeRatio: this.config.minVolumeRatio,
+      });
+      return {
+        pass: false,
+        reason: `Volume too thin (${volumeRatio.toFixed(2)}x < ${this.config.minVolumeRatio}x minimum)`,
         stage: 'Drop Protection',
       };
     }
@@ -277,9 +317,11 @@ class RiskManager {
     _entryPrice: number,
     _exitPrice: number,
     profitTargetPercent: number,
-    exchange: string = 'kraken'
+    exchange: string = 'binance',
+    liveSpreadPct: number = 0
   ): RiskFilterResult {
-    logger.debug('RiskManager: Stage 5 - Cost Floor', { pair, profitTargetPercent, exchange });
+    const env = getEnvironmentConfig();
+    logger.debug('RiskManager: Stage 5 - Cost Floor', { pair, profitTargetPercent, exchange, liveSpreadPct });
 
     // Enforce absolute minimum target to avoid fee drag on tiny moves
     if (profitTargetPercent < this.config.profitTargetMinimum) {
@@ -296,15 +338,16 @@ class RiskManager {
     }
 
     // Use ACTUAL exchange-specific fees (round-trip: entry + exit)
-    const exchangeFeePercent = getCachedTakerFee(exchange) * 2; // Kraken: 0.0026*2 = 0.0052 (0.52%)
+    const exchangeFeePercent = getCachedTakerFee(exchange) * 2; // Binance: 0.001*2 = 0.002 (0.20%)
 
-    // Calculate total costs
-    const spreadPercent = 0.0005; // 0.05% for liquid pairs (realistic Kraken spread)
+    // Use live spread when available (from ticker), fall back to conservative estimate
+    const spreadPercent = liveSpreadPct > 0 ? liveSpreadPct : 0.0005;
     const slippagePercent = 0.0001; // 0.01% conservative estimate
     const totalCostsPercent = exchangeFeePercent + spreadPercent + slippagePercent;
 
-    // Cost floor: profit must be 3× costs minimum (3.0 multiplier)
-    const costFloorPercent = totalCostsPercent * 3.0;
+    // Cost floor: profit must be N× costs minimum (env-configurable, default 3.0)
+    const multiplier = env.RISK_COST_FLOOR_MULTIPLIER;
+    const costFloorPercent = totalCostsPercent * multiplier;
 
     if (profitTargetPercent < costFloorPercent) {
       logger.info('RiskManager: Entry blocked - cost floor not met', {
@@ -312,26 +355,12 @@ class RiskManager {
         profitTargetPercent: (profitTargetPercent * 100).toFixed(3),
         totalCostsPercent: (totalCostsPercent * 100).toFixed(3),
         costFloorPercent: (costFloorPercent * 100).toFixed(3),
-        multiplier: (profitTargetPercent / totalCostsPercent).toFixed(2),
+        multiplier: multiplier.toFixed(1),
+        liveSpread: (spreadPercent * 100).toFixed(3),
       });
       return {
         pass: false,
-        reason: `Cost floor not met (profit=${(profitTargetPercent * 100).toFixed(3)}% < costs×3=${(costFloorPercent * 100).toFixed(3)}%)`,
-        stage: 'Cost Floor',
-      };
-    }
-
-    // Also check risk/reward ratio
-    const riskRewardRatio = profitTargetPercent / totalCostsPercent;
-    if (riskRewardRatio < 2.0) {
-      logger.info('RiskManager: Entry blocked - poor risk/reward ratio', {
-        pair,
-        riskRewardRatio: riskRewardRatio.toFixed(2),
-        minimumRatio: 2.0,
-      });
-      return {
-        pass: false,
-        reason: `Poor risk/reward ratio (${riskRewardRatio.toFixed(2)}:1 < 2:1)`,
+        reason: `Cost floor not met (profit=${(profitTargetPercent * 100).toFixed(3)}% < costs×${multiplier}=${(costFloorPercent * 100).toFixed(3)}%)`,
         stage: 'Cost Floor',
       };
     }
@@ -451,8 +480,10 @@ class RiskManager {
   ): Promise<RiskFilterResult> {
     const momentum1h = indicators.momentum1h ?? 0;
     const momentum4h = indicators.momentum4h ?? 0;
-    const volumeRatio = indicators.volumeRatio ?? 1;
-    const stage1 = this.checkHealthGate(0, 0, momentum1h, volumeRatio, momentum4h);
+    const rawVolume = indicators.volumeRatio ?? 1;
+    const volumeRatio = rawVolume <= 0 ? 1 : rawVolume; // 0 = missing data, not actually zero volume
+    const intrabar = indicators.intrabarMomentum ?? 0;
+    const stage1 = this.checkHealthGate(0, 0, momentum1h, volumeRatio, momentum4h, intrabar, indicators.trendScore, indicators.higherCloses, indicators.momentumSlope);
     if (!stage1.pass) {
       return stage1;
     }
@@ -473,7 +504,8 @@ class RiskManager {
     // Use momentum-based profit target percentage (not dollar amount)
     const regime = this.getRegime(momentum1h, momentum4h);
     const profitTargetPct = this.getProfitTarget(regime);
-    const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct, this.config.exchange);
+    const liveSpread = ticker.spread ?? (ticker.ask && ticker.bid && ticker.bid > 0 ? (ticker.ask - ticker.bid) / ticker.bid : 0);
+    const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct, this.config.exchange, liveSpread);
     if (!stage5.pass) {
       return stage5;
     }

@@ -47,6 +47,7 @@ export default function TradingPage() {
   const [showCloseAllConfirm, setShowCloseAllConfirm] = useState(false);
   const [isTogglingBot, setIsTogglingBot] = useState(false);
   const [tradeViewMode, setTradeViewMode] = useState<'live' | 'paper' | 'all'>('live');
+  const [openTradeCount, setOpenTradeCount] = useState(0);
   const selectedBotIdRef = useRef<string | null>(null);
 
   // Fetch bots and refresh periodically
@@ -377,8 +378,8 @@ export default function TradingPage() {
                 })()}
               </div>
 
-              {/* Close All Button */}
-              <div className="flex justify-end mt-2">
+              {/* Close All Button — only shown when there are open trades */}
+              {openTradeCount > 0 && <div className="flex justify-end mt-2">
                 {showCloseAllConfirm ? (
                   <div className="flex items-center gap-3 bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-600 rounded-lg px-4 py-2">
                     <span className="text-sm font-medium text-red-800 dark:text-red-200">
@@ -406,7 +407,7 @@ export default function TradingPage() {
                     {isClosingAll ? '⟳ Closing...' : '🚨 Close All Trades'}
                   </button>
                 )}
-              </div>
+              </div>}
 
               {/* Stats Mode Toggle — shown only for live bots that have a live_since date */}
               {selectedBot.tradingMode === 'live' && selectedBot.liveSince && (
@@ -512,6 +513,7 @@ export default function TradingPage() {
                 <OpenClosedTrades
                   botId={selectedBot.id}
                   modeFilter={selectedBot.tradingMode === 'live' && selectedBot.liveSince ? tradeViewMode : 'all'}
+                  onOpenTradeCount={setOpenTradeCount}
                 />
               </div>
 

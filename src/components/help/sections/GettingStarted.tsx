@@ -9,13 +9,25 @@ interface GettingStartedProps {
 
 export function GettingStarted({ searchQuery }: GettingStartedProps) {
   const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [trialDays, setTrialDays] = useState<number | null>(null);
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
   useEffect(() => {
     fetch('/api/billing/fee-rate/default')
       .then(r => r.json())
       .then(d => setFeePercent(d.feePercent ?? null))
       .catch(() => {});
+    fetch('/api/billing/trial-days')
+      .then(r => r.json())
+      .then(d => setTrialDays(typeof d.trialDays === 'number' ? d.trialDays : null))
+      .catch(() => {});
+    fetch('/api/billing/flat-fee')
+      .then(r => r.json())
+      .then(d => setFlatFeeUsdc(typeof d.flatFeeUsdc === 'number' ? d.flatFeeUsdc : null))
+      .catch(() => {});
   }, []);
   const fee = feePercent !== null ? `${feePercent}%` : '…';
+  const trial = trialDays !== null ? `${trialDays}-day` : '…';
+  const flatFee = flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc} USDC/mo` : null;
 
   const questions = [
     {
@@ -25,7 +37,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     },
     {
       question: 'How do I get started?',
-      answer: `1. Sign up for a free NexusMeme account — you'll get a 10-day free trial
+      answer: `1. Sign up for a free NexusMeme account — you'll get a ${trial} free trial
 2. Verify your email address
 3. Create an account on your exchange:
    - **Binance International (binance.com)** — available in 180+ countries (not US)
@@ -38,7 +50,7 @@ export function GettingStarted({ searchQuery }: GettingStartedProps) {
     {
       question: 'Do I need to pay upfront?',
       answer:
-        `No! All new users get a 10-day free trial. Your bot starts in paper mode (simulated trades, zero risk) — no exchange account needed to try it out. Connect your API keys and switch to live trading whenever you're ready, during or after the trial. After the trial you pay only ${fee} on profits — nothing on losses.`,
+        `No! All new users get a ${trial} free trial. Your bot starts in paper mode (simulated trades, zero risk) — no exchange account needed to try it out. Connect your API keys and switch to live trading whenever you're ready, during or after the trial. After the trial you pay${flatFee ? ` ${flatFee} flat fee +` : ''} ${fee} on profits — $0 performance fee on losses.`,
     },
     {
       question: 'Which exchange do I need?',
@@ -74,16 +86,16 @@ IMPORTANT:
     {
       question: 'What is the trial period?',
       answer:
-        `Every new user gets a 10-day free trial with paper trading (simulated trades, zero risk). Test NexusMeme with real market data without risking real money. No payment required during the trial. After the trial ends, upgrade to live trading and pay only ${fee} on your profits.`,
+        `Every new user gets a ${trial} free trial with paper trading (simulated trades, zero risk). Test NexusMeme with real market data without risking real money. No payment required during the trial. After the trial ends, upgrade to live trading and pay${flatFee ? ` ${flatFee} flat +` : ''} ${fee} on profits only.`,
     },
     {
       question: 'Can I trade with my own capital?',
-      answer: `Yes! During your 10-day trial, you test the bot with paper trading (simulated). After the trial, upgrade to live trading to trade with your own real capital. You'll only pay ${fee} on your profits.`,
+      answer: `Yes! During your ${trial} trial, you test the bot with paper trading (simulated). After the trial, upgrade to live trading to trade with your own real capital. You'll pay${flatFee ? ` ${flatFee} flat +` : ''} ${fee} on profits — $0 performance fee on losses.`,
     },
     {
       question: 'What is the minimum capital required?',
       answer:
-        'During your 10-day trial, you use paper trading (simulated, no real money required). For live trading, a minimum of $1,000 USDT/USD in your exchange account is required. This ensures your account can absorb normal market volatility and generate meaningful returns.',
+        `During your ${trial} trial, you use paper trading (simulated, no real money required). For live trading, a minimum of $1,000 USDT/USD in your exchange account is required. This ensures your account can absorb normal market volatility and generate meaningful returns.`,
     },
     {
       question: 'Can I create multiple bots?',
@@ -104,7 +116,7 @@ IMPORTANT:
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6 mb-8">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Getting Started with NexusMeme</h2>
         <p className="text-slate-700 dark:text-slate-300">
-          Start your automated trading journey in minutes. All new users get a 10-day free trial with paper trading (simulated, zero risk). Upgrade to live trading anytime.
+          Start your automated trading journey in minutes. All new users get a {trial} free trial with paper trading (simulated, zero risk). Upgrade to live trading anytime.
         </p>
       </div>
 

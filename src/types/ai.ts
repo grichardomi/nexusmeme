@@ -15,6 +15,10 @@ export interface TechnicalIndicators {
   intrabarMomentum?: number;  // (currentPrice - candleOpen) / candleOpen — real-time direction
   recentHigh?: number;        // Highest high over last 20 candles
   recentLow?: number;         // Lowest low over last 20 candles
+  // Trend Direction Score — zero/near-zero lag, replaces lagging 4h ROC health gate
+  trendScore?: number;        // 0-3: count of bullish direction signals (need 2+ to pass)
+  higherCloses?: boolean;     // true if last 3 candles each closed above the prior (pure price action)
+  momentumSlope?: number;     // 1h ROC now minus 1h ROC 30min ago — positive = recovering
 }
 
 export interface MarketRegimeAnalysis {

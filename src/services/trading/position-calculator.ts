@@ -19,7 +19,7 @@ class PositionCalculator {
    * Respects existing pyramiding configuration
    */
   calculatePyramidLevels(entryPrice: number, initialCapital: number): PyramidLevel[] {
-    const config: any = { profitTarget: 5, stopLoss: 3, initialInvestment: 100, layers: tradingConfig.krakenPyramiding.levels, multiplier: 1.5 };
+    const config: any = { profitTarget: 5, stopLoss: 3, initialInvestment: 100, layers: tradingConfig.binancePyramiding.levels, multiplier: 1.5 };
     const levels: PyramidLevel[] = [];
 
     logger.info('Calculating pyramid levels', {
@@ -67,9 +67,9 @@ class PositionCalculator {
    * Calculate exit price (take profit) based on entry price and profit target
    */
   calculateExitPrice(entryPrice: number, profitTargetPercent?: number): number {
-    // Using Kraken aggressive pyramiding from /nexus profitable bot
+    // Using Binance pyramiding configuration from /nexus profitable bot
     const config: any = {
-      layers: tradingConfig.krakenPyramiding.levels,
+      layers: tradingConfig.binancePyramiding.levels,
       multiplier: 1.5, // From /nexus defaults
       initialInvestment: 100, // From /nexus defaults
       profitTarget: 5, // From /nexus defaults
@@ -92,9 +92,9 @@ class PositionCalculator {
    * Calculate stop loss price
    */
   calculateStopLossPrice(entryPrice: number, stopLossPercent?: number): number {
-    // Using Kraken aggressive pyramiding from /nexus profitable bot
+    // Using Binance pyramiding configuration from /nexus profitable bot
     const config: any = {
-      layers: tradingConfig.krakenPyramiding.levels,
+      layers: tradingConfig.binancePyramiding.levels,
       multiplier: 1.5, // From /nexus defaults
       initialInvestment: 100, // From /nexus defaults
       profitTarget: 5, // From /nexus defaults
@@ -117,9 +117,9 @@ class PositionCalculator {
    * Validate trade size against pyramiding rules
    */
   validateTradeSize(amount: number, _initialCapital: number): boolean {
-    // Using Kraken aggressive pyramiding from /nexus profitable bot
+    // Using Binance pyramiding configuration from /nexus profitable bot
     const config: any = {
-      layers: tradingConfig.krakenPyramiding.levels,
+      layers: tradingConfig.binancePyramiding.levels,
       multiplier: 1.5, // From /nexus defaults
       initialInvestment: 100, // From /nexus defaults
       profitTarget: 5, // From /nexus defaults
@@ -143,7 +143,7 @@ class PositionCalculator {
    */
   getConfig() {
     return {
-      layers: tradingConfig.krakenPyramiding.levels,
+      layers: tradingConfig.binancePyramiding.levels,
       initialInvestment: 100,
       multiplier: 1.5,
       profitTarget: 5,
@@ -155,9 +155,9 @@ class PositionCalculator {
    * Calculate total capital needed for full pyramid
    */
   calculateTotalCapitalNeeded(): number {
-    // Using Kraken aggressive pyramiding from /nexus profitable bot
+    // Using Binance pyramiding configuration from /nexus profitable bot
     const config: any = {
-      layers: tradingConfig.krakenPyramiding.levels,
+      layers: tradingConfig.binancePyramiding.levels,
       multiplier: 1.5, // From /nexus defaults
       initialInvestment: 100, // From /nexus defaults
       profitTarget: 5, // From /nexus defaults

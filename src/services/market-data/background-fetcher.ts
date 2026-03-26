@@ -163,7 +163,7 @@ class BackgroundMarketDataFetcher {
         }
       }
 
-      // REST fetch as fallback: keeps Redis warm for Kraken (no WS) and during WS cold-start
+      // REST fetch as fallback: keeps Redis warm during WS cold-start
       let totalPairs = 0;
       let totalRetrieved = 0;
       for (const [exchange, pairs] of pairsByExchange.entries()) {

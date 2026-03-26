@@ -885,7 +885,7 @@ export class JobQueueManager {
   /**
    * Handle Pyramid Add Order job
    * Places incremental buy orders at L1 (4.5%) and L2 (8%) profit levels
-   * Uses the exchange adapter dynamically (Kraken, Binance, Coinbase, etc.)
+   * Uses the Binance exchange adapter
    */
   private async handlePyramidAddOrder(job: any): Promise<JobResult> {
     const startTime = Date.now();
@@ -949,7 +949,7 @@ export class JobQueueManager {
       const decryptedPublicKey = decrypt(keys.encrypted_public_key);
       const decryptedSecretKey = decrypt(keys.encrypted_secret_key);
 
-      // Get exchange adapter dynamically (works for Kraken, Binance, Coinbase, etc.)
+      // Get exchange adapter (Binance)
       const adapter = getExchangeAdapter(exchange);
       await adapter.connect({
         publicKey: decryptedPublicKey,

@@ -16,8 +16,6 @@ type SessionUser = { id?: string; role?: string };
 const EXCHANGE_FEE_KEYS = [
   'binance_taker_fee', 'binance_maker_fee',
   'binance_min_profit_weak', 'binance_min_profit_moderate', 'binance_min_profit_strong',
-  'kraken_taker_fee', 'kraken_maker_fee',
-  'kraken_min_profit_weak', 'kraken_min_profit_moderate', 'kraken_min_profit_strong',
 ];
 
 async function assertAdmin() {
@@ -30,12 +28,9 @@ async function assertAdmin() {
 export async function GET() {
   if (!await assertAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const [binance, kraken] = await Promise.all([
-    getExchangeFeeRates('binance'),
-    getExchangeFeeRates('kraken'),
-  ]);
+  const binance = await getExchangeFeeRates('binance');
 
-  return NextResponse.json({ binance, kraken });
+  return NextResponse.json({ binance });
 }
 
 export async function POST(req: NextRequest) {

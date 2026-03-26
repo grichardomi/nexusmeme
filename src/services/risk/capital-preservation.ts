@@ -186,34 +186,36 @@ class CapitalPreservationService {
         currentEquity: currentEquity.toFixed(2),
       });
 
+      const drawdownPct = Math.abs(rollingPLPct);
+
       // Size reduction tiers — NO pauses, always trades
-      if (Math.abs(rollingPLPct) >= env.CP_DRAWDOWN_STOP_PCT && rollingPL < 0) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss - reducing to 25% size (still trading)`);
+      if (drawdownPct >= env.CP_DRAWDOWN_CRITICAL_PCT && rollingPL < 0) {
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${drawdownPct.toFixed(1)}% 7-day loss - floor size ${env.CP_DRAWDOWN_FLOOR_MULTIPLIER * 100}% (still trading)`);
         return {
           allowTrading: true,
-          sizeMultiplier: 0.25,
-          reason: `${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss (>${env.CP_DRAWDOWN_STOP_PCT}%), cautious 25% size`,
+          sizeMultiplier: env.CP_DRAWDOWN_FLOOR_MULTIPLIER,
+          reason: `${drawdownPct.toFixed(1)}% 7-day loss (>=${env.CP_DRAWDOWN_CRITICAL_PCT}%), floor size ${env.CP_DRAWDOWN_FLOOR_MULTIPLIER * 100}%`,
           layer: 'drawdown',
         };
       }
 
-      if (Math.abs(rollingPLPct) >= env.CP_DRAWDOWN_PAUSE_PCT && rollingPL < 0) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss - reducing to 25% size`);
+      if (drawdownPct >= env.CP_DRAWDOWN_FLOOR_PCT && rollingPL < 0) {
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${drawdownPct.toFixed(1)}% 7-day loss - floor size ${env.CP_DRAWDOWN_FLOOR_MULTIPLIER * 100}% (still trading)`);
         return {
           allowTrading: true,
-          sizeMultiplier: 0.25,
-          reason: `${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss (>${env.CP_DRAWDOWN_PAUSE_PCT}%), cautious 25% size`,
+          sizeMultiplier: env.CP_DRAWDOWN_FLOOR_MULTIPLIER,
+          reason: `${drawdownPct.toFixed(1)}% 7-day loss (>=${env.CP_DRAWDOWN_FLOOR_PCT}%), floor size ${env.CP_DRAWDOWN_FLOOR_MULTIPLIER * 100}%`,
           layer: 'drawdown',
         };
       }
 
       // 5% rolling loss → reduce size
-      if (Math.abs(rollingPLPct) >= env.CP_DRAWDOWN_REDUCE_PCT && rollingPL < 0) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss - reducing size 50%`);
+      if (drawdownPct >= env.CP_DRAWDOWN_REDUCE_PCT && rollingPL < 0) {
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${drawdownPct.toFixed(1)}% 7-day loss - reducing to ${env.CP_DRAWDOWN_REDUCE_MULTIPLIER * 100}% size (still trading)`);
         return {
           allowTrading: true,
-          sizeMultiplier: 0.5,
-          reason: `${Math.abs(rollingPLPct).toFixed(1)}% 7-day loss (>${env.CP_DRAWDOWN_REDUCE_PCT}%), reducing size`,
+          sizeMultiplier: env.CP_DRAWDOWN_REDUCE_MULTIPLIER,
+          reason: `${drawdownPct.toFixed(1)}% 7-day loss (>=${env.CP_DRAWDOWN_REDUCE_PCT}%), reducing to ${env.CP_DRAWDOWN_REDUCE_MULTIPLIER * 100}% size`,
           layer: 'drawdown',
         };
       }
@@ -246,8 +248,8 @@ class CapitalPreservationService {
   /**
    * Layer 3: Consecutive Loss Detection (per-bot)
    * NO PAUSES (cooldowns forbidden) — size reduction only.
-   * - 3 consecutive → multiplier 0.5
-   * - 5+ consecutive → multiplier 0.25 (floor — still trades every opportunity)
+   * - 3 consecutive → configurable reducer (default 50%)
+   * - 5+ consecutive → configurable floor (default 25%)
    */
   async checkLossStreak(botId: string): Promise<CapitalPreservationResult> {
     const env = getEnvironmentConfig();
@@ -299,35 +301,24 @@ class CapitalPreservationService {
         recentTradeCount: recentTrades.length,
       });
 
-      // 7+ consecutive losses → quarter size (no pause — cooldowns forbidden)
-      if (consecutiveLosses >= env.CP_LOSS_STREAK_PAUSE) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - reducing to 25% size (still trading)`);
+      // Severe streak → floor size (still trading)
+      if (consecutiveLosses >= env.CP_LOSS_STREAK_SEVERE) {
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - floor size ${env.CP_LOSS_STREAK_SEVERE_MULTIPLIER * 100}% (still trading)`);
         return {
           allowTrading: true,
-          sizeMultiplier: 0.25,
-          reason: `${consecutiveLosses} consecutive losses (>=${env.CP_LOSS_STREAK_PAUSE}), cautious 25% size`,
+          sizeMultiplier: env.CP_LOSS_STREAK_SEVERE_MULTIPLIER,
+          reason: `${consecutiveLosses} consecutive losses (>=${env.CP_LOSS_STREAK_SEVERE}), floor size ${env.CP_LOSS_STREAK_SEVERE_MULTIPLIER * 100}%`,
           layer: 'loss_streak',
         };
       }
 
-      // 5 consecutive losses → quarter size
-      if (consecutiveLosses >= 5) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - reducing size 75%`);
-        return {
-          allowTrading: true,
-          sizeMultiplier: 0.25,
-          reason: `${consecutiveLosses} consecutive losses, reducing to 25% size`,
-          layer: 'loss_streak',
-        };
-      }
-
-      // 3+ consecutive losses → half size
+      // Moderate streak → reduced size (still trading)
       if (consecutiveLosses >= env.CP_LOSS_STREAK_REDUCE) {
-        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - reducing size 50%`);
+        console.log(`\n🛡️ [CAPITAL PRESERVATION] Bot ${botId.slice(0, 8)}: ${consecutiveLosses} consecutive losses - reducing size ${env.CP_LOSS_STREAK_REDUCE_MULTIPLIER * 100}% (still trading)`);
         return {
           allowTrading: true,
-          sizeMultiplier: 0.5,
-          reason: `${consecutiveLosses} consecutive losses (>=${env.CP_LOSS_STREAK_REDUCE}), reducing size`,
+          sizeMultiplier: env.CP_LOSS_STREAK_REDUCE_MULTIPLIER,
+          reason: `${consecutiveLosses} consecutive losses (>=${env.CP_LOSS_STREAK_REDUCE}), reducing to ${env.CP_LOSS_STREAK_REDUCE_MULTIPLIER * 100}% size`,
           layer: 'loss_streak',
         };
       }

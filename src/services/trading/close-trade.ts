@@ -139,7 +139,7 @@ export async function closeTrade(data: CloseTradeParams): Promise<CloseTradeResu
         exitFee = (orderResult as any).fee;
       } else {
         const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
-        const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+        const exchangeKey = 'binance';
         const dbRates = await getExchangeFeeRates(exchangeKey);
         exitFee = (actualExitPrice * quantity) * (dbRates as any).taker_fee;
       }
@@ -162,7 +162,7 @@ export async function closeTrade(data: CloseTradeParams): Promise<CloseTradeResu
           const ep = parseFloat(String(entryInfo.price));
           const qty = parseFloat(String(entryInfo.amount)) || quantity;
           const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
-          const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+          const exchangeKey = 'binance';
           const dbRates = await getExchangeFeeRates(exchangeKey);
           const feeRate = (dbRates as any).taker_fee;
           const storedEntryFee = entryInfo.fee ? parseFloat(String(entryInfo.fee)) : ep * qty * feeRate;
@@ -189,9 +189,9 @@ export async function closeTrade(data: CloseTradeParams): Promise<CloseTradeResu
         const qty = parseFloat(String(entryInfo.amount)) || quantity;
         const storedEntryFee = entryInfo.fee ? parseFloat(String(entryInfo.fee)) : 0;
         const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
-        const exchangeKey = exchange.toLowerCase() === 'kraken' ? 'kraken' : 'binance';
+        const exchangeKey = 'binance';
         const dbRates = await getExchangeFeeRates(exchangeKey);
-        const feeRate = (dbRates as any).taker_fee || (exchange.toLowerCase() === 'kraken' ? 0.0026 : 0.001);
+        const feeRate = (dbRates as any).taker_fee || 0.001;
         exitFeeAmount = actualExitPrice * qty * feeRate;
         totalFees = storedEntryFee + exitFeeAmount;
         actualProfitLoss = (actualExitPrice - ep) * qty - totalFees;

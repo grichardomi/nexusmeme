@@ -362,9 +362,9 @@ export async function getPlanUsage(userId: string) {
     if (!planConfig) {
       const fallbackConfig = PRICING_PLANS['live_trial'] || { limits: { botsPerUser: 1, tradingPairsPerBot: 5 }, features: [] };
       // Determine trading mode from environment (no hardcoding)
-      const isPaperTrading = process.env.KRAKEN_BOT_PAPER_TRADING === 'true';
+      const isPaperTrading = process.env.BINANCE_BOT_PAPER_TRADING === 'true';
       const tradingMode = isPaperTrading ? 'paper' : 'live';
-      console.log('[BILLING] Plan not found, using fallback. KRAKEN_BOT_PAPER_TRADING:', process.env.KRAKEN_BOT_PAPER_TRADING, 'tradingMode:', tradingMode);
+      console.log('[BILLING] Plan not found, using fallback. BINANCE_BOT_PAPER_TRADING:', process.env.BINANCE_BOT_PAPER_TRADING, 'tradingMode:', tradingMode);
       return {
         plan,
         subscription: subscription || null,
@@ -406,7 +406,7 @@ export async function getPlanUsage(userId: string) {
     }
 
     // Determine actual trading mode from the user's bot config (source of truth)
-    // Env vars (KRAKEN_BOT_PAPER_TRADING etc.) are system-wide defaults only —
+    // Env vars (BINANCE_BOT_PAPER_TRADING etc.) are system-wide defaults only —
     // they are overridden by the per-bot config->>'tradingMode' set when the user goes live.
     let actualTradingMode: 'live' | 'paper' = 'paper'; // safe default
 

@@ -57,7 +57,7 @@ export function HelpClient({ initialSection }: HelpClientProps) {
   const sections = [
     { id: 'getting-started', label: 'Getting Started', icon: '🚀' },
     { id: 'beta', label: 'Beta Program', icon: '🧪' },
-    { id: 'pricing', label: 'Performance Fees', icon: '💳' },
+    { id: 'pricing', label: 'Pricing & Fees', icon: '💳' },
     { id: 'how-to', label: 'How-To Guides', icon: '📖' },
     { id: 'faq', label: 'FAQ', icon: '❓' },
   ] as const;

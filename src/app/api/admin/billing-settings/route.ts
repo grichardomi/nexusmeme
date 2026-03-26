@@ -27,9 +27,10 @@ export async function GET() {
     if (!sessionAny?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     if (!isAdmin(session)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-    const [settingRows, trialDaysRows, overrideRows] = await Promise.all([
+    const [settingRows, trialDaysRows, flatFeeRows, overrideRows] = await Promise.all([
       query("SELECT value FROM billing_settings WHERE key = 'performance_fee_rate'", []),
       query("SELECT value FROM billing_settings WHERE key = 'trial_duration_days'", []),
+      query("SELECT value FROM billing_settings WHERE key = 'flat_fee_usdc'", []),
       query(
         `SELECT ubo.id, ubo.user_id, ubo.fee_rate, ubo.reason, ubo.created_at, u.email, u.name
          FROM user_billing_overrides ubo
@@ -46,10 +47,14 @@ export async function GET() {
     const trialDurationDays = trialDaysRows[0]
       ? parseInt(String(trialDaysRows[0].value), 10)
       : env.TRIAL_DURATION_DAYS;
+    const flatFeeUsdc = flatFeeRows[0]
+      ? parseFloat(String(flatFeeRows[0].value))
+      : env.FLAT_FEE_USDC;
 
     return NextResponse.json({
       globalFeeRate,
       trialDurationDays,
+      flatFeeUsdc,
       userOverrides: overrideRows.map(r => ({
         id: r.id,
         user_id: r.user_id,
@@ -74,16 +79,31 @@ export async function PUT(req: NextRequest) {
     if (!isAdmin(session)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await req.json();
-    const { type, feeRate, trialDays, userId, userEmail, reason } = body as {
-      type: 'global' | 'user' | 'trial_days';
+    const { type, feeRate, trialDays, flatFeeUsdc, userId, userEmail, reason } = body as {
+      type: 'global' | 'user' | 'trial_days' | 'flat_fee';
       feeRate: number | null;
       trialDays?: number;
+      flatFeeUsdc?: number;
       userId?: string;
       userEmail?: string;
       reason?: string;
     };
 
     const adminId = sessionAnyPut.user!.id!;
+
+    if (type === 'flat_fee') {
+      if (flatFeeUsdc === undefined || typeof flatFeeUsdc !== 'number' || flatFeeUsdc < 0 || flatFeeUsdc > 1000) {
+        return NextResponse.json({ error: 'flatFeeUsdc must be a number between 0 and 1000' }, { status: 400 });
+      }
+      await query(
+        `INSERT INTO billing_settings (key, value, updated_at)
+         VALUES ('flat_fee_usdc', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [String(flatFeeUsdc)]
+      );
+      logger.info('Flat fee updated', { adminId, flatFeeUsdc });
+      return NextResponse.json({ success: true, flatFeeUsdc });
+    }
 
     if (type === 'trial_days') {
       if (!trialDays || typeof trialDays !== 'number' || trialDays < 1 || trialDays > 365) {

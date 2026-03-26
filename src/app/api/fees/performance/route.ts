@@ -334,7 +334,9 @@ export async function GET(request: Request) {
              billing_period_end,
              total_fees_amount,
              total_fees_count,
-             payment_reference,
+             stripe_invoice_id,
+             stripe_charge_id,
+             coinbase_charge_id,
              status,
              paid_at,
              created_at
@@ -347,19 +349,22 @@ export async function GET(request: Request) {
           [session.user.id, twoYearsAgoDate, offset, chargeLimit]
         );
 
-        chargeHistory = historyResult.map((h: any) => ({
-          id: h.id,
-          invoice_id: h.payment_reference || `charge-${h.id}`,
-          payment_reference: h.payment_reference,
-          billing_period_start: h.billing_period_start,
-          billing_period_end: h.billing_period_end,
-          total_fees: parseFloat(h.total_fees_amount || 0),
-          trade_count: h.total_fees_count || 0,
-          status: h.status || 'pending',
-          paid_at: h.paid_at,
-          created_at: h.created_at,
-          invoice_url: null, // USDC invoices paid via /dashboard/billing directly
-        }));
+        chargeHistory = historyResult.map((h: any) => {
+          const paymentRef = h.stripe_invoice_id || h.coinbase_charge_id || h.stripe_charge_id;
+          return {
+            id: h.id,
+            invoice_id: paymentRef || `charge-${h.id}`,
+            payment_reference: paymentRef || null,
+            billing_period_start: h.billing_period_start,
+            billing_period_end: h.billing_period_end,
+            total_fees: parseFloat(h.total_fees_amount || 0),
+            trade_count: h.total_fees_count || 0,
+            status: h.status || 'pending',
+            paid_at: h.paid_at,
+            created_at: h.created_at,
+            invoice_url: null, // USDC invoices paid via /dashboard/billing directly
+          };
+        });
       } catch (err) {
         logger.warn('Could not fetch charge history', {
           userId: session.user.id,

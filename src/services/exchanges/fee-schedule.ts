@@ -28,8 +28,8 @@ export async function getAccountFeeRates(userId: string, exchange: string): Prom
     // Read from admin-managed billing_settings DB (/admin/fees) — single source of truth.
     // Falls back to env var only during DB outage.
     const ex = exchange.toLowerCase();
-    if (ex === 'binance' || ex === 'binanceus' || ex === 'kraken') {
-      const rates = await getExchangeFeeRates(ex === 'binanceus' ? 'binance' : ex as 'binance' | 'kraken');
+    if (ex === 'binance' || ex === 'binanceus') {
+      const rates = await getExchangeFeeRates('binance');
       return { maker: rates.maker_fee, taker: rates.taker_fee };
     }
 
@@ -99,8 +99,8 @@ export function computeMinExitPrice(entryPrice: number, entryFeeQuote: number, q
 export async function getSymbolTakerRate(userId: string, exchange: string, pair: string): Promise<number> {
   const ex = exchange.toLowerCase();
   // Read from admin-managed billing_settings DB (/admin/fees) — single source of truth.
-  if (ex === 'binance' || ex === 'binanceus' || ex === 'kraken') {
-    const rates = await getExchangeFeeRates(ex === 'binanceus' ? 'binance' : ex as 'binance' | 'kraken');
+  if (ex === 'binance' || ex === 'binanceus') {
+    const rates = await getExchangeFeeRates('binance');
     return rates.taker_fee;
   }
 

@@ -26,12 +26,31 @@ function useBillingConfig() {
   return config;
 }
 
+function useFlatFeeAndTrial() {
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
+  const [trialDays, setTrialDays] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/billing/flat-fee')
+      .then(r => r.json())
+      .then(d => setFlatFeeUsdc(typeof d.flatFeeUsdc === 'number' ? d.flatFeeUsdc : null))
+      .catch(() => {});
+    fetch('/api/billing/trial-days')
+      .then(r => r.json())
+      .then(d => setTrialDays(typeof d.trialDays === 'number' ? d.trialDays : null))
+      .catch(() => {});
+  }, []);
+  return { flatFeeUsdc, trialDays };
+}
+
 export default function PerformanceFeesPage() {
   const billing = useBillingConfig();
+  const { flatFeeUsdc, trialDays } = useFlatFeeAndTrial();
   const feePercent = billing?.feePercent ?? null;
   const fee = feePercent !== null ? `${feePercent}%` : '…';
   const feeDecimal = feePercent !== null ? feePercent / 100 : null;
   const suspensionDays = billing?.suspensionDays ?? 14;
+  const flatFee = flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc} USDC/mo` : null;
+  const trial = trialDays !== null ? `${trialDays}-day` : '…';
 
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
@@ -52,12 +71,12 @@ export default function PerformanceFeesPage() {
           <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-4">How Performance Fees Work</h2>
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
             <p className="text-lg text-slate-700 dark:text-slate-300 mb-4">
-              NexusMeme uses a <strong>performance-based pricing model</strong>. You only pay <strong>{fee} of your profits</strong> when your trading bot generates profitable trades. No subscription fees, no monthly minimums, no setup costs. We only earn when you earn.
+              NexusMeme uses a simple two-part pricing model. {flatFee ? <><strong>{flatFee} flat fee</strong> covers infrastructure — billed monthly regardless of trades. </> : null}You pay <strong>{fee} of your profits</strong> only when your bot is profitable. No setup costs, no hidden charges.
             </p>
             <ul className="space-y-2 text-slate-700 dark:text-slate-300">
-              <li>✓ Pay only when profitable</li>
-              <li>✓ Losing trades don&apos;t cost anything</li>
-              <li>✓ Transparent {fee} fee on profits only</li>
+              {flatFee && <li>✓ {flatFee} flat fee covers infrastructure (billed on the 1st)</li>}
+              <li>✓ {fee} performance fee on profits only</li>
+              <li>✓ $0 performance fee on losing months</li>
               <li>✓ Monthly billing on the 1st</li>
               <li>✓ Pay directly with USDC on Base — no credit cards needed</li>
               <li>✓ Minimum $1,000 total account value for live trading</li>
@@ -88,8 +107,14 @@ export default function PerformanceFeesPage() {
                   <span>Total Profits</span>
                   <span className="font-mono">$800</span>
                 </div>
+                {flatFeeUsdc !== null && flatFeeUsdc > 0 && (
+                  <div className="flex justify-between text-slate-300">
+                    <span>Platform fee (flat)</span>
+                    <span className="font-mono">${flatFeeUsdc}.00</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-blue-400 font-semibold">
-                  <span>Your Fee ({fee})</span>
+                  <span>Performance Fee ({fee})</span>
                   <span className="font-mono">
                     {feeDecimal !== null ? `$${(800 * feeDecimal).toFixed(2)}` : '…'}
                   </span>
@@ -97,7 +122,9 @@ export default function PerformanceFeesPage() {
                 <div className="flex justify-between text-green-400 font-semibold pt-2 border-t border-slate-700">
                   <span>You Keep</span>
                   <span className="font-mono">
-                    {feeDecimal !== null ? `$${(800 * (1 - feeDecimal)).toFixed(2)}` : '…'}
+                    {feeDecimal !== null && flatFeeUsdc !== null
+                      ? `$${(800 * (1 - feeDecimal) - flatFeeUsdc).toFixed(2)}`
+                      : feeDecimal !== null ? `$${(800 * (1 - feeDecimal)).toFixed(2)}` : '…'}
                   </span>
                 </div>
               </div>
@@ -187,7 +214,7 @@ export default function PerformanceFeesPage() {
             {[
               {
                 q: 'Do I pay if my bot loses money?',
-                a: `No. You only pay ${fee} on profitable trades. If your bot loses money or has no trades, there is no fee.`,
+                a: `No performance fee. You only pay ${fee} on profitable trades. If your bot has a losing month, there is no performance fee — only the ${flatFee ?? 'flat platform fee'}.`,
               },
               {
                 q: 'How do I view my fees in the dashboard?',
@@ -220,7 +247,7 @@ export default function PerformanceFeesPage() {
         {/* CTA */}
         <section className="bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-900 dark:to-indigo-900 rounded-lg p-8 text-white text-center">
           <h2 className="text-2xl font-bold mb-4">Ready to Start Trading?</h2>
-          <p className="mb-6 text-blue-100">10-day free trial. Pay {fee} only when you profit.</p>
+          <p className="mb-6 text-blue-100">{trial} free trial.{flatFee ? ` ${flatFee} flat +` : ''} {fee} only when you profit.</p>
           <div className="flex gap-4 justify-center flex-wrap">
             <Link href="/dashboard/bots/new" className="bg-white text-blue-600 hover:bg-blue-50 px-8 py-3 rounded-lg font-semibold transition">
               Create Bot

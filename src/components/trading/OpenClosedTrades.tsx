@@ -44,6 +44,7 @@ interface PositionHealth {
 interface OpenClosedTradesProps {
   botId: string;
   modeFilter?: 'live' | 'paper' | 'all';
+  onOpenTradeCount?: (count: number) => void;
 }
 
 type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses' | 'archived';
@@ -53,7 +54,7 @@ interface CurrentPrices {
   [pair: string]: number;
 }
 
-export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTradesProps) {
+export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }: OpenClosedTradesProps) {
   const { data: session } = useSession();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -331,6 +332,10 @@ export function OpenClosedTrades({ botId, modeFilter = 'all' }: OpenClosedTrades
   const openTrades = visibleTrades.filter(t => t.status === 'open');
   const closedTrades = visibleTrades.filter(t => t.status === 'closed');
   const archivedTrades = visibleTrades.filter(t => t.status === 'archived');
+
+  useEffect(() => {
+    onOpenTradeCount?.(openTrades.length);
+  }, [openTrades.length, onOpenTradeCount]);
 
   // Position concentration: flag pairs more than 2x their equal-weight share,
   // only meaningful when there are 3+ distinct pairs open.

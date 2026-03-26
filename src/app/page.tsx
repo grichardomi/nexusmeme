@@ -12,8 +12,10 @@ export default function Home() {
   const router = useRouter();
   const [feePercent, setFeePercent] = useState<number | null>(null);
   const [trialDays, setTrialDays] = useState<number | null>(null);
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
   const fee = feePercent !== null ? `${feePercent}%` : '…';
   const trial = trialDays !== null ? `${trialDays}-day` : '…';
+  const flatFee = flatFeeUsdc !== null ? (flatFeeUsdc > 0 ? `$${flatFeeUsdc} USDC/mo` : null) : '…';
 
   useEffect(() => {
     fetch('/api/billing/fee-rate/default')
@@ -23,6 +25,10 @@ export default function Home() {
     fetch('/api/billing/trial-days')
       .then(r => r.json())
       .then(d => { if (d.days) setTrialDays(d.days); })
+      .catch(() => {});
+    fetch('/api/billing/flat-fee')
+      .then(r => r.json())
+      .then(d => { if (typeof d.flatFeeUsdc === 'number') setFlatFeeUsdc(d.flatFeeUsdc); })
       .catch(() => {});
   }, []);
 
@@ -75,7 +81,7 @@ export default function Home() {
                     An AI-powered trading bot focused on BTC & ETH — the most liquid, profitable crypto markets. Start your {trial} free trial today.
                   </p>
                   <p className="text-base text-slate-600 dark:text-slate-400">
-                    {fee} only when your bot profits. $0 when it doesn't. Other platforms charge $50-100/month whether you win or lose.
+                    {flatFee ? `${flatFee} platform fee + ` : ''}{fee} on profits. $0 performance fee when it doesn't.
                   </p>
                 </div>
 
@@ -99,7 +105,7 @@ export default function Home() {
                 </div>
 
                 {/* Trust Signals - Key Benefits */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800 w-full">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-slate-200 dark:border-slate-800 w-full">
                   <div className="space-y-1 text-center">
                     <div className="text-2xl sm:text-3xl font-bold text-blue-600">BTC & ETH</div>
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Focused Trading</div>
@@ -109,8 +115,12 @@ export default function Home() {
                     <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Free Trial</div>
                   </div>
                   <div className="space-y-1 text-center">
-                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">{fee} Fee</div>
-                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">Only on Profits</div>
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">{flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc}` : '…'}</div>
+                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">USDC/mo Flat</div>
+                  </div>
+                  <div className="space-y-1 text-center">
+                    <div className="text-2xl sm:text-3xl font-bold text-blue-600">{fee}</div>
+                    <div className="text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400">On Profits</div>
                   </div>
                 </div>
               </div>
@@ -331,16 +341,16 @@ export default function Home() {
             {/* Cost callout for newbies */}
             <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 sm:p-8 mb-6 text-white text-center">
               <p className="text-2xl sm:text-3xl font-bold mb-2">
-                {fee} performance fee — only when you profit
+                {flatFee ?? '…'} flat + {fee} on profits
               </p>
               <p className="text-blue-100 text-sm sm:text-base max-w-xl mx-auto">
-                No credit card. No subscription. No monthly fees. We only make money when <strong>you</strong> make money.
-                If your bot has a losing month, you pay <strong>$0</strong>.
+                Small flat fee covers infrastructure. Performance fee is {fee} — only on profits.
+                If your bot has a losing month, performance fee is <strong>$0</strong>.
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-4 text-sm">
                 <span className="bg-white/20 rounded-full px-4 py-1">No credit card required</span>
-                <span className="bg-white/20 rounded-full px-4 py-1">No monthly subscription</span>
-                <span className="bg-white/20 rounded-full px-4 py-1">$0 when bot loses</span>
+                <span className="bg-white/20 rounded-full px-4 py-1">{flatFee ?? '…'} flat/mo</span>
+                <span className="bg-white/20 rounded-full px-4 py-1">$0 performance fee when bot loses</span>
               </div>
             </div>
 
@@ -398,14 +408,15 @@ export default function Home() {
                     {fee}
                   </div>
                   <h3 className="text-2xl font-bold text-slate-900 dark:text-white">Performance Fee</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">+ {flatFee ?? '…'}/mo platform fee</p>
                 </div>
                 <p className="text-slate-600 dark:text-slate-400 mb-8 leading-relaxed">
-                  Only when your bot makes money. Monthly billing on the 1st.
+                  {flatFee ?? '…'} flat fee keeps the platform running. {fee} performance fee only when your bot profits. Monthly billing on the 1st.
                 </p>
                 <ul className="space-y-3">
                   {[
-                    'Pay 0% when bot loses money',
-                    'No hidden fees or subscriptions',
+                    `${fee} on profits — $0 performance fee when bot loses`,
+                    `${flatFee ?? '…'} flat fee billed every month`,
                     'BTC & ETH — most liquid markets',
                     'Monthly transparent billing',
                   ].map((item, idx) => (
@@ -492,7 +503,7 @@ export default function Home() {
                 <strong>Everyone starts with the same {trial} free crypto trading trial</strong> with no capital limits.
               </p>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                After trial ends, you automatically scale to our performance fee model. {fee} on profits — $0 on losses. We only earn when you do.
+                After trial ends: {flatFee ?? '…'} flat/mo + {fee} performance fee on profits — $0 performance fee on losses.
               </p>
             </div>
           </div>
@@ -535,7 +546,7 @@ export default function Home() {
                 },
                 {
                   q: 'When do I pay the performance fee?',
-                  a: `${fee} of profits, billed on the 1st of each month. If your bot had a losing month, you pay $0. No credit card required to start — fees are invoiced and payable in USDC.`,
+                  a: `${flatFee ?? '…'}/mo flat fee + ${fee} of profits, both billed on the 1st of each month. If your bot had a losing month, the performance fee is $0 — you only pay the flat fee. No credit card required — fees are invoiced and payable in USDC on Base network.`,
                 },
               ].map((item, i) => (
                 <details key={i} className="group bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
@@ -596,7 +607,7 @@ export default function Home() {
 
             {/* Trust Signals */}
             <div className="mt-12 pt-8 border-t border-white/10">
-              <p className="text-sm text-blue-200 mb-4">Trusted by traders worldwide</p>
+              {/* <p className="text-sm text-blue-200 mb-4">Trusted by traders worldwide</p> */}
               <div className="flex justify-center items-center gap-6 flex-wrap text-white/70">
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">

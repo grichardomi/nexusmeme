@@ -9,13 +9,25 @@ interface FAQSectionProps {
 
 export function FAQSection({ searchQuery }: FAQSectionProps) {
   const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [trialDays, setTrialDays] = useState<number | null>(null);
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
   useEffect(() => {
     fetch('/api/billing/fee-rate/default')
       .then(r => r.json())
       .then(d => setFeePercent(d.feePercent ?? null))
       .catch(() => {});
+    fetch('/api/billing/trial-days')
+      .then(r => r.json())
+      .then(d => setTrialDays(typeof d.trialDays === 'number' ? d.trialDays : null))
+      .catch(() => {});
+    fetch('/api/billing/flat-fee')
+      .then(r => r.json())
+      .then(d => setFlatFeeUsdc(typeof d.flatFeeUsdc === 'number' ? d.flatFeeUsdc : null))
+      .catch(() => {});
   }, []);
   const fee = feePercent !== null ? `${feePercent}%` : '…';
+  const trial = trialDays !== null ? `${trialDays}-day` : '…';
+  const flatFee = flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc} USDC/mo` : null;
 
   const questions = [
     {
@@ -40,7 +52,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What is the minimum capital required?',
-      answer: `During your 10-day trial, you use paper trading (simulated, no real money required).\n\nFor live trading:\n- Minimum $1,000 total account value (cash + any open positions)\n- At least $100 in free USDT/USD to place new trades\n- This ensures your account can absorb normal market volatility\n- The more capital you have, the more you can potentially earn\n- It's recommended to only trade with capital you can afford to lose`,
+      answer: `During your ${trial} trial, you use paper trading (simulated, no real money required).\n\nFor live trading:\n- Minimum $1,000 total account value (cash + any open positions)\n- At least $100 in free USDT/USD to place new trades\n- This ensures your account can absorb normal market volatility\n- The more capital you have, the more you can potentially earn\n- It's recommended to only trade with capital you can afford to lose`,
     },
     {
       question: 'Can I run multiple bots?',
@@ -52,7 +64,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'How is NexusMeme different from other trading platforms?',
-      answer: `**NexusMeme vs. Other Trading Platforms:**\n\n**Traditional Auto-Trading Platforms**\n• How they work: Trade constantly on a schedule or grid pattern\n• Frequency: 50-100+ trades per week\n• Problem: Trade even when market conditions are terrible\n• Problem: Huge fees pile up fast (can eat all your profits)\n• Problem: Keep buying during crashes with no protection\n\n**Copy Trading Platforms**\n• How they work: Copy what other traders do\n• Problem: You're at the mercy of someone else's decisions\n• Problem: No way to know if they're having a good or bad day\n• Problem: Often charge monthly subscription fees\n\n**Simple Buy-and-Hold**\n• How it works: Buy crypto and hold it\n• Problem: You lose money when markets go down\n• Problem: No way to capture profits along the way\n• Problem: No protection during crashes\n\n**NexusMeme (Smart Selective Trading)**\n• How it works: WAIT for quality opportunities, skip bad conditions\n• Frequency: 0-10 trades per week (only when it makes sense)\n• Benefit: Enters trades only when market is favorable\n• Benefit: Automatically adjusts profit targets (2-12% based on how strong the trend is)\n• Benefit: Protects your capital when Bitcoin is falling\n• Benefit: Won't trade if the movement is too small to cover fees\n\n**The Big Difference**: Other platforms trade on autopilot regardless of conditions. NexusMeme actively WAITS and PROTECTS your capital when conditions are bad.\n\n**We Only Win When You Win**: We charge ${fee} only on your profits. If your bot doesn't trade (bad market), we don't earn anything. This means we want PROFITABLE trades for you, not just frequent activity.`,
+      answer: `**NexusMeme vs. Other Trading Platforms:**\n\n**Traditional Auto-Trading Platforms**\n• How they work: Trade constantly on a schedule or grid pattern\n• Frequency: 50-100+ trades per week\n• Problem: Trade even when market conditions are terrible\n• Problem: Huge fees pile up fast (can eat all your profits)\n• Problem: Keep buying during crashes with no protection\n\n**Copy Trading Platforms**\n• How they work: Copy what other traders do\n• Problem: You're at the mercy of someone else's decisions\n• Problem: No way to know if they're having a good or bad day\n• Problem: Often charge monthly subscription fees\n\n**Simple Buy-and-Hold**\n• How it works: Buy crypto and hold it\n• Problem: You lose money when markets go down\n• Problem: No way to capture profits along the way\n• Problem: No protection during crashes\n\n**NexusMeme (Smart Selective Trading)**\n• How it works: WAIT for quality opportunities, skip bad conditions\n• Frequency: 0-10 trades per week (only when it makes sense)\n• Benefit: Enters trades only when market is favorable\n• Benefit: Automatically adjusts profit targets (2-12% based on how strong the trend is)\n• Benefit: Protects your capital when Bitcoin is falling\n• Benefit: Won't trade if the movement is too small to cover fees\n\n**The Big Difference**: Other platforms trade on autopilot regardless of conditions. NexusMeme actively WAITS and PROTECTS your capital when conditions are bad.\n\n**Our Pricing**: ${flatFee ? `${flatFee} flat fee covers infrastructure. ` : ''}${fee} performance fee only on your profits — $0 when your bot doesn't profit. This means we want PROFITABLE trades for you, not just frequent activity.`,
     },
     {
       question: 'How much profit can I expect?',
@@ -64,7 +76,7 @@ export function FAQSection({ searchQuery }: FAQSectionProps) {
     },
     {
       question: 'What if I want to test before going live with my own capital?',
-      answer: `Your 10-day live trading trial is your testing period:\n- You trade with your own funds in real market conditions\n- Real orders execute and you see real P&L\n- No capital limits during trial\n- You can monitor performance and see if the AI strategy works for you\n\nAfter your trial, continue trading and only pay ${fee} on profits.`,
+      answer: `Your ${trial} trial is your testing period:\n- You trade in paper mode (simulated, no real money)\n- See how the AI strategy performs in real market conditions\n- No capital required during the trial\n- You can monitor performance and see if the strategy works for you\n\nAfter your trial, continue trading and pay${flatFee ? ` ${flatFee} flat +` : ''} ${fee} on profits.`,
     },
     {
       question: 'Why did my trade lose money?',

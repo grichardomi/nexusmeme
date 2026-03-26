@@ -80,9 +80,15 @@ export default function AdminFeesPage() {
   const [trialDaysInput, setTrialDaysInput] = useState('');
   const [trialDaysSaving, setTrialDaysSaving] = useState(false);
 
+  // Flat fee state
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
+  const [editingFlatFee, setEditingFlatFee] = useState(false);
+  const [flatFeeInput, setFlatFeeInput] = useState('');
+  const [flatFeeSaving, setFlatFeeSaving] = useState(false);
+
   // Exchange fee rates state
   interface ExchangeFeeRates { taker_fee: number; maker_fee: number; min_profit_weak: number; min_profit_moderate: number; min_profit_strong: number; }
-  const [exchangeFees, setExchangeFees] = useState<{ binance: ExchangeFeeRates; kraken: ExchangeFeeRates } | null>(null);
+  const [exchangeFees, setExchangeFees] = useState<{ binance: ExchangeFeeRates } | null>(null);
   const [editingExchangeFee, setEditingExchangeFee] = useState<string | null>(null);
   const [exchangeFeeInput, setExchangeFeeInput] = useState('');
   const [exchangeFeeSaving, setExchangeFeeSaving] = useState(false);
@@ -98,6 +104,7 @@ export default function AdminFeesPage() {
       const data = await res.json();
       setGlobalFeeRate(parseFloat(String(data.globalFeeRate)));
       setTrialDurationDays(data.trialDurationDays ?? null);
+      setFlatFeeUsdc(data.flatFeeUsdc ?? 0);
       setUserOverrides(data.userOverrides ?? []);
     } catch {
       // non-fatal
@@ -291,6 +298,30 @@ export default function AdminFeesPage() {
     }
   };
 
+  const saveFlatFee = async () => {
+    const fee = parseFloat(flatFeeInput);
+    if (isNaN(fee) || fee < 0 || fee > 1000) {
+      setRateSettingsError('Flat fee must be between 0 and 1000 USDC (0 = disabled)');
+      return;
+    }
+    setFlatFeeSaving(true);
+    setRateSettingsError(null);
+    try {
+      const res = await fetch('/api/admin/billing-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'flat_fee', flatFeeUsdc: fee }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setFlatFeeUsdc(fee);
+      setEditingFlatFee(false);
+    } catch (err) {
+      setRateSettingsError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setFlatFeeSaving(false);
+    }
+  };
+
   const saveUserOverride = async () => {
     const rate = parseFloat(overrideRate);
     if (!overrideEmail || isNaN(rate) || rate <= 0 || rate > 1) {
@@ -451,13 +482,63 @@ export default function AdminFeesPage() {
           </div>
         </div>
 
+        {/* Monthly Flat Fee */}
+        <div className="flex items-center gap-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Monthly Flat Fee (USDC)</p>
+            {editingFlatFee ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  step="1"
+                  min="0"
+                  max="1000"
+                  value={flatFeeInput}
+                  onChange={(e) => setFlatFeeInput(e.target.value)}
+                  placeholder="e.g. 15"
+                  className="w-28 px-3 py-1.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm"
+                />
+                <span className="text-sm text-slate-500">USDC</span>
+                <button
+                  onClick={saveFlatFee}
+                  disabled={flatFeeSaving}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+                >
+                  {flatFeeSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  onClick={() => setEditingFlatFee(false)}
+                  className="px-4 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-sm rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {flatFeeUsdc !== null ? (flatFeeUsdc === 0 ? 'Disabled' : `$${flatFeeUsdc} USDC`) : '…'}
+                </span>
+                <button
+                  onClick={() => { setFlatFeeInput(flatFeeUsdc?.toString() ?? '0'); setEditingFlatFee(true); setRateSettingsError(null); }}
+                  className="px-3 py-1 text-xs bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600"
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Added to every monthly invoice regardless of trading profits. Set to 0 to disable.
+            </p>
+          </div>
+        </div>
+
         {/* Exchange Fee Rates — moved to own card below */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-700 hidden">
           <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Exchange Trading Fee Rates</p>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
             Update when negotiated fees change. Used to set minimum profit targets per exchange. No deploy needed.
           </p>
-          {exchangeFees && (['binance', 'kraken'] as const).map(exchange => {
+          {exchangeFees && (['binance'] as const).map(exchange => {
             const fees = exchangeFees[exchange];
             const rows: { key: string; label: string; value: number; format: (v: number) => string }[] = [
               { key: `${exchange}_taker_fee`,           label: 'Taker Fee',          value: fees.taker_fee,           format: v => `${(v*100).toFixed(3)}%` },
@@ -469,9 +550,8 @@ export default function AdminFeesPage() {
             return (
               <div key={exchange} className="mb-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">
-                  {exchange === 'binance' ? 'Binance (Global + US)' : 'Kraken'}
-                  {exchange === 'binance' && <span className="ml-2 text-slate-400 text-xs font-normal normal-case tracking-normal">binance.com &amp; binance.us · BNB discount may lower actual fee</span>}
-                  {exchange === 'kraken' && <span className="ml-2 text-blue-500">US accessible · USD/USDT/USDC</span>}
+                  Binance (Global + US)
+                  <span className="ml-2 text-slate-400 text-xs font-normal normal-case tracking-normal">binance.com &amp; binance.us · BNB discount may lower actual fee</span>
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   {rows.map(row => (
@@ -579,7 +659,7 @@ export default function AdminFeesPage() {
             {rateSettingsError}
           </div>
         )}
-        {exchangeFees && (['binance', 'kraken'] as const).map(exchange => {
+        {exchangeFees && (['binance'] as const).map(exchange => {
           const fees = exchangeFees[exchange];
           const rows: { key: string; label: string; value: number; format: (v: number) => string }[] = [
             { key: `${exchange}_taker_fee`,            label: 'Taker Fee',           value: fees.taker_fee,            format: v => `${(v*100).toFixed(3)}%` },
@@ -592,12 +672,9 @@ export default function AdminFeesPage() {
             <div key={exchange} className="mb-6">
               <div className="flex items-center gap-2 mb-3">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  {exchange === 'binance' ? 'Binance (Global + US)' : 'Kraken'}
+                  Binance (Global + US)
                 </p>
-                {exchange === 'binance'
-                  ? <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global · 180+ countries</span>
-                  : <span className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">Global + US</span>
-                }
+                <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global · 180+ countries</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {rows.map(row => (

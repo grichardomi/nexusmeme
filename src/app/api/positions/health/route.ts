@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       const currentPrice = priceMap.get(trade.pair) || parseFloat(trade.entry_price);
       const entryPrice = parseFloat(trade.entry_price);
       const quantity = parseFloat(trade.quantity || '0');
-      const tradeExchange = trade.exchange || 'kraken';
+      const tradeExchange = trade.exchange || 'binance';
 
       // Calculate NET profit (gross - round-trip fees)
       const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;

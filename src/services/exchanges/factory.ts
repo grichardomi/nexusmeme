@@ -1,4 +1,3 @@
-import { KrakenAdapter } from './kraken';
 import { BinanceAdapter } from './binance';
 import type { ExchangeAdapter } from './adapter';
 import { logger } from '@/lib/logger';
@@ -13,7 +12,6 @@ export class ExchangeAdapterFactory {
     string,
     new () => ExchangeAdapter
   >([
-    ['kraken', KrakenAdapter as new () => ExchangeAdapter],
     ['binance', BinanceAdapter as new () => ExchangeAdapter],
   ]);
 

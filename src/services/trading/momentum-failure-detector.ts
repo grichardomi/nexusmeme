@@ -11,6 +11,7 @@
  */
 
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 import { TechnicalIndicators } from '@/types/ai';
 
 export interface MomentumFailureSignals {
@@ -32,6 +33,8 @@ export interface OpenPosition {
   currentPrice: number;
   profitPct: number;
   pyramidLevelsActivated: number;
+  holdTimeMinutes?: number;
+  regime?: string;
 }
 
 /**
@@ -61,7 +64,8 @@ export class MomentumFailureDetector {
    */
   detectMomentumFailure(
     position: OpenPosition,
-    indicators: TechnicalIndicators
+    indicators: TechnicalIndicators,
+    regimeHint?: string
   ): MomentumFailureResult {
     const result: MomentumFailureResult = {
       shouldExit: false,
@@ -73,6 +77,71 @@ export class MomentumFailureDetector {
       signalCount: 0,
       reasoning: [],
     };
+
+    const env = getEnvironmentConfig();
+    const regime = (position.regime || regimeHint || 'moderate').toLowerCase();
+
+    // Time/MAE guard for transitioning regime: if no progress by guard time, exit early
+    const holdMins = position.holdTimeMinutes ?? 0;
+    const guardMinutes = env.TRANSITIONING_TIME_GUARD_MINUTES;
+    const guardProfitPct = env.TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT;
+    if (regime === 'transitioning' && holdMins >= guardMinutes && position.profitPct < guardProfitPct) {
+      result.shouldExit = true;
+      result.signalCount = 2;
+      result.signals.priceActionFailure = true;
+      result.signals.htfBreakdown = true;
+      result.reasoning.push(
+        `Time/MAE guard: ${holdMins.toFixed(1)}min with profit ${position.profitPct.toFixed(2)}% < ${guardProfitPct.toFixed(2)}% target`
+      );
+      logger.info('Transitioning time/MAE guard triggered', {
+        pair: position.pair,
+        holdTimeMinutes: holdMins,
+        profitPct: position.profitPct,
+        guardMinutes,
+        guardProfitPct,
+      });
+      return result;
+    }
+
+    // Thesis invalidation: trade never went green AND 1h clearly reversed AND 4h weak/negative
+    // 1h < -0.2% = clear reversal; 4h < 0.3% = trend not supporting entry (neutral or declining)
+    // Entry thesis is gone — no reason to hold, exit immediately regardless of loss size
+    const momentum1hNow = indicators.momentum1h ?? 0;
+    const momentum4hNow = indicators.momentum4h ?? 0;
+    if (position.profitPct <= 0 && momentum1hNow < -0.2 && momentum4hNow < 0.3) {
+      result.shouldExit = true;
+      result.signalCount = 2;
+      result.signals.priceActionFailure = true;
+      result.signals.htfBreakdown = true;
+      result.reasoning.push(
+        `Thesis invalidated: never profitable + 1h=${momentum1hNow.toFixed(2)}% 4h=${momentum4hNow.toFixed(2)}% both negative — entry momentum reversed`
+      );
+      logger.info('Momentum failure: thesis invalidated', {
+        pair: position.pair,
+        profitPct: position.profitPct,
+        momentum1h: momentum1hNow,
+        momentum4h: momentum4hNow,
+      });
+      return result;
+    }
+
+    // Stale trade exit: never went green + held > 15 minutes + no progress
+    // Capital tied up in a dead trade = opportunity cost. Exit and redeploy.
+    if (position.profitPct <= 0 && holdMins >= 15) {
+      result.shouldExit = true;
+      result.signalCount = 2;
+      result.signals.priceActionFailure = true;
+      result.signals.htfBreakdown = true;
+      result.reasoning.push(
+        `Stale trade: never profitable after ${holdMins.toFixed(1)}min — exit and redeploy capital`
+      );
+      logger.info('Stale trade exit: never profitable after hold time limit', {
+        pair: position.pair,
+        profitPct: position.profitPct,
+        holdTimeMinutes: holdMins,
+      });
+      return result;
+    }
 
     // Gate 1: Only check if profit exceeds minimum (2%)
     if (position.profitPct < this.MOMENTUM_FAILURE_MIN_PROFIT_PCT) {

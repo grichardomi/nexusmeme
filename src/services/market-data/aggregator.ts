@@ -27,22 +27,10 @@ function mapToBinanceSymbol(pair: string): string {
 }
 
 /**
- * Map pair to Kraken symbol format
- * BTC/USDT → XBTUSDT, ETH/USDT → ETHUSDT
- */
-function mapToKrakenSymbol(pair: string): string {
-  const [base, quote] = pair.split('/');
-  // Kraken uses XBT for Bitcoin
-  const krakenBase = base === 'BTC' ? 'XBT' : base;
-  const krakenQuote = quote === 'USD' ? 'USDT' : quote;
-  return `${krakenBase}${krakenQuote}`;
-}
-
-/**
  * Market Data Aggregator - SINGLE CACHE AUTHORITY
  *
  * Exchange-aware: routes ticker and OHLC requests to the correct exchange.
- * Cache is keyed by exchange+pair so Binance and Kraken prices are independent.
+ * Cache is keyed by exchange+pair.
  *
  * Caching layers:
  * 1. In-process memory cache (10s TTL) — serves most requests locally
@@ -57,7 +45,7 @@ class MarketDataAggregator {
   /**
    * Read prices published by the Binance WebSocket leader from Redis.
    * Returns only entries fresh enough for trading decisions (< WS_MAX_PRICE_AGE_MS).
-   * Kraken has no WebSocket feeder — returns empty map for non-Binance exchanges.
+   * Only Binance has a WebSocket feeder — returns empty map for other exchanges.
    */
   private async getFromWebSocketCache(pairs: string[]): Promise<Map<string, MarketData>> {
     const result = new Map<string, MarketData>();
@@ -102,11 +90,15 @@ class MarketDataAggregator {
     const cacheTtl = marketDataConfig.cacheTtlMs;
     const cache = this.caches.get(ex);
 
-    // Layer 1: in-process cache (10s TTL)
+    // Layer 1: in-process cache (10s TTL) — only use if ALL requested pairs are covered
     if (cache && now - cache.fetchedAt < cacheTtl) {
-      return new Map(
+      const cached = new Map(
         Array.from(cache.data.entries()).filter(([pair]) => pairs.includes(pair))
       );
+      if (cached.size === pairs.length) {
+        return cached;
+      }
+      // Some pairs missing from cache — fall through to WS/REST for those pairs
     }
 
     // Layer 2: WebSocket Redis cache (Binance only, < 2s age)
@@ -186,56 +178,8 @@ class MarketDataAggregator {
     };
   }
 
-  /**
-   * Fetch ticker from Kraken public API (no auth required).
-   * Kraken ticker: GET https://api.kraken.com/0/public/Ticker?pair=XBTUSDT
-   * Response fields: c=last close [price, lot], b=best bid, a=best ask,
-   *   v=volume [today, 24h], h=high [today, 24h], l=low [today, 24h], o=open today
-   */
-  private async fetchTickerKraken(pair: string): Promise<any> {
-    const symbol = mapToKrakenSymbol(pair);
-    const url = `https://api.kraken.com/0/public/Ticker?pair=${symbol}`;
-
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Kraken API error: ${response.status} ${response.statusText}`);
-    }
-
-    const json = await response.json();
-    if (json.error?.length) {
-      throw new Error(`Kraken API error: ${json.error.join(', ')}`);
-    }
-
-    // Kraken returns result keyed by their internal pair name (may differ from requested)
-    const resultKey = Object.keys(json.result)[0];
-    const d = json.result[resultKey];
-
-    const last = parseFloat(d.c[0]);
-    const open = parseFloat(d.o);
-    const high = parseFloat(d.h[1]); // index 1 = last 24h
-    const low = parseFloat(d.l[1]);
-    const volume = parseFloat(d.v[1]);
-    const priceChangePercent = open > 0 ? ((last - open) / open) * 100 : 0;
-
-    return {
-      pair,
-      last,
-      bid: parseFloat(d.b[0]),
-      ask: parseFloat(d.a[0]),
-      volume,
-      highPrice: high,
-      lowPrice: low,
-      openPrice: open,
-      priceChangePercent,
-      timestamp: Date.now(),
-    };
-  }
-
   private async fetchTicker(pair: string, exchange: string): Promise<any> {
     try {
-      if (exchange === 'kraken') {
-        return await this.fetchTickerKraken(pair);
-      }
       return await this.fetchTickerBinance(pair);
     } catch (error) {
       logger.error(`Failed to fetch ticker from ${exchange}`, error instanceof Error ? error : null, {

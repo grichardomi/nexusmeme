@@ -11,15 +11,15 @@ const FEE_CACHE_TTL_MS = 5 * 60 * 1000;
  * Cache is pre-warmed on first async call; subsequent sync reads use cached value.
  */
 export function getCachedTakerFee(exchange: string): number {
-  const key = exchange.startsWith('binance') ? 'binance' : 'kraken';
+  const key = 'binance';
   const cached = feeCache.get(key);
   if (cached && Date.now() < cached.expiresAt) return cached.value;
   // Cache miss or expired — return env fallback synchronously, refresh async
-  warmFeeCache(key as 'binance' | 'kraken');
+  warmFeeCache(key);
   return getExchangeTakerFee(exchange);
 }
 
-async function warmFeeCache(exchange: 'binance' | 'kraken'): Promise<void> {
+async function warmFeeCache(exchange: 'binance'): Promise<void> {
   try {
     const rates = await getExchangeFeeRates(exchange);
     feeCache.set(exchange, { value: rates.taker_fee, expiresAt: Date.now() + FEE_CACHE_TTL_MS });
@@ -41,13 +41,11 @@ export interface ExchangeFeeRates {
  * Admin-manageable — no deploy needed when fees are negotiated.
  * Priority: billing_settings > env fallback
  */
-export async function getExchangeFeeRates(exchange: 'binance' | 'kraken'): Promise<ExchangeFeeRates> {
+export async function getExchangeFeeRates(exchange: 'binance'): Promise<ExchangeFeeRates> {
   const env = getEnvironmentConfig();
   const prefix = exchange;
 
-  const fallbacks: ExchangeFeeRates = exchange === 'binance'
-    ? { taker_fee: env.BINANCE_TAKER_FEE_DEFAULT, maker_fee: env.BINANCE_TAKER_FEE_DEFAULT, min_profit_weak: 0.02, min_profit_moderate: 0.05, min_profit_strong: 0.12 }
-    : { taker_fee: env.KRAKEN_TAKER_FEE_DEFAULT, maker_fee: env.KRAKEN_MAKER_FEE_DEFAULT, min_profit_weak: 0.025, min_profit_moderate: 0.05, min_profit_strong: 0.12 };
+  const fallbacks: ExchangeFeeRates = { taker_fee: env.BINANCE_TAKER_FEE_DEFAULT, maker_fee: env.BINANCE_TAKER_FEE_DEFAULT, min_profit_weak: 0.02, min_profit_moderate: 0.05, min_profit_strong: 0.12 };
 
   try {
     const keys = [

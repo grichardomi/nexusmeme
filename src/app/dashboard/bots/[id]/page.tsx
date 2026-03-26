@@ -1047,7 +1047,7 @@ export default function BotDetailPage() {
                 >
                   {(connectedExchanges.length > 0 ? connectedExchanges : [editExchange]).map(ex => (
                     <option key={ex} value={ex}>
-                      {ex === 'binance' ? 'Binance International (Global)' : ex === 'binanceus' ? 'Binance US' : ex === 'kraken' ? 'Kraken (Global + US)' : ex}
+                      {ex === 'binance' ? 'Binance International (Global)' : ex === 'binanceus' ? 'Binance US' : ex}
                     </option>
                   ))}
                 </select>

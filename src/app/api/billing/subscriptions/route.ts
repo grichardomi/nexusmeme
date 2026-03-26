@@ -85,7 +85,7 @@ export async function GET() {
       // Provide default usage if retrieval fails (default to live_trial)
       // Determine trading mode from environment (no hardcoding)
       const env = getEnvironmentConfig();
-      const defaultTradingMode = env.KRAKEN_BOT_PAPER_TRADING ? 'paper' : 'live';
+      const defaultTradingMode = env.BINANCE_BOT_PAPER_TRADING ? 'paper' : 'live';
 
       planUsage = {
         plan: 'live_trial',

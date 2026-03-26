@@ -47,7 +47,7 @@ describe('ExecutionFanOut', () => {
       {
         id: 'bot-1',
         user_id: 'user-1',
-        exchange: 'kraken',
+        exchange: 'binance',
         enabled_pairs: ['BTC/USD', 'ETH/USD'],
         config: {},
       },
@@ -83,7 +83,7 @@ describe('ExecutionFanOut', () => {
       {
         id: 'bot-1',
         user_id: 'user-1',
-        exchange: 'kraken',
+        exchange: 'binance',
         enabled_pairs: ['ETH/USD'], // Doesn't trade BTC
         config: {},
       },

@@ -10,22 +10,28 @@ interface PlanFeaturesProps {
 
 export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
   const [feePercent, setFeePercent] = useState<number | null>(null);
+  const [flatFeeUsdc, setFlatFeeUsdc] = useState<number | null>(null);
   useEffect(() => {
     fetch('/api/billing/fee-rate/default')
       .then(r => r.json())
       .then(d => setFeePercent(d.feePercent ?? null))
       .catch(() => {});
+    fetch('/api/billing/flat-fee')
+      .then(r => r.json())
+      .then(d => setFlatFeeUsdc(typeof d.flatFeeUsdc === 'number' ? d.flatFeeUsdc : null))
+      .catch(() => {});
   }, []);
   const fee = feePercent !== null ? `${feePercent}%` : '…';
+  const flatFee = flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc} USDC/mo` : null;
 
   const questions = [
     {
       question: 'How does the performance fee model work?',
-      answer: `NexusMeme uses a simple performance-based pricing model:\n\n✓ ${fee} fee on profits only\n✓ Charged monthly (every 1st at 2 AM UTC)\n✓ No subscription fees\n✓ No setup costs\n✓ FREE if your bot loses money\n✓ Focused on BTC & ETH\n✓ Minimum $1,000 total account value for live trading\n\nNo hidden charges, completely transparent billing. We only earn when you earn.`,
+      answer: `NexusMeme uses a simple two-part pricing model:\n\n✓ ${flatFee ?? 'Small flat fee'}/mo — covers infrastructure (billed on the 1st regardless of trades)\n✓ ${fee} performance fee on profits only — $0 on losing months\n✓ No setup costs\n✓ No credit card required\n✓ Focused on BTC & ETH\n✓ Minimum $1,000 total account value for live trading\n\nTransparent billing. The flat fee keeps the lights on; the performance fee aligns our interests with yours.`,
     },
     {
       question: 'Do I need to pay upfront?',
-      answer: `No! There are zero upfront costs:\n\n✓ No setup fee\n✓ No trial period fee\n✓ No subscription fee\n✓ No credit card required\n\nYou only pay ${fee} of your profits once your bot starts making money. If your bot never makes a profit, you never pay anything.`,
+      answer: `No! There are zero upfront costs:\n\n✓ No setup fee\n✓ No trial period fee\n✓ No credit card required\n\nAfter your free trial: ${flatFee ?? 'small flat fee'}/mo covers infrastructure. ${fee} performance fee only when your bot makes profits — $0 performance fee on losing months.`,
     },
     {
       question: 'How is my fee calculated?',
@@ -69,24 +75,24 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
       <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-6 mb-8">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">💳 Performance Fee Model</h2>
         <p className="text-slate-700 dark:text-slate-300 mb-4">
-          Simple, transparent pricing. You only pay {fee} of your profits. No subscription fees, no setup costs. We only earn when you earn.
+          {flatFee ?? '…'} flat/mo covers infrastructure. {fee} performance fee only on profits — $0 when your bot doesn&apos;t profit. No setup costs.
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-slate-800 rounded p-3 text-center">
-            <div className="text-2xl font-bold text-green-600 dark:text-green-400">{fee}</div>
-            <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Fee on Profits</div>
+            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{flatFeeUsdc !== null && flatFeeUsdc > 0 ? `$${flatFeeUsdc}` : '…'}</div>
+            <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Flat Fee/mo</div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded p-3 text-center">
-            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">$0</div>
-            <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Setup Cost</div>
+            <div className="text-2xl font-bold text-green-600 dark:text-green-400">{fee}</div>
+            <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">On Profits</div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded p-3 text-center">
             <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">1</div>
             <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Bot Per Account</div>
           </div>
           <div className="bg-white dark:bg-slate-800 rounded p-3 text-center">
-            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">FREE</div>
-            <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">If Bot Loses</div>
+            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">$0</div>
+            <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">Perf Fee on Losses</div>
           </div>
         </div>
       </div>
@@ -105,7 +111,7 @@ export function PlanFeatures({ searchQuery }: PlanFeaturesProps) {
           </li>
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 3:</span>
-            <span>Monthly fee is calculated on the 1st: Your profit × {fee}</span>
+            <span>Monthly billing on the 1st: {flatFee ?? '…'} flat fee + ({fee} × your monthly profits)</span>
           </li>
           <li className="flex gap-3">
             <span className="font-bold text-blue-600 dark:text-blue-400 min-w-fit">Step 4:</span>

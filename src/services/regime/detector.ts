@@ -70,7 +70,7 @@ class RegimeDetector {
   /**
    * Detect and store market regime for a pair
    * @param pair Trading pair (e.g., BTC/USDT)
-   * @param exchange Exchange to use for market data ('binance' or 'kraken')
+   * @param exchange Exchange to use for market data (default: 'binance')
    */
   async detectAndStoreRegime(pair: string, exchange: string = 'binance'): Promise<{ type: RegimeType; confidence: number; reason: string; timestamp: Date } | null> {
     try {
@@ -142,7 +142,7 @@ class RegimeDetector {
    * Detect regime for multiple pairs (e.g., all trading pairs)
    * OPTIMIZATION (Priority 3A): Runs in parallel instead of serial
    * @param pairs Trading pairs (e.g., ['BTC/USD', 'ETH/USD'])
-   * @param exchange Exchange to use for market data (e.g., 'kraken', 'binance')
+   * @param exchange Exchange to use for market data (default: 'binance')
    */
   async detectRegimeForAllPairs(pairs: string[], exchange: string = 'binance'): Promise<Map<string, { type: RegimeType; confidence: number; reason: string; timestamp: Date } | null>> {
     const results = new Map<string, MarketRegime | null>();

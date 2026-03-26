@@ -18,6 +18,50 @@ import {
 } from './inference';
 import { aiConfig } from '@/config/environment';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
+
+// AI result cache: prevents re-asking the same question on identical candle data
+// Keyed by pair + price bucket (0.3% granularity) — resets when price moves meaningfully
+const AI_BOOST_CACHE_TTL_MS = 90_000; // 90 seconds
+const AI_BOOST_PRICE_BUCKET_PCT = 0.003; // 0.3% price movement resets cache
+interface AiBoostCacheEntry {
+  adjustment: number;
+  reasoning: string;
+  provider: string;
+  latencyMs: number;
+  cachedAt: number;
+  priceBucket: number;
+  deterministicScore: number;
+}
+const aiBoostCache = new Map<string, AiBoostCacheEntry>();
+
+function getAiCacheKey(pair: string, price: number): string {
+  // Log-based bucketing: bucket index increments every ~0.3% price movement
+  // Math.log(price) / Math.log(1+0.003) ≈ Math.log(price) / 0.003
+  // ETH $2070 → bucket 2545; ETH $2076 (+0.3%) → bucket 2546
+  const bucket = Math.floor(Math.log(price) / AI_BOOST_PRICE_BUCKET_PCT);
+  return `${pair}:${bucket}`;
+}
+
+function getAiBoostCached(pair: string, price: number, deterministicScore: number): AiBoostCacheEntry | null {
+  const key = getAiCacheKey(pair, price);
+  const entry = aiBoostCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > AI_BOOST_CACHE_TTL_MS) {
+    aiBoostCache.delete(key);
+    return null;
+  }
+  // Invalidate if deterministic score changed by 5+ points — different market conditions
+  if (Math.abs(deterministicScore - entry.deterministicScore) >= 5) {
+    aiBoostCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function setAiBoostCache(pair: string, price: number, result: Omit<AiBoostCacheEntry, 'cachedAt' | 'priceBucket'>): void {
+  const bucket = Math.floor(Math.log(price) / AI_BOOST_PRICE_BUCKET_PCT);
+  aiBoostCache.set(getAiCacheKey(pair, price), { ...result, cachedAt: Date.now(), priceBucket: bucket });
+}
 import {
   AIAnalysisRequest,
   AIAnalysisResult,
@@ -207,11 +251,40 @@ export async function analyzeMarket(
       // Use the regime-specific threshold so the call/skip gate is accurate per regime
       // Call Claude only when signal is 'buy' — veto is only meaningful on entries.
       // Skipped for 'sell'/'hold' signals (orchestrator rejects non-buy anyway).
-      // All regime/confidence-based skipping removed: since entry no longer gates on
-      // confidence score, Claude must evaluate every buy signal to veto counter-trend patterns.
-      const shouldCallAI = aiConfig.confidenceBoostEnabled && result.signal.signal === 'buy';
+      // Only call Claude when deterministic score is strong enough to be worth evaluating.
+      // Below AI_CLAUDE_MIN_DETERMINISTIC (default 60), the signal is too weak — Claude
+      // can't rescue it and calling just wastes API credits.
+      const minDeterministic = aiConfig.claudeMinDeterministic ?? 60;
+      const mom4hForGate = indicators.momentum4h ?? 0;
+      // Skip Claude when 4h momentum < -0.5%: the downtrend4hContext prompt guarantees
+      // a strong negative adjustment (-8 to -12) and the veto math guarantees a block.
+      // Claude adds zero information here — the outcome is deterministic without the API call.
+      // Only call Claude when 4h >= -0.5% where its judgment is genuinely uncertain.
+      const claudeWouldBeUseful = mom4hForGate >= -0.5;
+      const shouldCallAI = aiConfig.confidenceBoostEnabled
+        && result.signal.signal === 'buy'
+        && result.signal.confidence >= minDeterministic
+        && claudeWouldBeUseful;
+      if (!claudeWouldBeUseful && result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled) {
+        // AI boost not useful (4h < -0.5% means Claude would veto), but DON'T kill the signal.
+        // The deterministic signal already passed all 5 risk filter stages — let it stand.
+        // Skip the Claude API call to save cost, but the trade is still valid.
+        logger.info('AI boost skipped: 4h downtrend, signal passes on deterministic strength', {
+          pair: request.pair,
+          momentum4h: mom4hForGate.toFixed(3),
+          deterministicConfidence: result.signal.confidence,
+        });
+        // Do NOT null result.signal — fall through with deterministic signal intact
+      }
       if (shouldCallAI) {
-        const boostResult = await aiConfidenceBoost(
+        const currentPrice = candles[candles.length - 1]?.close ?? 0;
+        const cached = getAiBoostCached(request.pair, currentPrice, result.signal.confidence);
+        if (cached) {
+          logger.debug('AI boost cache hit — reusing result', {
+            pair: request.pair, adjustment: cached.adjustment, reasoning: cached.reasoning,
+          });
+        }
+        const boostResult = cached ?? await aiConfidenceBoost(
           request.pair,
           candles,
           indicators,
@@ -221,6 +294,15 @@ export async function analyzeMarket(
           request.isVolumeSurge,
           request.isCreepingUptrend
         );
+        if (!cached && boostResult) {
+          setAiBoostCache(request.pair, currentPrice, {
+            adjustment: boostResult.adjustment,
+            reasoning: boostResult.reasoning,
+            provider: boostResult.provider,
+            latencyMs: boostResult.latencyMs,
+            deterministicScore: result.signal.confidence,
+          });
+        }
 
         if (boostResult.adjustment !== 0) {
           const originalConfidence = result.signal.confidence;
@@ -236,11 +318,14 @@ export async function analyzeMarket(
             `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
           );
 
-          // AI VETO: Any negative adjustment is a hard block in ALL regimes.
-          // Entry is already gated by pure price (4h > 0, 1h > min). If Claude sees a
-          // counter-trend pattern after momentum gates passed, that's a genuine warning.
+          // AI VETO: any negative adjustment = block.
+          // With vetoThreshold=94 and maxAdj=15, a negative adjustment NEVER produces
+          // a final confidence ≥ 94 at realistic deterministic scores (would need det ≥ 99+|adj|).
+          // The threshold was dead logic — simplify to: negative = veto, zero/positive = allow.
+          // Claude is called only when 4h >= -0.5% (genuinely uncertain), so any negative
+          // response is meaningful signal that the setup is flawed.
           if (boostResult.adjustment < 0) {
-            logger.warn('AI VETO: negative adjustment in low-margin regime — trade blocked', {
+            logger.warn('AI VETO: trade blocked', {
               pair: request.pair,
               regime: regime.regime,
               originalConfidence,
@@ -273,6 +358,28 @@ export async function analyzeMarket(
         }
       }
 
+      // Transitioning regime guard: block thin + weak setups even if confidence remains high
+      const regimeName = (regime?.regime || '').toLowerCase();
+      const volumeRatio = indicators.volumeRatio ?? 1;
+      const momentum1h = indicators.momentum1h ?? 0;
+      if (
+        result.signal?.signal === 'buy' &&
+        regimeName === 'transitioning' &&
+        volumeRatio < aiConfig.transitioningMinVolumeRatio &&
+        momentum1h < aiConfig.transitioningMinMomentum1h
+      ) {
+        logger.warn('AI guard: trade blocked (transitioning regime, thin volume, weak momentum)', {
+          pair: request.pair,
+          regime: regimeName,
+          volumeRatio: volumeRatio.toFixed(3),
+          minVolumeRatio: aiConfig.transitioningMinVolumeRatio,
+          momentum1h: momentum1h.toFixed(3),
+          minMomentum1h: aiConfig.transitioningMinMomentum1h,
+          confidence: result.signal.confidence,
+        });
+        result.signal = null as any;
+      }
+
       // DISABLED: Risk Analysis - result was explicitly ignored (signal confidence is PRIMARY)
       // Per /nexus behavior: "Do NOT reduce confidence based on regime or risk analysis"
       // Keeping signal confidence as-is saves an API call with zero impact on trading
@@ -301,7 +408,7 @@ export async function analyzeMarket(
 }
 
 /**
- * Fetch market data using shared Kraken OHLC utility
+ * Fetch market data using shared OHLC utility
  */
 async function fetchMarketData(
   pair: string,

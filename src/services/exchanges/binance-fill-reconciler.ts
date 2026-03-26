@@ -9,7 +9,7 @@
  * (or the user manually closed) and the DB was never updated due to a
  * crash, restart, or network blip.
  *
- * Works for Binance (US + Global) and Kraken.
+ * Works for Binance (US + Global).
  */
 
 import { query } from '@/lib/db';

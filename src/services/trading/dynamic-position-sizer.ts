@@ -43,7 +43,7 @@ export class DynamicPositionSizer {
   }
 
   /**
-   * Update account balance (syncs with actual Kraken balance)
+   * Update account balance (syncs with actual exchange balance)
    */
   updateBalance(newBalance: number): void {
     if (newBalance !== this.accountBalance) {

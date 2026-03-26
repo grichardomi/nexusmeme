@@ -199,7 +199,6 @@ export function CreateBotForm() {
               const labels: Record<string, string> = {
                 binance: 'Binance International',
                 binanceus: 'Binance US',
-                kraken: 'Kraken',
               };
               return (
                 <option key={exchange.id} value={exchange.exchange}>

@@ -217,10 +217,6 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
       name: 'Binance US',
       docUrl: 'https://www.binance.us/en/support/faq/how-to-create-api-keys-on-binance-us',
     },
-    kraken: {
-      name: 'Kraken',
-      docUrl: 'https://support.kraken.com/hc/en-us/articles/360000919966',
-    },
   };
 
   const info = exchangeNames[exchange];
@@ -345,14 +341,14 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
 
           <div>
             <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-              {exchange === 'kraken' ? 'API Key' : 'Public Key (API Key)'}
+              Public Key (API Key)
             </label>
             <input
               type="text"
               name="publicKey"
               value={formData.publicKey}
               onChange={handleChange}
-              placeholder={exchange === 'kraken' ? 'Paste your Kraken API key' : 'Paste your public API key'}
+              placeholder="Paste your public API key"
               disabled={isLoading}
               autoComplete="new-password"
               spellCheck="false"
@@ -365,20 +361,20 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
 
           <div>
             <label className="block text-sm font-medium text-slate-900 dark:text-white mb-2">
-              {exchange === 'kraken' ? 'Private Key' : 'Secret Key (API Secret)'}
+              Secret Key (API Secret)
             </label>
             <input
               type="password"
               name="secretKey"
               value={formData.secretKey}
               onChange={handleChange}
-              placeholder={exchange === 'kraken' ? 'Paste your Kraken private key' : 'Paste your secret key'}
+              placeholder="Paste your secret key"
               disabled={isLoading}
               autoComplete="new-password"
               className="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800"
             />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Your {exchange === 'kraken' ? 'private key' : 'secret'} is encrypted and stored securely.
+              Your secret is encrypted and stored securely.
             </p>
           </div>
 

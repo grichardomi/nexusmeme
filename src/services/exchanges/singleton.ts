@@ -1,5 +1,4 @@
 import { BinanceAdapter } from './binance';
-import { KrakenAdapter } from './kraken';
 import { BaseExchangeAdapter } from './adapter';
 import type { ApiKeys } from '@/types/exchange';
 import { logger } from '@/lib/logger';
@@ -33,10 +32,6 @@ class AdapterRegistry {
         case 'binanceus':
           adapter = new BinanceAdapter('https://api.binance.us');
           logger.info('Creating singleton Binance US adapter');
-          break;
-        case 'kraken':
-          adapter = new KrakenAdapter();
-          logger.info('Creating singleton Kraken adapter');
           break;
         default:
           throw new Error(`Unknown exchange: ${exchange}`);

@@ -393,7 +393,6 @@ export async function GET(request: NextRequest) {
       const rawQuantity = parseFloat(t.quantity);
       const exitPrice = t.exit_price ? parseFloat(t.exit_price) : null;
       const initialCapital = t.initial_capital ? parseFloat(t.initial_capital) : null;
-      const exchange = t.exchange || 'kraken';
       const riskPercent = 0.02;
 
       const fallbackQuantity =
@@ -439,11 +438,9 @@ export async function GET(request: NextRequest) {
       if (t.status === 'open') {
         // For open trades: deduct ONLY entry fee (already paid to exchange)
         // Exit fee is NOT deducted until trade actually closes — it's hypothetical until then.
-        // Best practice: Kraken/Binance show unrealized P&L with entry fee only.
+        // Best practice: show unrealized P&L with entry fee only.
         // Exit fee gets deducted in the close endpoint when the sell order executes.
-        const feeRate = exchange.toLowerCase() === 'binance'
-          ? exchangeFeesConfig.binanceTakerFeeDefault
-          : exchangeFeesConfig.krakenTakerFeeDefault;
+        const feeRate = exchangeFeesConfig.binanceTakerFeeDefault;
 
         const storedEntryFee = t.fee ? parseFloat(String(t.fee)) : null;
         // For pyramided trades the simple entryPrice * quantity estimate is wrong
@@ -482,9 +479,7 @@ export async function GET(request: NextRequest) {
       }
 
       // Fee data for display
-      const feeRate = exchange.toLowerCase() === 'binance'
-        ? exchangeFeesConfig.binanceTakerFeeDefault
-        : exchangeFeesConfig.krakenTakerFeeDefault;
+      const feeRate = exchangeFeesConfig.binanceTakerFeeDefault;
       const storedFee = t.fee ? parseFloat(String(t.fee)) : null;
 
       // Entry fee: for closed trades, back-calculate from total by subtracting exit fee.

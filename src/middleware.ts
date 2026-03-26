@@ -24,7 +24,7 @@ export default withAuth(
     }
 
     // Public billing endpoints — accessible without auth for landing/pricing/help pages
-    if (pathname === '/api/billing/fee-rate/default' || pathname === '/api/billing/trial-days') {
+    if (pathname === '/api/billing/fee-rate/default' || pathname === '/api/billing/trial-days' || pathname === '/api/billing/flat-fee') {
       return NextResponse.next();
     }
 

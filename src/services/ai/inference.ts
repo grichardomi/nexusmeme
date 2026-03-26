@@ -379,11 +379,34 @@ export async function generateTradeSignalAI(
   const hasBothPositive = momentum1h >= minMomentum1h && momentum4h >= minMomentum4h;
   const hasVolumeBreakout = volumeRatio >= volumeBreakoutRatio && momentum1h > 0;
 
-  const signal: TradeSignal = (hasStrongMomentum || hasBothPositive || hasVolumeBreakout) ? 'buy' : 'hold';
+  // Signal fires when 1h momentum is real AND either: both timeframes positive, volume breakout,
+  // strong 1h alone (>=0.4%), OR trendScore confirms direction via price action (2+ signals).
+  const hasConfirmation = hasBothPositive || hasVolumeBreakout;
+  const trendScoreRaw = indicators.trendScore ?? 0;
+  // Slow recovery: 4h strongly positive + 1h near-zero (recovering from dip, not yet positive)
+  // Catches steady creeping recoveries before 1h crosses threshold.
+  // Requires trendScore >= 1 (at least one price-action signal) to avoid entering pure momentum noise
+  // with negative 1h — prevents buying into a still-falling 1h with only 4h support.
+  const slowRecovery = momentum4h >= 0.2 && momentum1h >= -0.1 && momentum1h < minMomentum1h && trendScoreRaw >= 1;
+  const signal: TradeSignal = (hasStrongMomentum && (hasConfirmation || momentum1h >= 0.4 || trendScoreRaw >= 2)) || slowRecovery ? 'buy' : 'hold';
 
   // Confidence score: base 50, apply boosters and penalties, clamp 0-100
   let confidence = 50;
   const factors: string[] = [];
+
+  // Slow recovery boost — 4h aligned trend while 1h is near-zero recovering
+  if (slowRecovery) {
+    confidence += 22; // base 50 + 22 = 72 ≥ 70 minimum; 4h positive alignment
+    factors.push(`slowRecovery: 4h=${momentum4h.toFixed(2)}% 1h=${momentum1h.toFixed(2)}% recovering (+22)`);
+  }
+
+  // Trend direction score boost — trendScore confirms direction via price action,
+  // not just raw momentum level. Each confirmed signal adds confidence.
+  const trendScore = indicators.trendScore ?? 0;
+  if (trendScore >= 2) {
+    confidence += 20 + (trendScore - 2) * 5; // 2/3 → +20 (reaches 70 minimum), 3/3 → +25
+    factors.push(`trendScore ${trendScore}/3 (direction confirmed +${20 + (trendScore - 2) * 5})`);
+  }
 
   // Boosters
   if (momentum1h > 0.5) {
@@ -400,6 +423,13 @@ export async function generateTradeSignalAI(
   if (volumeRatio > 1.3) {
     confidence += 5;
     factors.push(`volume ${volumeRatio.toFixed(1)}x (breakout)`);
+  }
+
+  // higherCloses: 3 consecutive higher candle closes = confirmed structural uptrend
+  // Rewards clean, structured entries vs. momentum-only bounces in chop
+  if (indicators.higherCloses) {
+    confidence += 5;
+    factors.push(`higherCloses: structural uptrend confirmed (+5)`);
   }
 
   if (momentum4h > 0) {
@@ -437,8 +467,32 @@ export async function generateTradeSignalAI(
   } : { choppy: 0.005, transitioning: 0.008, weak: 0.015, moderate: 0.02, strong: 0.08 };
   const regimeTarget = (envCfg as Record<string, number>)[regime.regime] ?? envCfg.moderate;
 
+  // Block low-confidence signals before building the trade — 50% is a coin flip, not a trade
+  const minConfidence = (getEnv('AI_MIN_CONFIDENCE_THRESHOLD') as number) ?? 65;
+  if (signal === 'buy' && confidence < minConfidence) {
+    return {
+      signal: 'hold' as TradeSignal,
+      confidence,
+      strength: 'weak' as SignalStrength,
+      entryPrice: currentPrice,
+      stopLoss: currentPrice * 0.95,
+      takeProfit: currentPrice,
+      riskRewardRatio: 0,
+      factors: [...factors, `confidence ${confidence}% < minimum ${minConfidence}% (blocked)`],
+      technicalScore: 50,
+      sentimentScore: 50,
+      regimeScore: regime.confidence,
+      analysis: `Signal blocked: confidence ${confidence}% below minimum ${minConfidence}%`,
+      timestamp: new Date(),
+      expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
+    };
+  }
+
   const entryPrice = currentPrice;
-  const stopLoss = currentPrice * 0.95;
+  // Stop loss matched to regime target — 1:1 R:R minimum ensures every trade is worth taking
+  // Old hardcoded 5% stop created 0.2 R:R in choppy regime (need 83% win rate to break even)
+  const stopLossPct = Math.max(regimeTarget, 0.01); // at least 1%, symmetric with target
+  const stopLoss = currentPrice * (1 - stopLossPct);
   const takeProfit = signal === 'buy'
     ? currentPrice * (1 + regimeTarget)
     : currentPrice * (1 - regimeTarget);

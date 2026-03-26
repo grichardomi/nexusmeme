@@ -9,7 +9,6 @@ import { checkActionAllowed } from '@/services/billing/subscription';
 import { checkMinimumBalance } from '@/services/billing/balance-guard';
 import { sendBotCreatedEmail } from '@/services/email/triggers';
 import { startUserDataStream, stopUserDataStream } from '@/services/exchanges/binance-user-data-stream';
-import { startKrakenUserDataStream, stopKrakenUserDataStream } from '@/services/exchanges/kraken-user-data-stream';
 
 /**
  * GET /api/bots
@@ -824,13 +823,9 @@ export async function PATCH(request: NextRequest) {
           if (exchange === 'binance') {
             startUserDataStream(botId, encrypted_public_key, encrypted_secret_key)
               .catch(err => logger.warn('Failed to start Binance stream', { botId, error: err instanceof Error ? err.message : String(err) }));
-          } else if (exchange === 'kraken') {
-            startKrakenUserDataStream(botId, encrypted_public_key, encrypted_secret_key)
-              .catch(err => logger.warn('Failed to start Kraken stream', { botId, error: err instanceof Error ? err.message : String(err) }));
           }
         } else {
           if (exchange === 'binance') stopUserDataStream(botId);
-          else if (exchange === 'kraken') stopKrakenUserDataStream(botId);
         }
       }
     }

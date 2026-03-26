@@ -134,7 +134,7 @@ export async function GET(req: NextRequest) {
     for (const trade of trades) {
       const entryPrice = parseFloat(String(trade.entry_price));
       const quantity = parseFloat(String(trade.quantity || 0));
-      const tradeExchange = trade.exchange || 'kraken';
+      const tradeExchange = trade.exchange || 'binance';
 
       // Use live price if available, otherwise fall back to entry price (which means 0% P&L shown)
       const hasLivePrice = marketPrices.has(trade.pair);
