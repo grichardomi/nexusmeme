@@ -1085,6 +1085,21 @@ class TradeSignalOrchestrator {
             console.log(`\n✅ RISK FILTER PASSED: ${pair} - 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | 1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
             logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
+            // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
+            // Fee round-trip is ~0.30%. Entering with mom1h < 0.50% has no statistical edge.
+            // RISK_MIN_MOMENTUM_1H_BINANCE applies to Binance; RISK_MIN_MOMENTUM_1H for others.
+            {
+              const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
+              const min1h = isBinance
+                ? parseFloat(env.RISK_MIN_MOMENTUM_1H_BINANCE?.toString() || '0.50')
+                : parseFloat(env.RISK_MIN_MOMENTUM_1H?.toString() || '1.0');
+              const mom1h = indicators.momentum1h ?? 0;
+              if (mom1h < min1h) {
+                logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h });
+                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, stage: 'Momentum Floor' } };
+              }
+            }
+
             // CREEPING UPTREND DETECTION: slow sustained grind with low volume.
             // Signals the AI to judge candle consistency, not volume explosiveness.
             // Gates: both momentum timeframes positive + not in deep pullback.
