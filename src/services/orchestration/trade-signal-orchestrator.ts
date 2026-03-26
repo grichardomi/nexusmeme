@@ -972,29 +972,9 @@ class TradeSignalOrchestrator {
               }
             }
 
-            // MOMENTUM FAILURE RE-ENTRY BLOCK: If the last trade on this pair exited due to
-            // momentum failure or thesis invalidation, block re-entry for THESIS_INVALIDATION_BLOCK_MINUTES.
-            // Prevents the fee-drain loop where the bot immediately re-enters after a momentum exit
-            // because the same adverse momentum conditions are still present.
-            {
-              const blockMinutes = env.THESIS_INVALIDATION_BLOCK_MINUTES;
-              const recentFailure = await query<{ id: string }>(
-                `SELECT t.id FROM trades t
-                 WHERE t.pair = $1
-                 AND t.status = 'closed'
-                 AND t.exit_reason IN ('momentum_failure_early', 'momentum_failure_late', 'momentum_thesis_invalidated')
-                 AND t.exit_time > NOW() - ($2 || ' minutes')::INTERVAL
-                 LIMIT 1`,
-                [pair, blockMinutes]
-              );
-              if (recentFailure.length > 0) {
-                logger.info('Skipping entry: recent momentum failure exit — re-entry blocked', {
-                  pair,
-                  blockMinutes,
-                });
-                return { type: 'skipped' };
-              }
-            }
+            // NO RE-ENTRY COOLDOWN — cooldowns are forbidden (CLAUDE.md).
+            // Each setup is evaluated on its own merit via the 5-stage risk filter.
+            // If conditions now meet entry criteria, the previous loss is irrelevant.
 
             // ============================================
             // 5-STAGE RISK FILTER (/nexus parity - BEFORE AI)

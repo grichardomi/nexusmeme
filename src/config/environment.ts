@@ -101,8 +101,8 @@ const envSchema = z.object({
   CREEPING_UPTREND_PULLBACK_THRESHOLD: z.string().transform(Number).default('0.95'), // Block if >5% pullback from recent high
   // Health gate bypass for creeping uptrend (percentage form, matching health gate momentum values)
   // Requires BOTH 1h and 4h momentum positive = sustained directional drift, not a momentary tick
-  CREEPING_UPTREND_GATE_MIN_1H: z.string().transform(Number).default('0.20'),  // 0.20% min 1h momentum — real directional pressure, not a tick
-  CREEPING_UPTREND_GATE_MIN_4H: z.string().transform(Number).default('0.15'),  // 0.15% min 4h momentum (hours of sustained move)
+  CREEPING_UPTREND_GATE_MIN_1H: z.string().transform(Number).default('0.80'),  // 0.80% min 1h momentum — must cover fee round-trip (0.3%) with margin
+  CREEPING_UPTREND_GATE_MIN_4H: z.string().transform(Number).default('0.40'),  // 0.40% min 4h momentum — flat market below this has no edge after fees
 
   /* AI Configuration */
   AI_MIN_CONFIDENCE_THRESHOLD: z.string().transform(Number).default('70'),         // Base fallback (all regimes)
@@ -458,8 +458,8 @@ function getDefaultEnvironment(): Environment {
     CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
     CREEPING_UPTREND_VOLUME_RATIO_MIN: 1.0,
     CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
-    CREEPING_UPTREND_GATE_MIN_1H: 0.20,
-    CREEPING_UPTREND_GATE_MIN_4H: 0.15,
+    CREEPING_UPTREND_GATE_MIN_1H: 0.80,
+    CREEPING_UPTREND_GATE_MIN_4H: 0.40,
     CREEPING_UPTREND_PULLBACK_THRESHOLD: 0.95,
     AI_MIN_CONFIDENCE_THRESHOLD: 70,
     AI_MIN_CONFIDENCE_CHOPPY: 68,
@@ -704,8 +704,8 @@ export function getEnv<T extends keyof Environment>(key: T): Environment[T] {
       CREEPING_UPTREND_WEAK_REGIME_CONFIDENCE: 68,
       CREEPING_UPTREND_VOLUME_RATIO_MIN: 1.0,
       CREEPING_UPTREND_PRICE_TOP_THRESHOLD: 0.99,
-      CREEPING_UPTREND_GATE_MIN_1H: 0.20,
-      CREEPING_UPTREND_GATE_MIN_4H: 0.15,
+      CREEPING_UPTREND_GATE_MIN_1H: 0.80,
+      CREEPING_UPTREND_GATE_MIN_4H: 0.40,
       BINANCE_BOT_PYRAMIDING_ENABLED: true,
       BINANCE_BOT_PYRAMID_LEVELS: 2,
       BINANCE_BOT_PYRAMID_L1_TRIGGER_PCT: 0.045,
