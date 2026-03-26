@@ -10,6 +10,7 @@ interface PerformanceFeesData {
     pending_fees: number;
     billed_fees: number;
     uncollectible_fees: number;
+    waived_fees: number;
     profitable_trades: number;
   };
   billing: {
@@ -209,22 +210,34 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive, feePercent }: Pe
           <p className="text-blue-200 text-sm mt-1">{summary.profitable_trades} profitable trades</p>
         </div>
 
-        {/* Pending Fees - Important secondary metric */}
-        <div className={`rounded-xl p-4 ${
-          summary.pending_fees > 0
-            ? 'bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700'
-            : 'bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600'
-        }`}>
-          <p className="text-slate-600 dark:text-slate-400 text-xs font-medium uppercase tracking-wide">Pending Fees</p>
-          <p className={`text-2xl sm:text-3xl font-bold mt-1 ${
-            Number(summary.pending_fees) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'
+        {/* Waived Fees (trial) or Pending Fees (live) */}
+        {Number(summary.waived_fees) > 0 ? (
+          <div className="rounded-xl p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700">
+            <p className="text-green-700 dark:text-green-400 text-xs font-medium uppercase tracking-wide">Fees Waived (Trial)</p>
+            <p className="text-2xl sm:text-3xl font-bold mt-1 text-green-600 dark:text-green-400">
+              ${Number(summary.waived_fees || 0).toFixed(2)}
+            </p>
+            <p className="text-green-600 dark:text-green-500 text-sm mt-1">
+              Free during your trial — no charge
+            </p>
+          </div>
+        ) : (
+          <div className={`rounded-xl p-4 ${
+            summary.pending_fees > 0
+              ? 'bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700'
+              : 'bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600'
           }`}>
-            ${Number(summary.pending_fees || 0).toFixed(2)}
-          </p>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            {summary.pending_fees > 0 ? `Due in ${daysUntilBilling} days` : 'None pending'}
-          </p>
-        </div>
+            <p className="text-slate-600 dark:text-slate-400 text-xs font-medium uppercase tracking-wide">Pending Fees</p>
+            <p className={`text-2xl sm:text-3xl font-bold mt-1 ${
+              Number(summary.pending_fees) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'
+            }`}>
+              ${Number(summary.pending_fees || 0).toFixed(2)}
+            </p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+              {summary.pending_fees > 0 ? `Due in ${daysUntilBilling} days` : 'None pending'}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Secondary Stats Row - Compact horizontal layout */}
@@ -285,6 +298,16 @@ export function PerformanceFeesSummary({ tradingMode, onGoLive, feePercent }: Pe
           </svg>
         </summary>
         <div className="mt-2 flex items-center justify-around py-3 bg-slate-50 dark:bg-slate-700/30 rounded-lg">
+          {Number(summary.waived_fees) > 0 && (
+            <>
+              <div className="text-center">
+                <div className="w-10 h-10 mx-auto rounded-full flex items-center justify-center text-lg bg-green-100 dark:bg-green-900/50 text-green-600">🎁</div>
+                <p className="text-xs mt-1 text-slate-600 dark:text-slate-400">Waived</p>
+                <p className="text-xs font-bold text-green-600">${Number(summary.waived_fees || 0).toFixed(0)}</p>
+              </div>
+              <span className="text-slate-300 dark:text-slate-600">→</span>
+            </>
+          )}
           <div className="text-center">
             <div className={`w-10 h-10 mx-auto rounded-full flex items-center justify-center text-lg ${
               summary.pending_fees > 0

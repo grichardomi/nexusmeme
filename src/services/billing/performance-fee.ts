@@ -164,6 +164,7 @@ export async function getUserFeeSummary(userId: string) {
          SUM(CASE WHEN status = 'pending_billing' THEN fee_amount ELSE 0 END)::DECIMAL as pending_fees,
          SUM(CASE WHEN status = 'billed' THEN fee_amount ELSE 0 END)::DECIMAL as billed_fees,
          SUM(CASE WHEN status = 'uncollectible' THEN fee_amount ELSE 0 END)::DECIMAL as uncollectible_fees,
+         SUM(CASE WHEN status = 'waived' THEN fee_amount ELSE 0 END)::DECIMAL as waived_fees,
          COUNT(*)::INT as profitable_trades
        FROM performance_fees
        WHERE user_id = $1::uuid`,
@@ -176,6 +177,7 @@ export async function getUserFeeSummary(userId: string) {
       pending_fees: 0,
       billed_fees: 0,
       uncollectible_fees: 0,
+      waived_fees: 0,
       profitable_trades: 0,
     };
   } catch (error) {

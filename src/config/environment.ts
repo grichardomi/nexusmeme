@@ -143,6 +143,7 @@ const envSchema = z.object({
 
   /* Risk Management Guardrails */
   RISK_BTC_DUMP_THRESHOLD: z.string().transform(Number).default('-0.015'),
+  RISK_BTC_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.1'), // Block ALL pairs when BTC volume < this (market-wide illiquidity)
   RISK_VOLUME_SPIKE_MAX: z.string().transform(Number).default('4.5'),
   RISK_SPREAD_MAX_PERCENT: z.string().transform(Number).default('0.005'),
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
@@ -487,6 +488,7 @@ function getDefaultEnvironment(): Environment {
     BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
     BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
     RISK_BTC_DUMP_THRESHOLD: -0.015,
+    RISK_BTC_MIN_VOLUME_RATIO: 0.1,
     RISK_VOLUME_SPIKE_MAX: 4.5,
     RISK_SPREAD_MAX_PERCENT: 0.005,
     RISK_PRICE_TOP_THRESHOLD: 0.995,

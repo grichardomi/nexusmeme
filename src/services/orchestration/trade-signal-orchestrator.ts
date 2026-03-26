@@ -747,6 +747,14 @@ class TradeSignalOrchestrator {
               btcMomentum1h: (btcCandles.momentum1h / 100).toFixed(4),
             });
           }
+          // Pass BTC volume ratio to risk manager — blocks ALL pairs when BTC is illiquid
+          if (btcCandles.volumeRatio !== undefined) {
+            riskManager.updateBTCVolumeRatio(btcCandles.volumeRatio);
+            logger.debug('Orchestrator: BTC volume ratio updated for risk management', {
+              btcPair,
+              btcVolumeRatio: btcCandles.volumeRatio.toFixed(3),
+            });
+          }
         }
       } catch (error) {
         logger.warn('Failed to fetch BTC momentum for risk manager', error instanceof Error ? error : undefined);

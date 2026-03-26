@@ -28,7 +28,8 @@ export interface MarketData {
 }
 
 class RiskManager {
-  private btcMomentum1h = 0; // Updated per trading iteration
+  private btcMomentum1h = 0;    // Updated per trading iteration
+  private btcVolumeRatio = 1.0; // Updated per trading iteration — used to block all pairs during BTC illiquidity
   private config = {
     btcDumpThreshold1h: -0.015,
     volumeSpikeMax: 3.0,
@@ -109,6 +110,11 @@ class RiskManager {
   updateBTCMomentum(momentum: number): void {
     this.btcMomentum1h = momentum;
     logger.debug('RiskManager: BTC momentum updated', { btcMomentum1h: this.btcMomentum1h });
+  }
+
+  updateBTCVolumeRatio(volumeRatio: number): void {
+    this.btcVolumeRatio = volumeRatio > 0 ? volumeRatio : 1.0;
+    logger.debug('RiskManager: BTC volume ratio updated', { btcVolumeRatio: this.btcVolumeRatio });
   }
 
   /**
@@ -204,6 +210,24 @@ class RiskManager {
         reason: `BTC dumping (${(this.btcMomentum1h * 100).toFixed(2)}% < ${(this.config.btcDumpThreshold1h * 100).toFixed(1)}%)`,
         stage: 'Drop Protection',
         btcMomentum1h: this.btcMomentum1h,
+      };
+    }
+
+    // BTC market-wide illiquidity guard: if BTC volume is extremely thin, the entire
+    // crypto market lacks participation — block all pairs, not just BTC.
+    // ETH/alts follow BTC; entering when BTC has 0.05x volume is a false signal.
+    const env = getEnvironmentConfig();
+    const btcMinVol = env.RISK_BTC_MIN_VOLUME_RATIO;
+    if (this.btcVolumeRatio < btcMinVol) {
+      logger.info('RiskManager: Entry blocked - BTC market illiquid (thin volume on all pairs)', {
+        pair,
+        btcVolumeRatio: this.btcVolumeRatio.toFixed(3),
+        threshold: btcMinVol,
+      });
+      return {
+        pass: false,
+        reason: `BTC volume too thin (${this.btcVolumeRatio.toFixed(2)}x < ${btcMinVol}x) — market-wide illiquidity`,
+        stage: 'Drop Protection',
       };
     }
 
