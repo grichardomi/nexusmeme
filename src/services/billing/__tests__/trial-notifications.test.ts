@@ -144,19 +144,20 @@ describe('Trial Notifications Service', () => {
         ],
       });
 
-      // Mock transitionExpiredTrial UPDATE query
-      mockClient.query.mockResolvedValueOnce({
-        rows: [{ id: 'sub-3' }],
-      });
+      // Mock 1: UPDATE subscriptions (plan_tier transition)
+      mockClient.query.mockResolvedValueOnce({ rows: [] });
+      // Mock 2: UPDATE bot_instances (pause paper bots) — no paper bots, so no suspension log INSERT
+      mockClient.query.mockResolvedValueOnce({ rows: [] });
+      // user has payment_method_id so live bots are NOT paused — no further queries
 
       // Mock markNotificationSent
       mockClient.query.mockResolvedValueOnce({});
 
       const result = await processTrialNotifications();
 
-      // Verify UPDATE was called to transition plan
+      // Verify UPDATE was called with plan_tier (not "plan")
       expect(mockClient.query).toHaveBeenCalledWith(
-        expect.stringContaining("plan = $1"),
+        expect.stringContaining("plan_tier = $1"),
         expect.arrayContaining(['performance_fees'])
       );
 
@@ -216,10 +217,13 @@ describe('Trial Notifications Service', () => {
 
         // Mock required queries
         if (testCase.shouldTransition) {
-          mockClient.query.mockResolvedValueOnce({
-            rows: [{ id: `sub-${testCase.name}` }],
-          });
+          // UPDATE subscriptions (plan_tier)
+          mockClient.query.mockResolvedValueOnce({ rows: [] });
+          // UPDATE bot_instances (pause paper bots) — none paused
+          mockClient.query.mockResolvedValueOnce({ rows: [] });
+          // payment_method_id = 'pm-test' → live bots NOT paused
         }
+        // markNotificationSent (or final cleanup)
         mockClient.query.mockResolvedValueOnce({});
 
         const result = await processTrialNotifications();
@@ -254,10 +258,14 @@ describe('Trial Notifications Service', () => {
         ],
       });
 
-      // Mock transition
-      mockClient.query.mockResolvedValueOnce({ rows: [{ id: 'sub-expired-query' }] });
-
-      // Mock markNotificationSent
+      // Mock 1: UPDATE subscriptions (plan_tier transition)
+      mockClient.query.mockResolvedValueOnce({ rows: [] });
+      // Mock 2: UPDATE bot_instances (pause paper bots) — none
+      mockClient.query.mockResolvedValueOnce({ rows: [] });
+      // payment_method_id is null → live bots also paused
+      // Mock 3: UPDATE bot_instances (pause live bots) — none
+      mockClient.query.mockResolvedValueOnce({ rows: [] });
+      // Mock 4: markNotificationSent
       mockClient.query.mockResolvedValueOnce({});
 
       const result = await processTrialNotifications();

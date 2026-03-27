@@ -9,6 +9,7 @@ import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
 import { useLoadMore } from '@/hooks/useLoadMore';
 import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
 import { BotHealthScore } from '@/components/bots/BotHealthScore';
+import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
 
 /**
  * Dashboard Home Page - Mobile-First Design
@@ -64,6 +65,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [tradesOpen, setTradesOpen] = useState(false);
   const [lowBalanceBots, setLowBalanceBots] = useState<Array<{ id: string; name: string; exchange: string; free: number; minimum: number }>>([]);
+  const [accountFunded, setAccountFunded] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [dateRange, setDateRange] = useState<DateRange>('1m');
   const [customFrom, setCustomFrom] = useState('');
@@ -162,7 +164,9 @@ export default function DashboardPage() {
           const data = await res.json();
           const total = data.totalAccountValue ?? (data.real ?? 0);
           const minimum = data.minimum ?? 1000;
-          if (total < minimum) {
+          if (total >= minimum) {
+            setAccountFunded(true);
+          } else {
             warnings.push({ id: bot.id, name: bot.name || bot.exchange, exchange: bot.exchange, free: total, minimum });
           }
         } catch { /* non-fatal */ }
@@ -233,8 +237,19 @@ export default function DashboardPage() {
     { value: 'losses', label: 'Losses', icon: '↘' },
   ];
 
+  const botRunning = bots.some(b => b.isActive);
+  const hasBots = bots.length > 0;
+
   return (
     <DashboardLayout title="Overview">
+      {/* Onboarding checklist — shown until all steps complete or dismissed */}
+      <OnboardingChecklist
+        hasApiKeys={hasApiKeys}
+        hasBots={hasBots}
+        botRunning={botRunning}
+        accountFunded={accountFunded}
+      />
+
       {/* Trial Warning Banner */}
       <div className="mb-6">
         <TrialWarningBanner minimal={false} />

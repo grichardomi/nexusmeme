@@ -1,15 +1,76 @@
 import { executionFanOut } from '../fan-out';
 import type { TradeDecision } from '@/types/market';
 
+jest.mock('@/config/environment', () => ({
+  getEnv: (key: string) => ({
+    TRIAL_MAX_CAPITAL: 1000,
+    MARKET_DATA_CACHE_TTL_MS: 10000,
+    MARKET_DATA_CACHE_STALE_TTL_MS: 30000,
+    REGIME_CHECK_INTERVAL_MS: 60000,
+    DISABLE_EXTERNAL_MARKET_REGIME: false,
+  }[key] ?? 0),
+  marketDataConfig: {
+    cacheTtlMs: 10000,
+    staleTtlMs: 30000,
+    regimeCheckIntervalMs: 60000,
+    disableExternalRegime: false,
+  },
+  getEnvironmentConfig: () => ({
+    TRIAL_MAX_CAPITAL: 1000,
+    BINANCE_API_BASE_URL: 'https://api.binance.us',
+    RISK_STRONG_MOMENTUM_OVERRIDE_PCT: 2.5,
+    REGIME_SIZE_STRONG: 1.5,
+    REGIME_SIZE_MODERATE: 0.75,
+    REGIME_SIZE_WEAK: 0.75,
+    REGIME_SIZE_TRANSITIONING: 0.5,
+    REGIME_SIZE_CHOPPY: 0.5,
+    PYRAMID_L1_MIN_ADX: 35,
+    PYRAMID_L2_MIN_ADX: 40,
+    PYRAMID_L1_AI_CONFIDENCE: 85,
+    PYRAMID_L2_AI_CONFIDENCE: 90,
+    PYRAMID_L1_SIZE_MULTIPLIER: 0.5,
+    PYRAMID_L2_SIZE_MULTIPLIER: 0.3,
+    CAPITAL_PRESERVATION_LAYER2_5PCT_MULTIPLIER: 0.5,
+    CAPITAL_PRESERVATION_LAYER2_10PCT_MULTIPLIER: 0,
+    CAPITAL_PRESERVATION_LAYER2_15PCT_MULTIPLIER: 0,
+    CAPITAL_PRESERVATION_LAYER3_3STREAK_MULTIPLIER: 0.5,
+    CAPITAL_PRESERVATION_LAYER3_5STREAK_MULTIPLIER: 0.25,
+    CAPITAL_PRESERVATION_LAYER3_7STREAK_MULTIPLIER: 0,
+    MAX_POSITION_SIZE_PCT: 0.95,
+    MIN_ORDER_SIZE_USDT: 10,
+    BINANCE_TAKER_FEE_DEFAULT: 0.001,
+    DEFAULT_STOP_LOSS_PCT: 0.02,
+  }),
+}));
+
 jest.mock('@/lib/db');
-jest.mock('@/services/regime/gatekeeper');
+jest.mock('@/services/risk/capital-preservation', () => ({
+  capitalPreservation: {
+    evaluateBot: jest.fn().mockResolvedValue({ allowTrading: true, sizeMultiplier: 1.0, reason: 'healthy' }),
+  },
+}));
+jest.mock('@/services/billing/fee-rate', () => ({
+  getExchangeFeeRates: jest.fn().mockResolvedValue({ maker: 0.001, taker: 0.001 }),
+  getCachedTakerFee: jest.fn().mockResolvedValue(0.001),
+}));
+jest.mock('@/services/exchanges/singleton', () => ({
+  getExchangeAdapter: jest.fn().mockReturnValue({
+    getMinOrderSize: jest.fn().mockResolvedValue(10),
+    getTicker: jest.fn().mockResolvedValue({ bid: 44900, ask: 45100, last: 45000, volume: 1000, timestamp: Date.now() }),
+  }),
+}));
+jest.mock('@/services/email/triggers', () => ({
+  sendTradeAlertEmail: jest.fn(),
+  sendLowBalanceEmail: jest.fn(),
+}));
+jest.mock('@/lib/crypto', () => ({
+  decrypt: jest.fn().mockReturnValue('decrypted-key'),
+}));
 
 import { query, transaction } from '@/lib/db';
-import { regimeGatekeeper } from '@/services/regime/gatekeeper';
 
 const mockQuery = query as jest.MockedFunction<typeof query>;
 const mockTransaction = transaction as jest.MockedFunction<typeof transaction>;
-const mockGatekeeper = regimeGatekeeper as jest.Mocked<typeof regimeGatekeeper>;
 
 describe('ExecutionFanOut', () => {
   beforeEach(() => {
@@ -32,33 +93,44 @@ describe('ExecutionFanOut', () => {
     },
   };
 
-  it('should return empty array when regime blocks execution', async () => {
-    mockGatekeeper.shouldAllowExecution.mockResolvedValueOnce(false);
+  it('should return empty array when no bots are active', async () => {
+    mockQuery.mockResolvedValueOnce([]);
 
     const plans = await executionFanOut.fanOutTradeDecision(mockTradeDecision);
 
     expect(plans).toEqual([]);
-    expect(mockGatekeeper.shouldAllowExecution).toHaveBeenCalledWith(mockTradeDecision.pair);
   });
 
   it('should create execution plans for active bots', async () => {
-    mockGatekeeper.shouldAllowExecution.mockResolvedValueOnce(true);
+    // Mock 1: getActiveBotsForPair
     mockQuery.mockResolvedValueOnce([
       {
         id: 'bot-1',
         user_id: 'user-1',
         exchange: 'binance',
         enabled_pairs: ['BTC/USD', 'ETH/USD'],
-        config: {},
+        config: { initialCapital: 1000 },
       },
       {
         id: 'bot-2',
         user_id: 'user-2',
         exchange: 'binance',
         enabled_pairs: ['BTC/USD'],
-        config: {},
+        config: { initialCapital: 1000 },
       },
     ]);
+    // Per-bot (paper mode with fixed capital):
+    // 1. open position check (SELECT trades WHERE status=open)
+    // 2. plan_tier subscription check (SELECT subscriptions)
+    // 3. closed trades history (SELECT trades WHERE status=closed)
+    // bot-1
+    mockQuery.mockResolvedValueOnce([]); // open positions
+    mockQuery.mockResolvedValueOnce([{ plan_tier: 'performance_fees' }]); // subscription
+    mockQuery.mockResolvedValueOnce([]); // closed trades history
+    // bot-2
+    mockQuery.mockResolvedValueOnce([]); // open positions
+    mockQuery.mockResolvedValueOnce([{ plan_tier: 'performance_fees' }]); // subscription
+    mockQuery.mockResolvedValueOnce([]); // closed trades history
 
     const plans = await executionFanOut.fanOutTradeDecision(mockTradeDecision);
 
@@ -69,7 +141,7 @@ describe('ExecutionFanOut', () => {
   });
 
   it('should return empty array when no active bots found', async () => {
-    mockGatekeeper.shouldAllowExecution.mockResolvedValueOnce(true);
+
     mockQuery.mockResolvedValueOnce([]);
 
     const plans = await executionFanOut.fanOutTradeDecision(mockTradeDecision);
@@ -78,7 +150,7 @@ describe('ExecutionFanOut', () => {
   });
 
   it('should skip bots that dont trade the pair', async () => {
-    mockGatekeeper.shouldAllowExecution.mockResolvedValueOnce(true);
+
     mockQuery.mockResolvedValueOnce([
       {
         id: 'bot-1',

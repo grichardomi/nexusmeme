@@ -1,9 +1,25 @@
 import { marketDataAggregator } from '../aggregator';
 
+jest.mock('@/config/environment', () => ({
+  getEnvironmentConfig: () => ({
+    BINANCE_MARKET_DATA_URL: 'https://api.binance.us',
+    SUPPORTED_EXCHANGES: 'binance',
+    MARKET_DATA_CACHE_TTL_MS: 10000,
+    MARKET_DATA_CACHE_STALE_TTL_MS: 30000,
+  }),
+  marketDataConfig: {
+    cacheTtlMs: 10000,
+    staleTtlMs: 30000,
+    regimeCheckIntervalMs: 60000,
+    disableExternalRegime: false,
+  },
+}));
+
 // Mock the Redis module
 jest.mock('@/lib/redis', () => ({
   getCached: jest.fn(),
   setCached: jest.fn(),
+  getCachedMultiple: jest.fn().mockResolvedValue([]),
 }));
 
 // Mock the exchange adapter
@@ -31,10 +47,35 @@ jest.mock('@/lib/logger', () => ({
   logApiCall: jest.fn(),
 }));
 
+// fetchTickerBinance uses global fetch directly (not the exchange adapter singleton).
+// Mock it to return a realistic Binance 24hr ticker payload.
+function makeBinanceTicker(symbol: string) {
+  return {
+    ok: true,
+    json: async () => ({
+      symbol,
+      lastPrice: '45050.00',
+      bidPrice: '45000.00',
+      askPrice: '45100.00',
+      volume: '1234.56',
+      quoteVolume: '55000000.00',
+      priceChangePercent: '1.23',
+      highPrice: '46000.00',
+      lowPrice: '44000.00',
+      closeTime: Date.now(),
+    }),
+  };
+}
+
 describe('MarketDataAggregator', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     marketDataAggregator.clearCache();
+    // Reset fetch mock before each test
+    global.fetch = jest.fn().mockImplementation((url: string) => {
+      const symbol = new URL(url).searchParams.get('symbol') ?? 'BTCUSDT';
+      return Promise.resolve(makeBinanceTicker(symbol));
+    }) as jest.Mock;
   });
 
   it('should fetch market data for pairs', async () => {

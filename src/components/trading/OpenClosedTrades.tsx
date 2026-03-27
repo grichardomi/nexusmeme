@@ -540,7 +540,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
               {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
             {trade.tradingMode && (
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                 trade.tradingMode === 'live'
@@ -557,6 +557,19 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
             }`}>
               {isOpen ? '◔ Open' : '✓ Closed'}
             </span>
+            {!isOpen && trade.exitReason && (
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                trade.exitReason === 'profit_target'
+                  ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300'
+                  : trade.exitReason === 'manual_close'
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                  : trade.exitReason === 'emergency_stop' || trade.exitReason === 'stop_loss'
+                  ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+                  : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+              }`}>
+                {formatExitReason(trade.exitReason)}
+              </span>
+            )}
           </div>
         </div>
 
@@ -598,12 +611,6 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Exit Fee</p>
               <p className="font-medium text-amber-600 dark:text-amber-400 text-sm">${parseFloat(String(trade.exitFee)).toFixed(4)}</p>
-            </div>
-          )}
-          {!isOpen && trade.exitReason && (
-            <div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Exit Reason</p>
-              <p className="font-medium text-slate-700 dark:text-slate-300 text-xs truncate">{formatExitReason(trade.exitReason)}</p>
             </div>
           )}
         </div>

@@ -4,9 +4,14 @@
 
 // ─── verifyAlchemySignature ───────────────────────────────────────────────────
 // We test the exported function directly; mock env so no Railway DB needed.
+// The implementation strips the whsec_ prefix then base64-decodes the remainder
+// to get the raw HMAC key bytes. The fixture must match that encoding.
+const RAW_SECRET = Buffer.from('testsecretbytes');
+const SIGNING_KEY = 'whsec_' + RAW_SECRET.toString('base64');
+
 jest.mock('@/config/environment', () => ({
   getEnvironmentConfig: () => ({
-    ALCHEMY_WEBHOOK_SIGNING_KEY: 'whsec_testsecretkey',
+    ALCHEMY_WEBHOOK_SIGNING_KEY: SIGNING_KEY,
     USDC_WALLET_ADDRESS: '0xRecipient',
     USDC_CONTRACT_ADDRESS: '0xUSDC',
     USDC_CHAIN_ID: 8453,
@@ -21,10 +26,9 @@ import crypto from 'crypto';
 import { verifyAlchemySignature, isUSDCPaymentEnabled } from '../usdc-payment';
 
 describe('verifyAlchemySignature', () => {
-  const signingKey = 'testsecretkey'; // whsec_ prefix stripped by implementation
-
+  // Must match implementation: strip whsec_, base64-decode → raw key bytes
   function makeSignature(body: string) {
-    return crypto.createHmac('sha256', signingKey).update(body).digest('hex');
+    return crypto.createHmac('sha256', RAW_SECRET).update(body).digest('hex');
   }
 
   it('returns true for a valid HMAC-SHA256 signature', () => {
