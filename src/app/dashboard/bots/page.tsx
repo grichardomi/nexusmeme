@@ -6,21 +6,31 @@ import { useBotsData } from '@/hooks/useBotsData';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { redirect } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 /**
  * Trading Bot Page
- * Manage user's trading bots
+ * Auto-redirects to the bot detail page when user has exactly one bot.
  */
 
 export default function BotsPage() {
   const { status } = useSession();
   const { bots, isLoading } = useBotsData();
+  const router = useRouter();
+
+  // Auto-redirect to the single bot's page
+  useEffect(() => {
+    if (!isLoading && bots.length === 1) {
+      router.replace(`/dashboard/bots/${bots[0].id}`);
+    }
+  }, [isLoading, bots, router]);
 
   if (status === 'unauthenticated') {
     redirect('/auth/signin');
   }
 
-  if (status === 'loading') {
+  if (status === 'loading' || (!isLoading && bots.length === 1)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-slate-900 dark:text-white text-lg">Loading...</div>
@@ -31,7 +41,7 @@ export default function BotsPage() {
   const hasBot = !isLoading && bots.length > 0;
 
   return (
-    <DashboardLayout title="Trading Bot">
+    <DashboardLayout title="Bot">
       {!hasBot && (
         <div className="mb-8">
           <Link
