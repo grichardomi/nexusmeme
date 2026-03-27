@@ -869,12 +869,58 @@ export async function DELETE(request: NextRequest) {
 
     // Verify the bot belongs to the user
     const bot = await query(
-      `SELECT id FROM bot_instances WHERE id = $1 AND user_id = $2`,
+      `SELECT id, status FROM bot_instances WHERE id = $1 AND user_id = $2`,
       [botId, session.user.id]
     );
 
     if (bot.length === 0) {
       return NextResponse.json({ error: 'Bot not found' }, { status: 404 });
+    }
+
+    // Block deletion of a running bot
+    if (bot[0].status === 'running') {
+      return NextResponse.json(
+        { error: 'Stop the bot before deleting it.', code: 'BOT_RUNNING' },
+        { status: 409 }
+      );
+    }
+
+    // Block deletion if open trades exist
+    const openTrades = await query(
+      `SELECT COUNT(*)::int AS count FROM trades WHERE bot_instance_id = $1 AND exit_time IS NULL`,
+      [botId]
+    );
+    const openCount = openTrades[0]?.count ?? 0;
+    if (openCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete bot — ${openCount} open trade${openCount === 1 ? '' : 's'} must be closed first.`,
+          code: 'OPEN_TRADES',
+          openTrades: openCount,
+        },
+        { status: 409 }
+      );
+    }
+
+    // Block deletion if unpaid performance fees exist
+    const pendingFees = await query(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(fee_amount), 0)::DECIMAL AS total
+       FROM performance_fees
+       WHERE bot_instance_id = $1 AND status IN ('pending_billing', 'billed')`,
+      [botId]
+    );
+    const pendingFeeCount = pendingFees[0]?.count ?? 0;
+    if (pendingFeeCount > 0) {
+      const pendingTotal = parseFloat(String(pendingFees[0].total));
+      return NextResponse.json(
+        {
+          error: `Cannot delete bot — $${pendingTotal.toFixed(2)} in unpaid performance fees (${pendingFeeCount} invoice${pendingFeeCount === 1 ? '' : 's'}) must be settled first.`,
+          code: 'UNPAID_FEES',
+          feeCount: pendingFeeCount,
+          feeAmount: pendingTotal,
+        },
+        { status: 409 }
+      );
     }
 
     // Delete the bot

@@ -430,6 +430,18 @@ export default function BotDetailPage() {
         fullBot: currentBot,
       });
       setBot(currentBot);
+
+      // Fetch open trade count so delete button reflects actual state
+      try {
+        const tradesResp = await fetch(`/api/trades?botId=${id}&limit=500`);
+        if (tradesResp.ok) {
+          const tradesData = await tradesResp.json();
+          const openCount = (tradesData.trades || []).filter((t: any) => t.status === 'open').length;
+          setOpenTradesCount(openCount);
+        }
+      } catch {
+        // non-critical — server-side will block delete if trades exist
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -964,8 +976,14 @@ export default function BotDetailPage() {
 
             <button
               onClick={handleOpenDeleteModal}
-              disabled={isDeleting || bot.isActive}
-              title={bot.isActive ? 'Stop the bot before deleting' : 'Delete this bot'}
+              disabled={isDeleting || bot.isActive || openTradesCount > 0}
+              title={
+                bot.isActive
+                  ? 'Stop the bot before deleting'
+                  : openTradesCount > 0
+                  ? `Close all ${openTradesCount} open position${openTradesCount === 1 ? '' : 's'} before deleting`
+                  : 'Delete this bot'
+              }
               className="flex-1 bg-red-700 hover:bg-red-800 disabled:bg-slate-400 dark:disabled:bg-slate-600 text-white px-6 py-3 rounded font-medium transition"
             >
               {isDeleting ? 'Deleting...' : '🗑️ Delete Bot'}
@@ -1244,12 +1262,11 @@ export default function BotDetailPage() {
       <ConfirmDeleteModal
         isOpen={showDeleteModal}
         title="Delete Trading Bot"
-        description="This will permanently delete your trading bot and all associated historical data. This action cannot be undone."
+        description="This will permanently delete your trading bot configuration. Trade history and billing records are retained for accounting purposes. This action cannot be undone."
         itemsToDelete={[
-          { label: 'Bot Instance', value: bot.name || `${bot.exchange} Trading Bot` },
-          { label: 'Trade History', value: `${bot.totalTrades} trades` },
-          { label: 'Performance Records', value: 'All fee data' },
-          { label: 'Bot Suspension Logs', value: 'All suspension history' },
+          { label: 'Bot Configuration', value: bot.name || `${bot.exchange} Trading Bot` },
+          { label: 'Trade History', value: `${bot.totalTrades} trades (retained for records)` },
+          { label: 'Performance Fees', value: 'Retained — paid fees remain on account' },
         ]}
         confirmationText="DELETE"
         confirmButtonText="Delete Permanently"
