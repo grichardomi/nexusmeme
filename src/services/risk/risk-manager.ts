@@ -153,7 +153,8 @@ class RiskManager {
     // 4h floor >= -0.5%: slope+intrabar alone can score 2/3 on a single candle bounce while 4h is
     // still deeply negative (e.g. -1.4%), causing immediate thesis invalidation after entry.
     if (score >= 2) {
-      const mom1hPct = (momentum1h ?? 0) * 100;
+      // momentum1h is already in % (e.g. 0.71 = 0.71%) — no * 100 needed
+      const mom1hPct = momentum1h ?? 0;
       // 4h data lags the current candle by up to 4 hours. When 1h momentum is already
       // above the minimum entry threshold (0.5%), the move is directionally confirmed by
       // recent price action — blocking on a lagging 4h negative is double-counting.
@@ -247,27 +248,29 @@ class RiskManager {
     // Treat volumeRatio = 0 as missing data (BTC/ETH never have 0 volume in reality) — default to 1.0x
     const rawVolumeRatio = indicators.volumeRatio ?? 1;
     const volumeRatio = rawVolumeRatio <= 0 ? 1 : rawVolumeRatio;
+    // momentum1h is in percentage form (e.g. 0.319 = 0.319%, -1.5 = -1.5%)
     const momentum1h = indicators.momentum1h ?? 0;
-    if (volumeRatio > this.config.volumeSpikeMax && momentum1h < -0.005) {
+    // Panic spike: block if high volume AND selling pressure (>= -0.5%)
+    if (volumeRatio > this.config.volumeSpikeMax && momentum1h < -0.5) {
       logger.info('RiskManager: Entry blocked - volume panic spike with selling pressure', {
         pair,
         volumeRatio: volumeRatio.toFixed(2),
         threshold: this.config.volumeSpikeMax,
-        momentum1h: momentum1h.toFixed(4),
+        momentum1h: momentum1h.toFixed(2),
       });
       return {
         pass: false,
-        reason: `Volume panic spike (${volumeRatio.toFixed(2)}x + mom ${(momentum1h * 100).toFixed(2)}%)`,
+        reason: `Volume panic spike (${volumeRatio.toFixed(2)}x + mom ${momentum1h.toFixed(2)}%)`,
         stage: 'Drop Protection',
       };
     }
 
     // Volume floor: block entries with extremely thin volume (no real buying pressure)
-    // EXCEPTION: a strong 1h momentum move (≥ RISK_STRONG_MOMENTUM_OVERRIDE_PCT) is itself
+    // EXCEPTION: a strong 1h momentum move (≥ RISK_STRONG_MOMENTUM_OVERRIDE_PCT%) is itself
     // proof of real buying pressure — requiring a separate volume ratio on top is double-gating.
-    // A 2.5%+ hourly move cannot happen without volume; the price action IS the confirmation.
     const strongMomentumOverridePct = env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
-    const strongMomentumMove = momentum1h * 100 >= strongMomentumOverridePct;
+    // momentum1h is already in %, compare directly (no * 100)
+    const strongMomentumMove = momentum1h >= strongMomentumOverridePct;
 
     if (volumeRatio < this.config.minVolumeRatio && !strongMomentumMove) {
       logger.info('RiskManager: Entry blocked - volume too thin', {
@@ -284,7 +287,7 @@ class RiskManager {
 
     if (strongMomentumMove && volumeRatio < this.config.minVolumeRatio) {
       logger.info('RiskManager: Volume floor bypassed — strong momentum move', {
-        pair, momentum1h: (momentum1h * 100).toFixed(2), volumeRatio: volumeRatio.toFixed(3),
+        pair, momentum1h: momentum1h.toFixed(2), volumeRatio: volumeRatio.toFixed(3),
         threshold: strongMomentumOverridePct,
       });
     }
