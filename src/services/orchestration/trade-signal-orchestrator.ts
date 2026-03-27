@@ -61,6 +61,24 @@ class TradeSignalOrchestrator {
   private regimeCache = new Map<string, { regime: string; timestamp: number }>();
   private readonly REGIME_CACHE_TTL_MS = 60000; // 60s — stale after one orchestrator cycle
 
+  // MARKET STATUS: Last cycle result exposed to the dashboard API
+  private lastCycleStatus: {
+    pairs: Record<string, {
+      regime: string;
+      momentum1h: number;
+      momentum4h: number;
+      volumeRatio: number;
+      blockReason: string | null;
+      blockStage: string | null;
+      enteredAt: string | null;
+    }>;
+    updatedAt: number;
+  } = { pairs: {}, updatedAt: 0 };
+
+  public getMarketStatus() {
+    return this.lastCycleStatus;
+  }
+
   // EVENT-DRIVEN EROSION: In-memory trade data for tick callbacks (no DB on each tick)
   // Key: tradeId, Value: trade snapshot needed to compute net profit on every tick
   private tickTradeCache = new Map<string, {
@@ -1081,6 +1099,8 @@ class TradeSignalOrchestrator {
             if (!riskFilter.pass) {
               console.log(`\n🚫 RISK FILTER BLOCKED: ${pair} - ${riskFilter.reason}`);
               logger.info('Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), momentum4h: indicators.momentum4h?.toFixed(3) });
+              this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: riskFilter.reason ?? null, blockStage: riskFilter.stage ?? null, enteredAt: null };
+              this.lastCycleStatus.updatedAt = Date.now();
               return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: riskFilter.reason, stage: riskFilter.stage } };
             }
 
@@ -1098,6 +1118,8 @@ class TradeSignalOrchestrator {
               const mom1h = indicators.momentum1h ?? 0;
               if (mom1h < min1h) {
                 logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h });
+                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, blockStage: 'Momentum Floor', enteredAt: null };
+                this.lastCycleStatus.updatedAt = Date.now();
                 return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, stage: 'Momentum Floor' } };
               }
             }
@@ -1194,6 +1216,8 @@ class TradeSignalOrchestrator {
               const expectedTarget = `${(riskManager.getProfitTarget(effectiveRegime) * 100).toFixed(1)}%`;
               console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
               logger.info('Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
+              this.lastCycleStatus.pairs[pair] = { regime: effectiveRegime, momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: null, blockStage: null, enteredAt: new Date().toISOString() };
+              this.lastCycleStatus.updatedAt = Date.now();
 
               return { type: 'decision', decision };
 

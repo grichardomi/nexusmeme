@@ -5,6 +5,7 @@ import { BotTradesList } from '@/components/bots/BotTradesList';
 import { BotTradeStats } from '@/components/bots/BotTradeStats';
 import { BotConfiguration } from '@/components/bots/BotConfiguration';
 import { PositionHealthMonitor } from '@/components/bots/PositionHealthMonitor';
+import { BotMarketStatus } from '@/components/bots/BotMarketStatus';
 import { BillingSetupModal } from '@/components/billing/BillingSetupModal';
 import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 import { ConfirmationModal } from '@/components/modals/ConfirmationModal';
@@ -981,6 +982,11 @@ export default function BotDetailPage() {
           tradingMode={bot.tradingMode}
           config={bot.config || {}}
         />
+      </div>
+
+      {/* Market Status — why bot is/isn't trading right now */}
+      <div className="mt-8">
+        <BotMarketStatus />
       </div>
 
       {/* Position Health Monitor */}
