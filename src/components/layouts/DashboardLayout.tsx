@@ -39,6 +39,7 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [subscription, setSubscription] = useState<(Subscription & { daysRemaining?: number | null }) | null>(null);
   const [isLoadingSubscription, setIsLoadingSubscription] = useState(true);
+  const [botCount, setBotCount] = useState(0);
 
   const handleSwipeLeft = useCallback(() => {
     const idx = SWIPE_ROUTES.indexOf(pathname);
@@ -66,8 +67,9 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
         if (subResponse.ok) {
           const data = await subResponse.json();
-          // Get trading mode from planUsage
+          // Get trading mode and bot count from planUsage
           const tradingMode = data.planUsage?.limits?.tradingMode as 'paper' | 'live' | undefined;
+          setBotCount(data.planUsage?.usage?.bots ?? 0);
 
           if (data.subscription) {
             const sub = data.subscription;
@@ -119,11 +121,11 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
 
   // Base navigation items
   const baseNavItems = [
-    { href: '/dashboard', label: 'Overview', icon: '📊' },
-    { href: '/dashboard/bots', label: 'Trading Bot', icon: '🤖' },
-    { href: '/dashboard/trading', label: 'Live Trading', icon: '💹' },
+    { href: '/dashboard', label: 'Home', icon: '📊' },
+    { href: '/dashboard/bots', label: botCount === 1 ? 'Bot' : 'Bots', icon: '🤖' },
+    { href: '/dashboard/trading', label: 'Trading', icon: '💹' },
     { href: '/dashboard/portfolio', label: 'Portfolio', icon: '💼' },
-    { href: '/dashboard/billing', label: 'Billing & Plans', icon: '💳' },
+    { href: '/dashboard/billing', label: 'Billing', icon: '💳' },
   ];
 
   // Community & Support - Discord-first, tickets secondary
@@ -197,9 +199,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
             {!isLoadingSubscription && subscription && (
               <>
 
-                {/* Trial Expired Badge - Desktop (only for non-live users) */}
-                {subscription.tradingMode !== 'live' &&
-                  (subscription.status === 'payment_required' ||
+                {/* Trial Expired Badge - Desktop */}
+                {(subscription.status === 'payment_required' ||
                   ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                     subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
                   <Link
@@ -215,9 +216,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {/* Trial Expired Badge - Mobile (only for non-live users) */}
-                {subscription.tradingMode !== 'live' &&
-                  (subscription.status === 'payment_required' ||
+                {/* Trial Expired Badge - Mobile */}
+                {(subscription.status === 'payment_required' ||
                   ((subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
                     subscription.daysRemaining != null && subscription.daysRemaining <= 0)) && (
                   <Link
@@ -228,9 +228,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {/* Active Trial Badge - Desktop (10-day free trial, paper trading mode) */}
+                {/* Active Trial Badge - Desktop */}
                 {(subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
-                  subscription.tradingMode !== 'live' &&
                   subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
@@ -245,9 +244,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {/* Active Trial Badge - Mobile (10-day free trial) */}
+                {/* Active Trial Badge - Mobile */}
                 {(subscription.status === 'trialing' || subscription.plan === 'live_trial') &&
-                  subscription.tradingMode !== 'live' &&
                   subscription.daysRemaining != null && subscription.daysRemaining > 0 && (
                   <Link
                     href="/dashboard/billing"
@@ -257,8 +255,8 @@ export function DashboardLayout({ children, title }: DashboardLayoutProps) {
                   </Link>
                 )}
 
-                {/* Active Live Trading badge — shown whenever tradingMode is live */}
-                {subscription.tradingMode === 'live' && (
+                {/* Active Live Trading badge — only for paid performance_fees plan */}
+                {subscription.tradingMode === 'live' && subscription.plan === 'performance_fees' && (
                   <Link
                     href="/dashboard/billing"
                     className="px-3 py-1.5 bg-green-100 text-green-800 rounded-full text-xs sm:text-sm font-semibold border border-green-200 hover:bg-green-200 transition-colors flex-shrink-0"
