@@ -13,6 +13,7 @@ import WebSocket from 'ws';
 import { query } from '@/lib/db';
 import { decrypt } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
+import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import { getEnvironmentConfig } from '@/config/environment';
 
 interface ExecutionReport {
@@ -126,8 +127,8 @@ async function handleSellFill(
     if (commissionAsset.toUpperCase() === quote.toUpperCase()) {
       exitFee = commission;
     } else {
-      // Commission in BNB or other asset — estimate via taker rate
-      exitFee = fillPrice * fillQty * 0.001;
+      // Commission in BNB or other asset — estimate via admin-configured taker rate
+      exitFee = fillPrice * fillQty * getCachedTakerFee('binance');
     }
   }
 

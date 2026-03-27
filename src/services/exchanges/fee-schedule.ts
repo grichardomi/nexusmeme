@@ -158,8 +158,9 @@ export async function getSymbolTakerRate(userId: string, exchange: string, pair:
     const entry = Array.isArray(data) ? data.find((d: any) => d.symbol === symbol) : null;
     const makerPct = entry ? parseFloat(String(entry.makerCommission)) : NaN;
     const takerPct = entry ? parseFloat(String(entry.takerCommission)) : NaN;
-    const maker = Number.isFinite(makerPct) ? makerPct / 100 : 0.001;
-    const taker = Number.isFinite(takerPct) ? takerPct / 100 : 0.001;
+    const dbRates = await getExchangeFeeRates('binance');
+    const maker = Number.isFinite(makerPct) ? makerPct / 100 : dbRates.maker_fee;
+    const taker = Number.isFinite(takerPct) ? takerPct / 100 : dbRates.taker_fee;
 
     symbolCache.set(cacheKey, { maker, taker, expiresAt: now + FEES_TTL_MS });
     return taker;

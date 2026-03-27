@@ -209,9 +209,12 @@ class PositionTracker {
       for (const trade of openTrades) {
         if (trade.peak_profit_percent !== null && trade.peak_profit_percent !== undefined) {
           // Parse as number (database may return string)
-          const peakPct = typeof trade.peak_profit_percent === 'string'
+          const rawPeakPct = typeof trade.peak_profit_percent === 'string'
             ? parseFloat(trade.peak_profit_percent)
             : trade.peak_profit_percent;
+
+          // Clamp to 0 — negative values are stale (pre-gross-fix) and should not block erosion cap
+          const peakPct = Math.max(0, rawPeakPct);
 
           // Parse position data to prevent degraded mode
           const entryPrice = parseFloat(String(trade.entry_price));
@@ -475,8 +478,8 @@ class PositionTracker {
       erosionUsedPct: 0,
     };
 
-    // No peak data = nothing to check
-    if (!existing || existing.peakPct <= 0) {
+    // No peak data = nothing to check (use dollar peak — peakPct can be stale/negative after restart)
+    if (!existing || existing.peakProfit <= 0) {
       return result;
     }
 

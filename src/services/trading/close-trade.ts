@@ -191,7 +191,7 @@ export async function closeTrade(data: CloseTradeParams): Promise<CloseTradeResu
         const { getExchangeFeeRates } = await import('@/services/billing/fee-rate');
         const exchangeKey = 'binance';
         const dbRates = await getExchangeFeeRates(exchangeKey);
-        const feeRate = (dbRates as any).taker_fee || 0.001;
+        const feeRate = dbRates.taker_fee;
         exitFeeAmount = actualExitPrice * qty * feeRate;
         totalFees = storedEntryFee + exitFeeAmount;
         actualProfitLoss = (actualExitPrice - ep) * qty - totalFees;

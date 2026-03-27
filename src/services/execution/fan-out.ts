@@ -442,7 +442,10 @@ class ExecutionFanOut {
     const regimeMultiplier = regimeMultipliers[regimeType] ?? 1.0;
 
     const baseQuantity = positionSize.sizeAsset;
-    const quantity = baseQuantity * regimeMultiplier * cpMultiplier;
+    const rawQuantity = baseQuantity * regimeMultiplier * cpMultiplier;
+    // Cap to available capital — regime multiplier must never push position beyond effectiveBalance
+    const maxQuantity = decision.price > 0 ? effectiveBalance / decision.price : rawQuantity;
+    const quantity = Math.min(rawQuantity, maxQuantity);
 
     logger.info('Position size with regime + capital preservation', {
       botId: bot.id,
@@ -451,6 +454,7 @@ class ExecutionFanOut {
       cpMultiplier: `${cpMultiplier}x`,
       baseQuantity: baseQuantity.toFixed(8),
       adjustedQuantity: quantity.toFixed(8),
+      ...(rawQuantity > maxQuantity && { cappedFrom: rawQuantity.toFixed(8), capReason: 'effectiveBalance' }),
     });
 
     if (!Number.isFinite(quantity) || quantity <= 0) {

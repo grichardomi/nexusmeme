@@ -16,6 +16,7 @@ import { query } from '@/lib/db';
 import { decrypt } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { getExchangeAdapter } from './singleton';
+import { getCachedTakerFee } from '@/services/billing/fee-rate';
 
 export async function reconcileBinanceFills(): Promise<void> {
   // Fetch all open live trades with their bot's API keys, for all exchanges
@@ -145,8 +146,8 @@ export async function reconcileBinanceFills(): Promise<void> {
         if (fill.commissionAsset.toUpperCase() === quote.toUpperCase()) {
           exitFee = fill.commission;
         } else {
-          // Commission in another asset (e.g. BNB) — estimate via taker rate
-          exitFee = fill.price * fill.qty * 0.001;
+          // Commission in another asset (e.g. BNB) — estimate via admin-configured taker rate
+          exitFee = fill.price * fill.qty * getCachedTakerFee(trade.exchange);
         }
       }
 
