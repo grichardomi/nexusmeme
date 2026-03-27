@@ -207,14 +207,17 @@ class PositionTracker {
       );
 
       for (const trade of openTrades) {
-        if (trade.peak_profit_percent !== null && trade.peak_profit_percent !== undefined) {
+          // Always initialize ALL open trades — even if peak_profit_percent is null
+          // (trade opened just before restart, batch flush hadn't written yet)
           // Parse as number (database may return string)
-          const rawPeakPct = typeof trade.peak_profit_percent === 'string'
-            ? parseFloat(trade.peak_profit_percent)
-            : trade.peak_profit_percent;
+          const rawPeakPct = trade.peak_profit_percent == null
+            ? 0
+            : typeof trade.peak_profit_percent === 'string'
+              ? parseFloat(trade.peak_profit_percent)
+              : trade.peak_profit_percent;
 
           // Clamp to 0 — negative values are stale (pre-gross-fix) and should not block erosion cap
-          const peakPct = Math.max(0, rawPeakPct);
+          const peakPct = isNaN(rawPeakPct) ? 0 : Math.max(0, rawPeakPct);
 
           // Parse position data to prevent degraded mode
           const entryPrice = parseFloat(String(trade.entry_price));
@@ -243,7 +246,6 @@ class PositionTracker {
               quantity: trade.quantity,
             });
           }
-        }
       }
 
       this.isInitialized = true;

@@ -60,48 +60,32 @@ export async function recordPerformanceFee(
   );
 
   const isAdmin = userCheck[0]?.role === 'admin';
-  const isFreeTrial = !isAdmin && (
+  // Admin users on trial are still waived — admin flag only bypasses fee_exempt (manual waiver)
+  const isFreeTrial =
     userCheck[0]?.plan === 'live_trial' ||
-    (userCheck[0]?.trial_ends_at && new Date(userCheck[0].trial_ends_at) > new Date())
-  );
+    (userCheck[0]?.trial_ends_at && new Date(userCheck[0].trial_ends_at) > new Date());
   const tradingMode = userCheck[0]?.config?.tradingMode || 'paper';
   const isPaperTrading = tradingMode === 'paper';
   const feeExemptExpiresAt = userCheck[0]?.fee_exempt_expires_at;
   const feeExemptExpired = feeExemptExpiresAt && new Date(feeExemptExpiresAt) <= new Date();
+  // Admin users cannot receive a manual fee_exempt waiver (they control it), but trial/paper still waive
   const isFeeExempt = !isAdmin && userCheck[0]?.fee_exempt === true && !feeExemptExpired;
 
-  // Skip billing for trial/paper/exempt — write to fee_simulation instead for visibility
-  // Admin users always go through real billing regardless of trial status
-  if (isFreeTrial || isPaperTrading || isFeeExempt) {
-    const skipReason = isFreeTrial ? 'trial' : isPaperTrading ? 'paper' : 'exempt';
+  // Waived trades still record to performance_fees so they appear in billing as 'waived'
+  const status = (isFreeTrial || isPaperTrading || isFeeExempt) ? 'waived' : 'pending_billing';
 
-    logger.info('Performance fee skipped (non-billable)', {
+  if (status === 'waived') {
+    const skipReason = isFreeTrial ? 'trial' : isPaperTrading ? 'paper' : 'exempt';
+    logger.info('Performance fee waived (non-billable) — recording as waived for visibility', {
       userId,
       tradeId,
       pair,
       profitAmount,
-      wouldHaveCharged: feeAmount,
+      feeAmount,
       feePercent: feeRate * 100,
       skipReason,
     });
-
-    // Write to fee_simulation for admin visibility — auto-purged after 30 days
-    try {
-      await query(
-        `INSERT INTO fee_simulation
-         (user_id, trade_id, bot_instance_id, pair, profit_amount, fee_amount, fee_rate, skip_reason)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [userId, tradeId, botInstanceId, pair, profitAmount, feeAmount, feeRate, skipReason]
-      );
-    } catch (simError) {
-      // Non-critical — never block the trade flow for simulation writes
-      logger.warn('Failed to write fee_simulation record', { tradeId, userId });
-    }
-
-    return null;
   }
-
-  const status = 'pending_billing';
 
   try {
     const result = await query(
