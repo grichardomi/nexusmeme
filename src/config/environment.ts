@@ -226,6 +226,7 @@ const envSchema = z.object({
   /* Philosophy: Entering at 0.5% spread = instant -0.5% underwater */
   /* Impact: +100% improvement in weak regime expectancy (0.1% → 0.2% per trade) */
   MAX_ENTRY_SPREAD_PCT: z.string().transform(Number).default('0.003'), // 0.3% max spread to enter (blocks if wider)
+  MAX_SIGNAL_DRIFT_PCT: z.string().transform(Number).default('0.003'), // 0.3% max price drift from signal to execution — stale signal guard
 
   /* Trailing Stop - Ratcheting profit protection */
   /* Philosophy: Once profitable, never give it all back. Trail behind peak to lock gains. */
@@ -543,6 +544,7 @@ function getDefaultEnvironment(): Environment {
     TIME_PROFIT_LOCK_MIN_PCT: 0.01, // 1% min profit to lock
     TIME_PROFIT_LOCK_MOMENTUM_THRESHOLD: 0.003, // 0.3% momentum = fading
     MAX_ENTRY_SPREAD_PCT: 0.003, // 0.3% max spread for entry
+    MAX_SIGNAL_DRIFT_PCT: 0.003, // 0.3% max drift from signal price to execution price
     TRAILING_STOP_ENABLED: true, // Trailing stop enabled
     TRAILING_STOP_ACTIVATION_PCT: 0.50, // Activate at 50% of target
     TRAILING_STOP_DISTANCE_PCT: 0.015, // Trail 1.5% behind peak

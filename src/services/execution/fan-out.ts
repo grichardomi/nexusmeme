@@ -702,6 +702,22 @@ class ExecutionFanOut {
       const liveData = liveMarketData.get(pair);
       if (liveData && liveData.price > 0) {
         const priceDiff = Math.abs(liveData.price - plan.price) / plan.price * 100;
+
+        // SIGNAL DRIFT GUARD: Abandon trade if price has moved too far from signal price.
+        // Protects against stale signals — e.g. Claude AI took 2s to respond, price moved 0.4%.
+        // Entering on a stale signal means starting underwater relative to the original thesis.
+        const maxDriftPct = getEnvironmentConfig().MAX_SIGNAL_DRIFT_PCT * 100; // convert to percentage
+        if (priceDiff > maxDriftPct) {
+          logger.warn('⛔ SIGNAL DRIFT: Trade abandoned — price moved too far from signal', {
+            pair,
+            signalPrice: plan.price.toFixed(2),
+            livePrice: liveData.price.toFixed(2),
+            driftPct: priceDiff.toFixed(3),
+            maxDriftPct: maxDriftPct.toFixed(2),
+          });
+          return { executed: false, reason: 'signal_drift' };
+        }
+
         executionPrice = liveData.price;
 
         if (priceDiff > 0.1) { // Log if difference is > 0.1%
