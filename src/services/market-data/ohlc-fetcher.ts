@@ -71,6 +71,34 @@ async function fetchOHLCBinance(pair: string, limit: number, timeframe: string):
  * @param timeframe  Candle interval (1m, 5m, 15m, 1h, 4h, 1d)
  * @param exchange  Exchange name (only 'binance' supported)
  */
+/**
+ * Pre-populate the OHLC cache for the given pairs/timeframes on server startup.
+ * Runs fetches sequentially with a small delay to avoid hitting the undici pool
+ * all at once on a fresh process where no connections are warmed yet.
+ */
+export async function warmOHLCCache(
+  pairs: string[],
+  timeframes: string[] = ['1h', '4h'],
+  limit: number = 100
+): Promise<void> {
+  logger.info('OHLC cache warm-up starting', { pairs, timeframes });
+  for (const pair of pairs) {
+    for (const tf of timeframes) {
+      try {
+        await fetchOHLC(pair, limit, tf);
+        logger.info('OHLC cache warmed', { pair, timeframe: tf });
+      } catch (err) {
+        logger.warn('OHLC cache warm-up failed (will retry on next cycle)', {
+          pair, timeframe: tf, error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      // Small stagger to avoid bursting the undici pool
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
+  logger.info('OHLC cache warm-up complete');
+}
+
 export async function fetchOHLC(
   pair: string,
   limit: number = 100,

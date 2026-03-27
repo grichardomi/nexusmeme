@@ -18,7 +18,7 @@ import { riskManager } from '@/services/risk/risk-manager';
 import { positionTracker } from '@/services/risk/position-tracker';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
 import { jobQueueManager } from '@/services/job-queue/singleton';
-import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
+import { fetchOHLC, warmOHLCCache } from '@/services/market-data/ohlc-fetcher';
 import { sendBotSuspendedEmail, sendLowBalanceEmail } from '@/services/email/triggers';
 import { startUserDataStreamsForAllLiveBots } from '@/services/exchanges/binance-user-data-stream';
 import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconciler';
@@ -332,6 +332,12 @@ class TradeSignalOrchestrator {
 
     // Initialize position tracker from database (load peak profits from previous session)
     await positionTracker.initializeFromDatabase();
+
+    // Warm OHLC cache before the main loop starts — prevents "fetch failed" errors on the
+    // first few cycles when the undici pool is cold and no stale cache exists yet.
+    warmOHLCCache(['BTC/USDT', 'ETH/USDT'], ['1h', '4h']).catch(err => {
+      logger.warn('OHLC cache warm-up failed on startup', { error: err instanceof Error ? err.message : String(err) });
+    });
 
     // Start Binance User Data Streams for all live running bots.
     // Real-time fill detection via WebSocket (~100ms) replaces polling for external closes.

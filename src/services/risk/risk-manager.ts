@@ -152,16 +152,26 @@ class RiskManager {
     // Catches recoveries 1-3 candles after they start, regardless of how deep the prior dump was.
     // 4h floor >= -0.5%: slope+intrabar alone can score 2/3 on a single candle bounce while 4h is
     // still deeply negative (e.g. -1.4%), causing immediate thesis invalidation after entry.
-    if (score >= 2 && mom4h >= -0.5) {
-      console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%`);
-      logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3) });
-      return { pass: true, stage: 'Health Gate' };
-    }
+    if (score >= 2) {
+      const mom1hPct = (momentum1h ?? 0) * 100;
+      // 4h data lags the current candle by up to 4 hours. When 1h momentum is already
+      // above the minimum entry threshold (0.5%), the move is directionally confirmed by
+      // recent price action — blocking on a lagging 4h negative is double-counting.
+      // We still block on genuine crash (mom4h < -3%) regardless of 1h strength.
+      const env4h = getEnvironmentConfig();
+      const minMom1h = env4h.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.5;
+      const allow4hLag = mom1hPct >= minMom1h && mom4h >= -3.0;
 
-    if (score >= 2 && mom4h < -0.5) {
-      console.log(`\n🚫 HEALTH GATE BLOCKED (4h downtrend): score=${score}/3 but 4h=${mom4h.toFixed(2)}% < -0.5% — not entering against 4h trend`);
-      logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3) });
-      return { pass: false, reason: `Direction score ${score}/3 met but 4h momentum ${mom4h.toFixed(2)}% < -0.5% (downtrend)`, stage: 'Health Gate' };
+      if (mom4h >= -0.5 || allow4hLag) {
+        const via = allow4hLag && mom4h < -0.5 ? ` [4h lag allowed: 1h=${mom1hPct.toFixed(2)}%]` : '';
+        console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%${via}`);
+        logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3), allow4hLag });
+        return { pass: true, stage: 'Health Gate' };
+      }
+
+      console.log(`\n🚫 HEALTH GATE BLOCKED (4h downtrend): score=${score}/3 but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h=${mom1hPct.toFixed(2)}% below entry threshold`);
+      logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3) });
+      return { pass: false, reason: `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h momentum too weak to override`, stage: 'Health Gate' };
     }
 
     // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)
@@ -253,7 +263,13 @@ class RiskManager {
     }
 
     // Volume floor: block entries with extremely thin volume (no real buying pressure)
-    if (volumeRatio < this.config.minVolumeRatio) {
+    // EXCEPTION: a strong 1h momentum move (≥ RISK_STRONG_MOMENTUM_OVERRIDE_PCT) is itself
+    // proof of real buying pressure — requiring a separate volume ratio on top is double-gating.
+    // A 2.5%+ hourly move cannot happen without volume; the price action IS the confirmation.
+    const strongMomentumOverridePct = env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
+    const strongMomentumMove = momentum1h * 100 >= strongMomentumOverridePct;
+
+    if (volumeRatio < this.config.minVolumeRatio && !strongMomentumMove) {
       logger.info('RiskManager: Entry blocked - volume too thin', {
         pair,
         volumeRatio: volumeRatio.toFixed(3),
@@ -264,6 +280,13 @@ class RiskManager {
         reason: `Volume too thin (${volumeRatio.toFixed(2)}x < ${this.config.minVolumeRatio}x minimum)`,
         stage: 'Drop Protection',
       };
+    }
+
+    if (strongMomentumMove && volumeRatio < this.config.minVolumeRatio) {
+      logger.info('RiskManager: Volume floor bypassed — strong momentum move', {
+        pair, momentum1h: (momentum1h * 100).toFixed(2), volumeRatio: volumeRatio.toFixed(3),
+        threshold: strongMomentumOverridePct,
+      });
     }
 
     // Spread widening check (liquidity drying up)
@@ -515,6 +538,7 @@ class RiskManager {
     const rawVolume = indicators.volumeRatio ?? 1;
     const volumeRatio = rawVolume <= 0 ? 1 : rawVolume; // 0 = missing data, not actually zero volume
     const intrabar = indicators.intrabarMomentum ?? 0;
+
     const stage1 = this.checkHealthGate(0, 0, momentum1h, volumeRatio, momentum4h, intrabar, indicators.trendScore, indicators.higherCloses, indicators.momentumSlope);
     if (!stage1.pass) {
       return stage1;
