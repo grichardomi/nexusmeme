@@ -159,9 +159,13 @@ class RiskManager {
       // above the minimum entry threshold (0.5%), the move is directionally confirmed by
       // recent price action — blocking on a lagging 4h negative is double-counting.
       // We still block on genuine crash (mom4h < -3%) regardless of 1h strength.
+      // EXCEPTION: choppy regime (mom4h <= 0) — 4h lag NOT allowed. In choppy markets
+      // the negative 4h IS the signal, not a lag artifact. Allowing it causes counter-trend
+      // entries on noise 1h spikes that immediately reverse.
       const env4h = getEnvironmentConfig();
       const minMom1h = env4h.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.5;
-      const allow4hLag = mom1hPct >= minMom1h && mom4h >= -3.0;
+      const isChoppy = mom4h <= 0;
+      const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= -3.0;
 
       if (mom4h >= -0.5 || allow4hLag) {
         const via = allow4hLag && mom4h < -0.5 ? ` [4h lag allowed: 1h=${mom1hPct.toFixed(2)}%]` : '';
@@ -170,9 +174,12 @@ class RiskManager {
         return { pass: true, stage: 'Health Gate' };
       }
 
-      console.log(`\n🚫 HEALTH GATE BLOCKED (4h downtrend): score=${score}/3 but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h=${mom1hPct.toFixed(2)}% below entry threshold`);
-      logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3) });
-      return { pass: false, reason: `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h momentum too weak to override`, stage: 'Health Gate' };
+      const blockReason = isChoppy
+        ? `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% ≤ 0 (choppy — 4h lag not allowed)`
+        : `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h momentum too weak to override`;
+      console.log(`\n🚫 HEALTH GATE BLOCKED (4h downtrend): score=${score}/3 but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h=${mom1hPct.toFixed(2)}%${isChoppy ? ' [choppy — no 4h lag]' : ''}`);
+      logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3), isChoppy });
+      return { pass: false, reason: blockReason, stage: 'Health Gate' };
     }
 
     // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)
