@@ -120,18 +120,19 @@ class TradeSignalOrchestrator {
     if (this.tickUnsubs.has(trade.pair)) return;
 
     const unsub = livePriceStore.onTick(trade.pair, (_pair, tickPrice) => {
-      // Find the active trade for this pair in our cache
-      let cached: typeof this.tickTradeCache extends Map<string, infer V> ? V : never;
-      let foundId: string | undefined;
+      // Collect ALL trades for this pair — every user's open trade gets protection
+      type TradeEntry = { tradeId: string; pair: string; exchange: string; entryPrice: number; quantity: number; feeDollars: number; botInstanceId: string; entryTimeMs: number; stopLoss: number | null; emergencyLossLimit: number };
+      const tradesOnPair: Array<{ id: string; data: TradeEntry }> = [];
       for (const [tid, t] of this.tickTradeCache) {
-        if (t.pair === _pair) { cached = t as any; foundId = tid; break; }
+        if (t.pair === _pair) tradesOnPair.push({ id: tid, data: t });
       }
-      if (!foundId || !cached!) return;
+      if (tradesOnPair.length === 0) return;
 
-      // Use bid price for exit calculations — this is the actual fill price when selling.
-      // Last trade price (tickPrice) overestimates exit value vs what exchange will pay.
+      // Use bid price for exit calculations — computed once, shared across all trades on this pair
       const liveData = livePriceStore.get(_pair);
       const exitPrice = (liveData?.bid && liveData.bid > 0) ? liveData.bid : tickPrice;
+
+      for (const { id: foundId, data: cached } of tradesOnPair) {
 
       const exitFee = exitPrice * cached!.quantity * getCachedTakerFee(cached!.exchange);
       const totalFee = cached!.feeDollars + exitFee;
@@ -212,7 +213,7 @@ class TradeSignalOrchestrator {
             }
           }).catch(() => {});
         }
-        return; // Done — no peak update needed for underwater trades
+        continue; // Done with this trade — no peak update needed for underwater trades
       }
       // ── END UNDERWATER PROTECTION ────────────────────────────────────────────
 
@@ -249,6 +250,7 @@ class TradeSignalOrchestrator {
           }
         }).catch(() => {});
       }
+      } // end for tradesOnPair
     });
 
     this.tickUnsubs.set(trade.pair, unsub);

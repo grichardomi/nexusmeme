@@ -8,6 +8,10 @@ import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import type { OHLCCandle } from '@/types/ai';
 
+/** In-memory cache: last successful OHLC per pair+timeframe, max 5 min stale */
+const ohlcCache = new Map<string, { candles: OHLCCandle[]; fetchedAt: number }>();
+const OHLC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes — 1h candles change slowly
+
 /** BTC/USDT → BTCUSDT */
 function mapToBinanceSymbol(pair: string): string {
   const [base, quote] = pair.split('/');
@@ -25,7 +29,7 @@ async function fetchOHLCBinance(pair: string, limit: number, timeframe: string):
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Binance API error: ${response.status} ${response.statusText} - ${errorText.slice(0, 200)}`);
@@ -74,10 +78,13 @@ export async function fetchOHLC(
   exchange: string = 'binance'
 ): Promise<OHLCCandle[]> {
   const ex = exchange.toLowerCase();
+  const cacheKey = `${pair}:${timeframe}`;
+
   try {
     logger.debug('Fetching OHLC data', { pair, limit, timeframe, exchange: ex });
 
     const candles = await fetchOHLCBinance(pair, limit, timeframe);
+    ohlcCache.set(cacheKey, { candles, fetchedAt: Date.now() });
 
     logger.debug('OHLC data fetched', {
       pair, exchange: ex, candleCount: candles.length,
@@ -86,6 +93,15 @@ export async function fetchOHLC(
 
     return candles;
   } catch (error) {
+    // Serve last known candles if within TTL — regime detection runs on 1h candles,
+    // 5-minute stale data is far better than crashing the entire analysis cycle.
+    const cached = ohlcCache.get(cacheKey);
+    const staleMs = cached ? Date.now() - cached.fetchedAt : Infinity;
+    if (cached && staleMs < OHLC_CACHE_TTL_MS) {
+      logger.warn(`OHLC fetch failed — serving cached data (${Math.round(staleMs / 1000)}s stale)`, { pair, timeframe });
+      return cached.candles;
+    }
+
     logger.error(`Failed to fetch OHLC from ${ex} after retries: ${pair} - ${error instanceof Error ? error.message : String(error)}`);
     throw error instanceof Error ? error : new Error(String(error));
   }
