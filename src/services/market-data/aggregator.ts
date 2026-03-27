@@ -41,6 +41,8 @@ class MarketDataAggregator {
   // Per-exchange in-process cache
   private caches: Map<string, CachedMarketData> = new Map();
   private isFetching: Map<string, boolean> = new Map();
+  // Promise-based gate: waiters resolve immediately when fetch completes (no polling)
+  private fetchResolvers: Map<string, Array<() => void>> = new Map();
 
   /**
    * Read prices published by the Binance WebSocket leader from Redis.
@@ -257,14 +259,21 @@ class MarketDataAggregator {
       throw error;
     } finally {
       this.isFetching.set(exchange, false);
+      // Wake all waiters immediately — no more 100ms polling delay
+      const resolvers = this.fetchResolvers.get(exchange);
+      if (resolvers?.length) {
+        this.fetchResolvers.set(exchange, []);
+        resolvers.forEach(r => r());
+      }
     }
   }
 
-  private async waitForFetch(exchange: string, maxWaitMs = 5000): Promise<void> {
-    const startTime = Date.now();
-    while (this.isFetching.get(exchange) && Date.now() - startTime < maxWaitMs) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+  private waitForFetch(exchange: string, maxWaitMs = 5000): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, maxWaitMs); // safety timeout
+      if (!this.fetchResolvers.has(exchange)) this.fetchResolvers.set(exchange, []);
+      this.fetchResolvers.get(exchange)!.push(() => { clearTimeout(timer); resolve(); });
+    });
   }
 
   clearCache(): void {

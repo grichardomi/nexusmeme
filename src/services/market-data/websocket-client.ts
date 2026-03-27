@@ -94,6 +94,7 @@ export class BinanceWebSocketClient {
   private consecutiveErrors = 0;
   private readonly binanceWsUrl = getBinanceWsBaseUrl();
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private subscribeReqId = 1;
   private isLeader = false;
   private leaderElection: any; // Lazy loaded
   private intentionalDisconnect = false; // Track if disconnect is intentional
@@ -274,28 +275,13 @@ export class BinanceWebSocketClient {
     pairsToAdd.forEach(p => this.subscribedPairs.add(p));
     logger.info('Adding new pairs to subscription', { pairsToAdd: pairsToAdd.length, pairs: pairsToAdd });
 
-    // If we're connected and can update subscription, reconnect with new pairs
+    // If connected, use Binance SUBSCRIBE message — zero downtime, no reconnect needed
     if (this.state === StateEnum.CONNECTED && this.ws && this.isLeader) {
       try {
-        // Close old connection
-        this.ws.close();
-        this.ws = null;
-
-        // Reconnect with all pairs (including new ones)
-        const allPairs = Array.from(this.subscribedPairs);
-        const streams = allPairs.map(pair => getPairStreamName(pair)).join('/');
-        const url = `${this.binanceWsUrl}/stream?streams=${streams}`;
-
-        logger.info('Reconnecting with updated pair list', { pairCount: allPairs.length });
-
-        this.ws = new WebSocket(url);
-        this.ws.on('open', () => this.onOpen());
-        this.ws.on('message', (data) => {
-          const messageStr = typeof data === 'string' ? data : data.toString();
-          this.onMessage(messageStr);
-        });
-        this.ws.on('error', (error) => this.onError(error));
-        this.ws.on('close', () => this.onClose());
+        const newStreams = pairsToAdd.map(pair => getPairStreamName(pair));
+        const msg = JSON.stringify({ method: 'SUBSCRIBE', params: newStreams, id: this.subscribeReqId++ });
+        this.ws.send(msg);
+        logger.info('Sent SUBSCRIBE for new pairs (no reconnect)', { pairsToAdd, streamCount: newStreams.length });
       } catch (error) {
         logger.error('Failed to add pairs to subscription', error instanceof Error ? error : undefined, { pairsToAdd });
         throw error;

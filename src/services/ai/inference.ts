@@ -27,6 +27,7 @@ interface CachedResponse {
   ttlMs: number;
 }
 
+const RESPONSE_CACHE_MAX = 500; // cap entries — prevents unbounded memory growth
 const responseCache = new Map<string, CachedResponse>();
 const CACHE_TTL_MS = parseInt(process.env.AI_CACHE_TTL_MS || '300000', 10); // 5 min default
 
@@ -77,6 +78,10 @@ function getFromCache(cacheKey: string): string | null {
  * Save response to cache
  */
 function setCache(cacheKey: string, response: string): void {
+  // Evict oldest entry when at capacity (simple LRU: Map preserves insertion order)
+  if (responseCache.size >= RESPONSE_CACHE_MAX) {
+    responseCache.delete(responseCache.keys().next().value!);
+  }
   responseCache.set(cacheKey, {
     data: response,
     timestamp: Date.now(),

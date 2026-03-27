@@ -192,6 +192,9 @@ class TradeWorkerService {
         currentPrice,
       });
 
+      // Hoist tracked-positions lookup outside loop — one Set construction per cycle
+      const workerTrackedSet = positionTracker.getTrackedPositions();
+
       // Check each trade for exit conditions
       for (const trade of openTrades) {
         const entryPrice = parseFloat(trade.entry_price);
@@ -202,7 +205,7 @@ class TradeWorkerService {
         // Update peak tracking (needed for erosion calculation)
         // CRITICAL: recordPeak on first encounter, updatePeakIfHigher on subsequent
         // recordPeak OVERWRITES data, so only call it once to initialize
-        const isTracked = positionTracker.getTrackedPositions().includes(trade.id);
+        const isTracked = workerTrackedSet.has(trade.id);
         if (!isTracked) {
           await positionTracker.recordPeak(
             trade.id,

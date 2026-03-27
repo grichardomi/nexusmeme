@@ -65,23 +65,20 @@ class ExecutionFanOut {
       });
     }
 
-    // Create execution plan for each bot
-    const executionPlans: ExecutionPlan[] = [];
-
-    for (const bot of activeBots) {
-      try {
-        const plan = await this.createExecutionPlan(bot, decision);
-        if (plan) {
-          executionPlans.push(plan);
-        }
-      } catch (error) {
-        logger.error('Failed to create execution plan for bot', error instanceof Error ? error : null, {
-          botId: bot.id,
-          userId: bot.user_id,
-          pair: decision.pair,
-        });
-      }
-    }
+    // Create execution plans for all bots in parallel — per-bot checks are independent
+    const planResults = await Promise.all(
+      activeBots.map(bot =>
+        this.createExecutionPlan(bot, decision).catch(error => {
+          logger.error('Failed to create execution plan for bot', error instanceof Error ? error : null, {
+            botId: bot.id,
+            userId: bot.user_id,
+            pair: decision.pair,
+          });
+          return null;
+        })
+      )
+    );
+    const executionPlans: ExecutionPlan[] = planResults.filter((p): p is ExecutionPlan => p !== null);
 
     logger.info('Fan-out complete', {
       pair: decision.pair,

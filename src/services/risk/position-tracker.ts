@@ -1090,8 +1090,8 @@ class PositionTracker {
   /**
    * Get all currently tracked positions
    */
-  getTrackedPositions(): string[] {
-    return Array.from(this.peakProfits.keys());
+  getTrackedPositions(): Set<string> {
+    return new Set(this.peakProfits.keys());
   }
 
   /**

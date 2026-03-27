@@ -119,24 +119,22 @@ describe('ExecutionFanOut', () => {
         config: { initialCapital: 1000 },
       },
     ]);
-    // Per-bot (paper mode with fixed capital):
-    // 1. open position check (SELECT trades WHERE status=open)
-    // 2. plan_tier subscription check (SELECT subscriptions)
-    // 3. closed trades history (SELECT trades WHERE status=closed)
-    // bot-1
-    mockQuery.mockResolvedValueOnce([]); // open positions
-    mockQuery.mockResolvedValueOnce([{ plan_tier: 'performance_fees' }]); // subscription
-    mockQuery.mockResolvedValueOnce([]); // closed trades history
-    // bot-2
-    mockQuery.mockResolvedValueOnce([]); // open positions
-    mockQuery.mockResolvedValueOnce([{ plan_tier: 'performance_fees' }]); // subscription
-    mockQuery.mockResolvedValueOnce([]); // closed trades history
+    // Both bots run in parallel — use mockImplementation to handle any query order.
+    // Returns subscription data when the query looks like a subscription check,
+    // otherwise returns [] (no open positions, no closed trades, etc.)
+    mockQuery.mockImplementation((sql: string) => {
+      if (typeof sql === 'string' && sql.includes('plan_tier')) {
+        return Promise.resolve([{ plan_tier: 'performance_fees' }]);
+      }
+      return Promise.resolve([]);
+    });
 
     const plans = await executionFanOut.fanOutTradeDecision(mockTradeDecision);
 
     expect(plans.length).toBe(2);
-    expect(plans[0].userId).toBe('user-1');
-    expect(plans[1].userId).toBe('user-2');
+    // Order not guaranteed with parallel execution — check by userId set
+    const userIds = plans.map(p => p.userId).sort();
+    expect(userIds).toEqual(['user-1', 'user-2']);
     expect(plans[0].pair).toBe('BTC/USD');
   });
 

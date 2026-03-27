@@ -529,6 +529,9 @@ class TradeSignalOrchestrator {
       let updatedCount = 0;
       let exitCount = 0;
 
+      // Hoist tracked-positions lookup outside the per-trade loop — O(1) .has() instead of O(n) .includes()
+      const trackedSet = positionTracker.getTrackedPositions();
+
       for (const trade of openTrades) {
         const ex = (trade.exchange || 'binance').toLowerCase();
         const priceData = pricesByExchangePair.get(`${ex}:${trade.pair}`);
@@ -559,8 +562,7 @@ class TradeSignalOrchestrator {
         const netProfitPct = grossProfitPct - totalFeePct;
         const currentProfitPct = netProfitPct; // All decisions use NET profit
 
-        const trackedPositions = positionTracker.getTrackedPositions();
-        const isTracked = trackedPositions.includes(trade.id);
+        const isTracked = trackedSet.has(trade.id);
 
         // Get regime from cache (populated by main orchestrator cycle every ~20s via ADX detection)
         // Fall back to 'moderate' if cache is stale or pair not yet seen by main cycle
@@ -920,41 +922,40 @@ class TradeSignalOrchestrator {
         botsByExchange.get(bot.exchange)!.push(bot);
       }
 
-      // Detect regime for each exchange separately
-      for (const [exchange, bots] of botsByExchange.entries()) {
-        const exchangePairs = Array.from(new Set(bots.flatMap(b => b.enabled_pairs || [])));
-        logger.info('Orchestrator: detecting regime for exchange', {
-          exchange,
-          pairCount: exchangePairs.length,
-          pairs: exchangePairs,
-        });
-        await regimeDetector.detectRegimeForAllPairs(exchangePairs, exchange);
-      }
-
-      // EXIT CHECKS: Run momentum failure + profit targets in PARALLEL (LATENCY OPTIMIZATION)
-      // Both are independent exit checks on open trades - no ordering dependency
-      // Pyramid pass runs AFTER exits complete (needs to know which trades survived)
-      await Promise.all([
-        this.checkOpenTradesForMomentumFailure(),
-        this.checkOpenTradesForProfitTargets(),
-      ]);
-
-      // PYRAMID PASS: Add levels to profitable open trades (after exits complete)
-      await this.addPyramidLevelsToOpenTrades(allPairs);
-
-      // OHLC PRE-FETCH: Warm cache for all pairs in parallel before analysis begins.
-      // Each pair's analysis calls getCachedOHLC — if cache is cold, each call blocks ~100-200ms.
-      // Pre-fetching in parallel here: all pairs fetch concurrently → cache is hot for every pair.
-      // Cost: max(single fetch latency) ≈ 150ms once, vs N × 150ms if fetched lazily inside the loop.
+      // Detect regime for all exchanges in parallel (independent per exchange)
       await Promise.all(
+        Array.from(botsByExchange.entries()).map(([exchange, bots]) => {
+          const exchangePairs = Array.from(new Set(bots.flatMap(b => b.enabled_pairs || [])));
+          logger.info('Orchestrator: detecting regime for exchange', {
+            exchange,
+            pairCount: exchangePairs.length,
+            pairs: exchangePairs,
+          });
+          return regimeDetector.detectRegimeForAllPairs(exchangePairs, exchange);
+        })
+      );
+
+      // EXIT CHECKS + OHLC PRE-FETCH run concurrently:
+      // - Exit checks (momentum failure + profit targets) are independent of OHLC
+      // - OHLC pre-fetch warms cache so signal analysis finds it hot immediately after
+      // - Pyramid pass runs AFTER exits complete (needs to know which trades survived)
+      const ohlcPrefetch = Promise.all(
         allPairs.map(pair => {
           const exchange = pairExchangeMap.get(pair) || 'binance';
           return this.getCachedOHLC(pair, '15m', 100, exchange).catch(err => {
-            // Non-fatal: pair will re-fetch inside the analysis loop and handle its own error
             logger.debug('OHLC pre-fetch failed for pair (will retry in analysis)', { pair, error: err instanceof Error ? err.message : String(err) });
           });
         })
       );
+
+      await Promise.all([
+        this.checkOpenTradesForMomentumFailure(),
+        this.checkOpenTradesForProfitTargets(),
+        ohlcPrefetch,
+      ]);
+
+      // PYRAMID PASS: Add levels to profitable open trades (after exits complete)
+      await this.addPyramidLevelsToOpenTrades(allPairs);
 
       // FOURTH PASS: Analyze new signals and generate trade decisions
       // PARALLELIZED: All pairs analyzed concurrently — each pair is fully independent.
@@ -1451,14 +1452,30 @@ class TradeSignalOrchestrator {
         pairs: Array.from(new Set(openTrades.map((t: any) => t.pair))),
       });
 
+      // Batch price fetch: group by exchange, fetch all pairs at once before the loop
+      const momPricesByPair = new Map<string, any>();
+      const momPairsByExchange = new Map<string, string[]>();
+      for (const trade of openTrades) {
+        const ex = (trade.exchange || 'binance').toLowerCase();
+        if (!momPairsByExchange.has(ex)) momPairsByExchange.set(ex, []);
+        momPairsByExchange.get(ex)!.push(trade.pair);
+      }
+      await Promise.all(
+        Array.from(momPairsByExchange.entries()).map(async ([ex, pairs]) => {
+          const unique = [...new Set(pairs)];
+          const data = await marketDataAggregator.getMarketData(unique, ex);
+          for (const [pair, priceData] of data.entries()) momPricesByPair.set(pair, priceData);
+        })
+      );
+
+      // Hoist tracked-positions lookup outside loop
+      const momTrackedSet = positionTracker.getTrackedPositions();
+
       // Process each open trade
       let exitCount = 0;
       for (const trade of openTrades) {
         try {
-          // Get current market price from aggregator (exchange-specific for accurate bid/ask)
-          const momExchangeForPrice = trade.exchange || 'binance';
-          const marketData = await marketDataAggregator.getMarketData([trade.pair], momExchangeForPrice);
-          const currentPriceData = marketData.get(trade.pair);
+          const currentPriceData = momPricesByPair.get(trade.pair);
           if (!currentPriceData) {
             logger.warn('No market data for pair', { pair: trade.pair });
             continue;
@@ -1512,8 +1529,7 @@ class TradeSignalOrchestrator {
 
           // Update peak profit tracking (same as profit target pass)
           // CRITICAL: Pass position data to prevent degraded mode
-          const trackedPositionsMF = positionTracker.getTrackedPositions();
-          if (!trackedPositionsMF.includes(trade.id)) {
+          if (!momTrackedSet.has(trade.id)) {
             const entryTimeMs = this.parseEntryTime(trade.entry_time);
             await positionTracker.recordPeak(
               trade.id,
@@ -1697,18 +1713,35 @@ class TradeSignalOrchestrator {
         });
       }
 
+      // Batch price fetch before loop: group by exchange, fetch all pairs at once
+      const ptPricesByPair = new Map<string, any>();
+      const ptPairsByExchange = new Map<string, string[]>();
+      for (const trade of openTrades) {
+        const ex = (trade.exchange || 'binance').toLowerCase();
+        if (!ptPairsByExchange.has(ex)) ptPairsByExchange.set(ex, []);
+        ptPairsByExchange.get(ex)!.push(trade.pair);
+      }
+      await Promise.all(
+        Array.from(ptPairsByExchange.entries()).map(async ([ex, pairs]) => {
+          const unique = [...new Set(pairs)];
+          const data = await marketDataAggregator.getMarketData(unique, ex);
+          for (const [pair, priceData] of data.entries()) ptPricesByPair.set(pair, priceData);
+        })
+      );
+
+      // Hoist tracked-positions lookup outside loop
+      const ptTrackedSet = positionTracker.getTrackedPositions();
+
       let exitCount = 0;
       for (const trade of openTrades) {
         try {
-          // Get current market price (exchange-specific for accurate bid/ask/spread)
-          const tradeExchange = trade.exchange || 'binance';
-          const marketData = await marketDataAggregator.getMarketData([trade.pair], tradeExchange);
-          const currentPriceData = marketData.get(trade.pair);
+          const currentPriceData = ptPricesByPair.get(trade.pair);
           if (!currentPriceData) {
             logger.warn('No market data for pair - skipping trade', { pair: trade.pair, tradeId: trade.id });
             continue;
           }
 
+          const tradeExchange = (trade.exchange || 'binance').toLowerCase();
           const currentPrice = currentPriceData.price;
           const entryPrice = parseFloat(String(trade.entry_price));
           const quantity = parseFloat(String(trade.quantity));
@@ -1799,14 +1832,13 @@ class TradeSignalOrchestrator {
           // PEAK PROFIT TRACKING (for erosion cap)
           // ============================================
           // On first encounter, record the initial profit and entry time
-          const trackedPositions = positionTracker.getTrackedPositions();
           logger.debug('Checking if trade tracked', {
             tradeId: trade.id,
-            isTracked: trackedPositions.includes(trade.id),
-            trackedCount: trackedPositions.length,
+            isTracked: ptTrackedSet.has(trade.id),
+            trackedCount: ptTrackedSet.size,
           });
 
-          if (!trackedPositions.includes(trade.id)) {
+          if (!ptTrackedSet.has(trade.id)) {
             const entryTimeMs = this.parseEntryTime(trade.entry_time);
             // Use NET profit for peak tracking - peaks must be real (after fees)
             await positionTracker.recordPeak(
@@ -2265,13 +2297,27 @@ class TradeSignalOrchestrator {
         return;
       }
 
+      // Batch price fetch before loop
+      const pyPricesByPair = new Map<string, any>();
+      const pyPairsByExchange = new Map<string, string[]>();
+      for (const trade of openTrades) {
+        const ex = (trade.exchange || 'binance').toLowerCase();
+        if (!pyPairsByExchange.has(ex)) pyPairsByExchange.set(ex, []);
+        pyPairsByExchange.get(ex)!.push(trade.pair);
+      }
+      await Promise.all(
+        Array.from(pyPairsByExchange.entries()).map(async ([ex, pairs]) => {
+          const unique = [...new Set(pairs)];
+          const data = await marketDataAggregator.getMarketData(unique, ex);
+          for (const [pair, priceData] of data.entries()) pyPricesByPair.set(pair, priceData);
+        })
+      );
+
       let pyramidCount = 0;
       for (const trade of openTrades) {
         try {
-          // Get current market price (exchange-specific for accurate pricing)
-          const pyramidExchange = trade.exchange || 'binance';
-          const marketData = await marketDataAggregator.getMarketData([trade.pair], pyramidExchange);
-          const currentPriceData = marketData.get(trade.pair);
+          const pyramidExchange = (trade.exchange || 'binance').toLowerCase();
+          const currentPriceData = pyPricesByPair.get(trade.pair);
           if (!currentPriceData) continue;
 
           const currentPrice = currentPriceData.price;
