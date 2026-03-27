@@ -242,6 +242,22 @@ export async function GET(req: NextRequest) {
       activeBots: 3,
       timestamp: new Date().toISOString(),
     },
+    weekly_digest: {
+      name: 'John Trader',
+      weekLabel: 'Mar 20 – Mar 26, 2026',
+      totalTrades: 8,
+      winningTrades: 5,
+      losingTrades: 3,
+      grossProfitUsdt: 42.80,
+      netProfitUsdt: 38.20,
+      feesUsdt: 4.60,
+      winRate: 62.5,
+      bestTrade: { pair: 'BTC/USDT', profitPct: 2.41 },
+      worstTrade: { pair: 'ETH/USDT', profitPct: -1.12 },
+      openTradesCount: 0,
+      botStatus: 'running',
+      marketNote: 'Moderate momentum week — bot captured 8 setups with 62.5% win rate',
+    },
   };
 
   const context = contextMap[templateType];

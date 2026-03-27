@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { TrialWarningBanner } from '@/components/billing/TrialWarningBanner';
 import { useLoadMore } from '@/hooks/useLoadMore';
 import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
+import { BotHealthScore } from '@/components/bots/BotHealthScore';
 
 /**
  * Dashboard Home Page - Mobile-First Design
@@ -277,6 +278,11 @@ export default function DashboardPage() {
           </Link>
         </div>
       )}
+
+      {/* Bot Health Score */}
+      <div className="mb-6">
+        <BotHealthScore />
+      </div>
 
       {/* Primary Stats - Mobile-First Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">

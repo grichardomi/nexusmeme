@@ -108,16 +108,16 @@ export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBa
 
   // Full version for billing page
   return (
-    <div className={`rounded-lg border-l-4 p-6 ${
+    <div className={`rounded-lg border-l-4 p-4 sm:p-6 ${
       isEndingTomorrow
         ? 'bg-red-50 dark:bg-red-900/20 border-red-500'
         : isEnding
         ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
         : 'bg-blue-50 dark:bg-blue-900/20 border-blue-500'
     }`}>
-      <div className="flex justify-between items-start gap-4">
-        <div className="flex-1">
-          <h3 className={`text-lg font-bold mb-2 ${
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <h3 className={`text-base font-bold mb-1 ${
             isEndingTomorrow
               ? 'text-red-700 dark:text-red-300'
               : isEnding
@@ -172,7 +172,7 @@ export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBa
         {onGoLive ? (
           <button
             onClick={onGoLive}
-            className={`px-4 py-2 rounded-lg font-semibold text-white whitespace-nowrap transition ${
+            className={`w-full sm:w-auto shrink-0 px-4 py-2.5 min-h-[44px] rounded-lg font-semibold text-white text-sm transition ${
               isEndingTomorrow
                 ? 'bg-red-600 hover:bg-red-700'
                 : isEnding
@@ -180,12 +180,12 @@ export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBa
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >
-            {isEndingTomorrow ? 'Switch to Live Trading Now' : 'Switch to Live Trading'}
+            {isEndingTomorrow ? 'Switch to Live Now' : 'Switch to Live Trading'}
           </button>
         ) : (
           <Link
             href="/dashboard/billing"
-            className={`px-4 py-2 rounded-lg font-semibold text-white whitespace-nowrap transition ${
+            className={`block w-full sm:w-auto shrink-0 px-4 py-2.5 min-h-[44px] rounded-lg font-semibold text-white text-sm text-center transition ${
               isEndingTomorrow
                 ? 'bg-red-600 hover:bg-red-700'
                 : isEnding
@@ -193,7 +193,7 @@ export function TrialWarningBanner({ minimal = false, onGoLive }: TrialWarningBa
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >
-            {isEndingTomorrow ? 'Switch to Live Trading Now' : 'Switch to Live Trading'}
+            {isEndingTomorrow ? 'Switch to Live Now' : 'Switch to Live Trading'}
           </Link>
         )}
       </div>

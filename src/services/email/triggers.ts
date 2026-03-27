@@ -552,6 +552,108 @@ export async function sendFeeRateChangedEmail(
 }
 
 
+// ─── Weekly Digest ────────────────────────────────────────────────────────────
+
+/**
+ * Send weekly bot performance digest to all users with active bots.
+ * Called by the weekly-digest cron every Monday at 8 AM UTC.
+ */
+export async function sendWeeklyDigests(): Promise<{ sent: number; skipped: number; errors: number }> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const sinceIso = since.toISOString();
+
+  // Fetch all users with running bots + their week's trade stats
+  const users = await query<{
+    user_id: string;
+    email: string;
+    name: string | null;
+    bot_status: string;
+    total_trades: number;
+    winning_trades: number;
+    losing_trades: number;
+    gross_profit: number;
+    total_fees: number;
+    best_pair: string | null;
+    best_pct: number | null;
+    worst_pair: string | null;
+    worst_pct: number | null;
+    open_trades: number;
+  }>(`
+    SELECT
+      u.id AS user_id,
+      u.email,
+      u.name,
+      bi.status AS bot_status,
+      COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.exit_time >= $1) AS total_trades,
+      COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.exit_time >= $1 AND t.profit_loss > 0) AS winning_trades,
+      COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.exit_time >= $1 AND t.profit_loss <= 0) AS losing_trades,
+      COALESCE(SUM(t.profit_loss) FILTER (WHERE t.status = 'closed' AND t.exit_time >= $1), 0) AS gross_profit,
+      COALESCE(SUM(COALESCE((t.config->>'entryFee')::numeric,0) + COALESCE((t.config->>'exitFee')::numeric,0)) FILTER (WHERE t.status = 'closed' AND t.exit_time >= $1), 0) AS total_fees,
+      (SELECT pair FROM trades WHERE bot_instance_id = bi.id AND status = 'closed' AND exit_time >= $1 AND profit_loss IS NOT NULL ORDER BY profit_loss_percent DESC LIMIT 1) AS best_pair,
+      (SELECT profit_loss_percent FROM trades WHERE bot_instance_id = bi.id AND status = 'closed' AND exit_time >= $1 AND profit_loss IS NOT NULL ORDER BY profit_loss_percent DESC LIMIT 1) AS best_pct,
+      (SELECT pair FROM trades WHERE bot_instance_id = bi.id AND status = 'closed' AND exit_time >= $1 AND profit_loss IS NOT NULL ORDER BY profit_loss_percent ASC LIMIT 1) AS worst_pair,
+      (SELECT profit_loss_percent FROM trades WHERE bot_instance_id = bi.id AND status = 'closed' AND exit_time >= $1 AND profit_loss IS NOT NULL ORDER BY profit_loss_percent ASC LIMIT 1) AS worst_pct,
+      COUNT(t.id) FILTER (WHERE t.status = 'open') AS open_trades
+    FROM users u
+    JOIN bot_instances bi ON bi.user_id = u.id
+    LEFT JOIN trades t ON t.bot_instance_id = bi.id
+    JOIN subscriptions s ON s.user_id = u.id
+    WHERE bi.status IN ('running', 'paused')
+      AND s.status IN ('active', 'trialing')
+    GROUP BY u.id, u.email, u.name, bi.id, bi.status
+  `, [sinceIso]);
+
+  const now = new Date();
+  const weekStart = since.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const weekEnd = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const weekLabel = `${weekStart} – ${weekEnd}`;
+
+  let sent = 0; let skipped = 0; let errors = 0;
+
+  for (const user of users) {
+    try {
+      const totalTrades = parseInt(String(user.total_trades), 10) || 0;
+      const winningTrades = parseInt(String(user.winning_trades), 10) || 0;
+      const losingTrades = parseInt(String(user.losing_trades), 10) || 0;
+      const grossProfit = parseFloat(String(user.gross_profit)) || 0;
+      const feesUsdt = parseFloat(String(user.total_fees)) || 0;
+      const netProfit = grossProfit - feesUsdt;
+      const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+      const openTrades = parseInt(String(user.open_trades), 10) || 0;
+      const botStatus = (user.bot_status || 'stopped') as 'running' | 'paused' | 'stopped';
+
+      // Simple market note based on trade volume
+      const marketNote = totalTrades === 0
+        ? 'Low volume market — bot protecting capital, waiting for stronger signals'
+        : totalTrades < 3
+        ? 'Quiet week — limited opportunities met entry criteria'
+        : 'Active week — bot engaged with market opportunities';
+
+      await queueEmail('weekly_digest', user.email, {
+        name: user.name || 'Trader',
+        weekLabel,
+        totalTrades,
+        winningTrades,
+        losingTrades,
+        grossProfitUsdt: grossProfit,
+        netProfitUsdt: netProfit,
+        feesUsdt,
+        winRate,
+        bestTrade: user.best_pair ? { pair: user.best_pair, profitPct: parseFloat(String(user.best_pct)) || 0 } : null,
+        worstTrade: user.worst_pair ? { pair: user.worst_pair, profitPct: parseFloat(String(user.worst_pct)) || 0 } : null,
+        openTradesCount: openTrades,
+        botStatus,
+        marketNote,
+      } as any);
+      sent++;
+    } catch {
+      errors++;
+    }
+  }
+
+  return { sent, skipped, errors };
+}
+
 // ─── Admin Monitoring ─────────────────────────────────────────────────────────
 
 /**

@@ -36,7 +36,8 @@ export type EmailTemplateType =
   | 'login_alert'
   | 'low_balance'
   | 'admin_error_alert'
-  | 'system_health_report';
+  | 'system_health_report'
+  | 'weekly_digest';
 
 export interface EmailTemplate {
   subject: string;
@@ -303,6 +304,23 @@ export interface EmailJob {
   createdAt: Date;
   sentAt?: Date;
   error?: string;
+}
+
+export interface WeeklyDigestContext {
+  name?: string;
+  weekLabel: string;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  grossProfitUsdt: number;
+  netProfitUsdt: number;
+  feesUsdt: number;
+  winRate: number;
+  bestTrade: { pair: string; profitPct: number } | null;
+  worstTrade: { pair: string; profitPct: number } | null;
+  openTradesCount: number;
+  botStatus: 'running' | 'paused' | 'stopped';
+  marketNote: string;
 }
 
 export interface SendEmailOptions {

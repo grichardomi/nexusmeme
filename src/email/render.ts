@@ -35,7 +35,9 @@ import type {
   BotResumedContext,
   TrialStartedContext,
   InvoiceExpiredContext,
+  WeeklyDigestContext,
 } from '@/types/email';
+import { WeeklyDigestEmailTemplate } from './templates/weekly-digest';
 import { WelcomeEmailTemplate } from './templates/welcome';
 import { PasswordResetEmailTemplate } from './templates/password-reset';
 import {
@@ -486,6 +488,11 @@ ${ctx.recentErrors ? `<p><strong>Recent errors (1h):</strong> ${ctx.recentErrors
 ${ctx.activeBots !== undefined ? `<p><strong>Active bots:</strong> ${ctx.activeBots}</p>` : ''}`,
         text: `System Health: ${ctx.status}\nTimestamp: ${ctx.timestamp}\nChecks: ${JSON.stringify(ctx.checks, null, 2)}`,
       };
+    }
+
+    case 'weekly_digest': {
+      const ctx = context as WeeklyDigestContext;
+      return WeeklyDigestEmailTemplate(ctx);
     }
 
     default:
