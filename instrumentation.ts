@@ -9,6 +9,32 @@ export async function register() {
     // Lazy-import to avoid edge-runtime issues
     const { notifyAdminError } = await import('@/services/monitoring/error-notifier');
 
+    // Start background services on server boot (same logic as /api/init)
+    try {
+      const [
+        { jobQueueManager },
+        { monthlyBillingScheduler },
+        { trialNotificationsScheduler },
+        { tradeSignalOrchestrator },
+        { logger },
+      ] = await Promise.all([
+        import('@/services/job-queue/singleton'),
+        import('@/services/cron/monthly-billing-scheduler'),
+        import('@/services/cron/trial-notifications-scheduler'),
+        import('@/services/orchestration/trade-signal-orchestrator'),
+        import('@/lib/logger'),
+      ]);
+
+      const intervalMs = parseInt(process.env.ORCHESTRATOR_INTERVAL_MS || '60000', 10);
+      jobQueueManager.startProcessing(5000);
+      await monthlyBillingScheduler.initialize();
+      await trialNotificationsScheduler.initialize();
+      tradeSignalOrchestrator.start(intervalMs);
+      logger.info('Background services started via instrumentation hook');
+    } catch (err) {
+      console.error('Failed to start background services on boot:', err);
+    }
+
     // Catch unhandled promise rejections from route handlers / background tasks
     process.on('unhandledRejection', (reason: unknown) => {
       const message = reason instanceof Error ? reason.message : String(reason);
