@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useLoadMore } from '@/hooks/useLoadMore';
 import { DateRangeTabs, DateRange, getFromDate } from '@/components/billing/DateRangeTabs';
+import { useBotsData } from '@/hooks/useBotsData';
 
 /**
  * Portfolio Page - Mobile-First Design
@@ -44,6 +45,7 @@ type StatusFilter = 'all' | 'open' | 'closed' | 'profitable' | 'losses';
 
 export default function PortfolioPage() {
   const { status } = useSession();
+  const { bots } = useBotsData();
   const [stats, setStats] = useState<TradeStats>({
     totalTrades: 0,
     completedTrades: 0,
@@ -350,7 +352,7 @@ export default function PortfolioPage() {
                 href="/dashboard/bots"
                 className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition text-sm"
               >
-                View Bots
+                {bots.length === 1 ? 'View Bot' : 'View Bots'}
               </Link>
             </div>
           ) : (

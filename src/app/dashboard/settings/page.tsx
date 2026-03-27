@@ -134,7 +134,22 @@ export default function SettingsPage() {
 
   return (
     <DashboardLayout title="Settings">
-      <div className="max-w-2xl space-y-8">
+      <div className="max-w-2xl space-y-6">
+        {/* Sticky save banner — appears when changes pending */}
+        {hasChanges && (
+          <div className="sticky top-0 z-10 bg-blue-600 text-white px-4 py-3 rounded-lg flex items-center justify-between gap-3 shadow-md">
+            <span className="text-sm font-medium">You have unsaved changes</span>
+            <button
+              form="settings-form"
+              type="submit"
+              disabled={isSaving}
+              className="bg-white text-blue-700 font-semibold text-sm px-4 py-1.5 rounded hover:bg-blue-50 transition disabled:opacity-60"
+            >
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        )}
+
         {/* Save Message */}
         {saveMessage && (
           <div
@@ -148,10 +163,10 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <form onSubmit={handleSave} className="space-y-8">
+        <form id="settings-form" onSubmit={handleSave} className="space-y-6">
           {/* Account Settings */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-6">Account Settings</h2>
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-8 border border-slate-200 dark:border-slate-700">
+            <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-white mb-6">Account Settings</h2>
 
             <div className="space-y-4">
               <div>
@@ -162,7 +177,7 @@ export default function SettingsPage() {
                   value={formData.name}
                   onChange={handleChange}
                   disabled={isSaving}
-                  className="w-full px-4 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-600 disabled:cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 dark:focus:border-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-600 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -172,7 +187,7 @@ export default function SettingsPage() {
                   type="email"
                   value={session?.user?.email || ''}
                   disabled
-                  className="w-full px-4 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-600 dark:text-slate-400 cursor-not-allowed"
+                  className="w-full px-4 py-3 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-slate-600 dark:text-slate-400 cursor-not-allowed"
                 />
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">Email cannot be changed</p>
               </div>
@@ -180,69 +195,78 @@ export default function SettingsPage() {
           </div>
 
           {/* Trading Preferences */}
-          <div className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700">
-            <h2 className="text-2xl font-semibold text-slate-900 dark:text-white mb-6">Trading Preferences</h2>
+          <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-8 border border-slate-200 dark:border-slate-700">
+            <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-white mb-2">Trading Preferences</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
+              Alerts and reports are sent to <strong className="text-slate-700 dark:text-slate-300">{session?.user?.email}</strong>
+            </p>
 
             <div className="space-y-4">
-              <div>
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    name="notificationsEnabled"
-                    checked={formData.notificationsEnabled}
-                    onChange={handleChange}
-                    disabled={isSaving}
-                    className="w-4 h-4 rounded cursor-pointer disabled:cursor-not-allowed"
-                  />
-                  <span className="text-slate-900 dark:text-white">Enable email notifications for trades</span>
-                </label>
-              </div>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="notificationsEnabled"
+                  checked={formData.notificationsEnabled}
+                  onChange={handleChange}
+                  disabled={isSaving}
+                  className="w-5 h-5 mt-0.5 rounded cursor-pointer disabled:cursor-not-allowed flex-shrink-0"
+                />
+                <div>
+                  <span className="text-sm font-medium text-slate-900 dark:text-white">Trade notifications</span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Email when a trade opens or closes</p>
+                </div>
+              </label>
 
-              <div>
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    name="dailyReports"
-                    checked={formData.dailyReports}
-                    onChange={handleChange}
-                    disabled={isSaving}
-                    className="w-4 h-4 rounded cursor-pointer disabled:cursor-not-allowed"
-                  />
-                  <span className="text-slate-900 dark:text-white">Send daily performance reports</span>
-                </label>
-              </div>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="dailyReports"
+                  checked={formData.dailyReports}
+                  onChange={handleChange}
+                  disabled={isSaving}
+                  className="w-5 h-5 mt-0.5 rounded cursor-pointer disabled:cursor-not-allowed flex-shrink-0"
+                />
+                <div>
+                  <span className="text-sm font-medium text-slate-900 dark:text-white">Daily performance report</span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Morning summary of P&L, trades, and account status</p>
+                </div>
+              </label>
 
-              <div>
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    name="lossAlerts"
-                    checked={formData.lossAlerts}
-                    onChange={handleChange}
-                    disabled={isSaving}
-                    className="w-4 h-4 rounded cursor-pointer disabled:cursor-not-allowed"
-                  />
-                  <span className="text-slate-900 dark:text-white">Alert me on significant losses</span>
-                </label>
-              </div>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="lossAlerts"
+                  checked={formData.lossAlerts}
+                  onChange={handleChange}
+                  disabled={isSaving}
+                  className="w-5 h-5 mt-0.5 rounded cursor-pointer disabled:cursor-not-allowed flex-shrink-0"
+                />
+                <div>
+                  <span className="text-sm font-medium text-slate-900 dark:text-white">Loss alerts</span>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Email when a significant drawdown is detected</p>
+                </div>
+              </label>
             </div>
           </div>
 
           {/* Exchange Connections */}
-          <div id="api-keys" className="bg-white dark:bg-slate-800 rounded-lg p-8 border border-slate-200 dark:border-slate-700">
-            <div className="flex items-start justify-between mb-2">
-              <h2 className="text-2xl font-semibold text-slate-900 dark:text-white">Exchange Connections</h2>
-              <a
-                href="/help#getting-started"
-                className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap mt-1"
-                title="Step-by-step guide to get your API keys"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                </svg>
-                How to get your API key
-              </a>
+          <div id="api-keys" className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-8 border border-slate-200 dark:border-slate-700">
+            <div className="mb-4">
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 dark:text-white">Exchange Connections</h2>
+                <a
+                  href="/help#getting-started"
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap mt-1 flex-shrink-0"
+                  title="Step-by-step guide to get your API keys"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM8.94 6.94a.75.75 0 11-1.061-1.061 3 3 0 112.871 5.026v.345a.75.75 0 01-1.5 0v-.5c0-.72.57-1.172 1.081-1.287A1.5 1.5 0 108.94 6.94zM10 15a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                  </svg>
+                  How to get API keys
+                </a>
+              </div>
             </div>
+
             {/* Newbie trust note */}
             <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 mb-4">
               <p className="text-sm font-semibold text-green-800 dark:text-green-200">💡 New to trading bots? Here's how this works</p>
@@ -268,9 +292,9 @@ export default function SettingsPage() {
             <div className="space-y-4">
               {/* Binance International */}
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Binance International</h3>
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">Global (non-US)</span>
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full flex-shrink-0">Global (non-US)</span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                   Available in 180+ countries. Not available to US residents.{' '}
@@ -281,9 +305,9 @@ export default function SettingsPage() {
 
               {/* Binance US */}
               <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center justify-between gap-2 mb-1">
                   <h3 className="font-semibold text-slate-900 dark:text-white">🔗 Binance US</h3>
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full">US residents</span>
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full flex-shrink-0">US residents</span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                   For US residents. Same 0.10% fees as Binance International.{' '}
@@ -291,7 +315,6 @@ export default function SettingsPage() {
                 </p>
                 <ExchangeKeyForm exchange="binanceus" />
               </div>
-
             </div>
           </div>
 
@@ -299,9 +322,9 @@ export default function SettingsPage() {
           <button
             type="submit"
             disabled={isSaving || !hasChanges}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium py-3 rounded transition"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium py-3 min-h-[48px] rounded transition"
           >
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving ? 'Saving...' : hasChanges ? 'Save Changes' : 'No Changes'}
           </button>
         </form>
       </div>

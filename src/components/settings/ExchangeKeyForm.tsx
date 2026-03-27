@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { z } from 'zod';
-import { ConfirmationModal } from '@/components/modals/ConfirmationModal';
+import { ConfirmDeleteModal } from '@/components/modals/ConfirmDeleteModal';
 
 const addKeySchema = z.object({
   exchange: z.string().min(1),
@@ -65,7 +65,6 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
       if (botsResponse.ok) {
         const botsData = await botsResponse.json();
         const bots: Bot[] = botsData.bots || [];
-        console.log(`[ExchangeKeyForm] Fetched bots for ${exchange}:`, bots);
         setBotsUsingExchange(bots);
       }
     } catch (err) {
@@ -84,16 +83,6 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
   const hasOpenTrades = totalOpenTrades > 0;
   const canRemoveKeys = botsUsingExchange.length === 0 && !hasOpenTrades;
 
-  // Debug logging
-  useEffect(() => {
-    console.log(`[ExchangeKeyForm ${exchange}] State:`, {
-      botsCount: botsUsingExchange.length,
-      bots: botsUsingExchange,
-      totalOpenTrades,
-      hasOpenTrades,
-      canRemoveKeys,
-    });
-  }, [botsUsingExchange, totalOpenTrades, hasOpenTrades, canRemoveKeys, exchange]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -208,14 +197,30 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
     }
   };
 
-  const exchangeNames: Record<string, { name: string; docUrl: string }> = {
+  const exchangeNames: Record<string, { name: string; siteUrl: string; docUrl: string; setupSteps: string[] }> = {
     binance: {
       name: 'Binance International',
+      siteUrl: 'https://www.binance.com',
       docUrl: 'https://www.binance.com/en/support/faq/360002502072',
+      setupSteps: [
+        'Log in to binance.com',
+        'Go to Profile → API Management → Create API',
+        'Enable Reading + Spot & Margin Trading',
+        'Do NOT enable Withdrawals',
+        'Copy API Key and Secret Key, paste above',
+      ],
     },
     binanceus: {
       name: 'Binance US',
-      docUrl: 'https://www.binance.us/en/support/faq/how-to-create-api-keys-on-binance-us',
+      siteUrl: 'https://www.binance.us',
+      docUrl: 'https://support.binance.us/hc/en-us/articles/360051091473',
+      setupSteps: [
+        'Log in to binance.us',
+        'Go to Account → API Management → Create API',
+        'Enable Reading + Spot Trading',
+        'Do NOT enable Withdrawals',
+        'Copy API Key and Secret Key, paste above',
+      ],
     },
   };
 
@@ -289,15 +294,15 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
             <button
               type="button"
               onClick={() => setIsOpen(true)}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm font-medium transition"
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white px-3 py-3 min-h-[44px] rounded text-sm font-medium transition"
             >
               Update Keys
             </button>
             <button
               type="button"
               onClick={() => fetchData()}
-              className="px-3 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded text-sm font-medium transition"
-              title="Refresh open trades status"
+              className="px-4 py-3 min-h-[44px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded text-sm font-medium transition"
+              title="Refresh status"
             >
               ↻
             </button>
@@ -305,16 +310,16 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
               type="button"
               onClick={handleDelete}
               disabled={isDeleting || !canRemoveKeys}
-              className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white px-3 py-2 rounded text-sm font-medium transition"
+              className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-slate-400 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white px-3 py-3 min-h-[44px] rounded text-sm font-medium transition"
               title={
                 hasOpenTrades
                   ? `Close all ${totalOpenTrades} open trade(s) first`
                   : botsUsingExchange.length > 0
                   ? 'Delete all bots using this exchange first'
-                  : ''
+                  : 'Remove API keys'
               }
             >
-              {isDeleting ? 'Deleting...' : 'Remove'}
+              {isDeleting ? 'Removing...' : 'Remove'}
             </button>
           </div>
         </div>
@@ -379,13 +384,11 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
           </div>
 
           <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded">
-            <p className="font-semibold mb-1">Quick setup — create your Binance API key:</p>
+            <p className="font-semibold mb-1">Quick setup — create your {info.name} API key:</p>
             <ol className="list-decimal list-inside space-y-1 ml-1">
-              <li>Log in to <a href="https://www.binance.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">binance.com</a></li>
-              <li>Go to Profile → API Management → Create API</li>
-              <li>Enable <strong>Reading</strong> + <strong>Spot & Margin Trading</strong></li>
-              <li>Do NOT enable Withdrawals</li>
-              <li>Copy API Key and Secret Key, paste above</li>
+              {info.setupSteps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
             </ol>
             <div className="mt-2 flex gap-3">
               <a
@@ -400,7 +403,7 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
                 rel="noopener noreferrer"
                 className="text-blue-600 dark:text-blue-400 hover:underline"
               >
-                Binance docs →
+                {info.name} docs →
               </a>
             </div>
           </div>
@@ -415,7 +418,7 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
                   ? 'Please fill in both Public Key and Secret Key'
                   : 'Save API keys'
               }
-              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-4 py-2 rounded font-medium transition"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-4 py-3 min-h-[48px] rounded font-medium transition"
             >
               {isLoading ? 'Saving...' : savedKey ? 'Update API Keys' : 'Save API Keys'}
             </button>
@@ -423,7 +426,7 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
               type="button"
               onClick={handleCancel}
               disabled={isLoading}
-              className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white px-4 py-2 rounded font-medium transition"
+              className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white px-4 py-3 min-h-[48px] rounded font-medium transition"
             >
               Cancel
             </button>
@@ -432,12 +435,16 @@ export function ExchangeKeyForm({ exchange, onSuccess }: ExchangeKeyFormProps) {
       )}
 
       {/* Delete Confirmation Modal */}
-      <ConfirmationModal
+      <ConfirmDeleteModal
         isOpen={showDeleteConfirm}
-        title="Remove API Keys"
-        message={`Are you sure you want to remove ${info.name} API keys? This cannot be undone.`}
-        confirmText="Remove"
-        cancelText="Cancel"
+        title={`Remove ${info.name} API Keys`}
+        description={`This will disconnect ${info.name} from NexusMeme. Your bot will stop trading immediately. You can reconnect at any time by adding new keys.`}
+        itemsToDelete={[
+          { label: 'Exchange', value: info.name },
+          { label: 'Effect', value: 'Bot stops trading immediately' },
+        ]}
+        confirmationText="REMOVE"
+        confirmButtonText="Remove API Keys"
         isDangerous={true}
         isLoading={isDeleting}
         onConfirm={handleConfirmDelete}
