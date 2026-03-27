@@ -4,11 +4,13 @@ import 'winston-daily-rotate-file';
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const isProduction = process.env.NODE_ENV === 'production';
+const isTest = process.env.NODE_ENV === 'test';
 const isServer = typeof window === 'undefined';
 
 // Production: warn+  (Railway charges per log byte — info/debug = wasted spend)
 // Development: info+ (full visibility locally)
-const logLevel = (process.env.LOG_LEVEL as LogLevel) ?? (isProduction ? 'warn' : 'info');
+// Test: silent — prevents Jest test events from polluting production log files
+const logLevel = (process.env.LOG_LEVEL as LogLevel) ?? (isTest ? 'silent' : isProduction ? 'warn' : 'info');
 
 // JSON format for structured log parsing (Railway, Datadog, etc.)
 const jsonFormat = winston.format.combine(
@@ -29,8 +31,9 @@ const prettyFormat = winston.format.combine(
 
 const transports: winston.transport[] = [];
 
-if (isServer) {
+if (isServer && !isTest) {
   // Always: stdout transport (Railway captures this as its log stream)
+  // Skipped in test — Jest captures stdout separately and we don't want test noise in log files
   transports.push(
     new winston.transports.Console({
       format: isProduction ? jsonFormat : prettyFormat,
