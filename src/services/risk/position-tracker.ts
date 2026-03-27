@@ -406,13 +406,10 @@ class PositionTracker {
       existing.estimatedTotalFees = estimatedTotalFees;
     }
 
-    // NET dollar profit = gross - fees
-    const netProfitDollars = currentProfitDollars - existing.estimatedTotalFees;
-    const netPeakDollars = existing.peakProfit - existing.estimatedTotalFees;
-
-    // Only update peak if NET profit improved AND is positive
-    // Use DOLLAR comparison as primary (eliminates precision issues)
-    const shouldUpdate = netProfitDollars > netPeakDollars && netProfitDollars > 0;
+    // Track GROSS peak (raw price movement) — fees are deducted at exit display, not here.
+    // Using net suppressed peak updates when gross profit < entry fee, preventing erosion
+    // from ever arming on small green moves (the exact green-to-red scenario we must prevent).
+    const shouldUpdate = currentProfitDollars > existing.peakProfit && currentProfitDollars > 0;
 
     if (shouldUpdate) {
       const oldPeakPct = existing.peakPct;
