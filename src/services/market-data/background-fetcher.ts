@@ -35,6 +35,10 @@ interface BackgroundFetcherStats {
 class BackgroundMarketDataFetcher {
   private fetchInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
+  // Pair cache — re-query DB only when bots start/stop or TTL expires (30s)
+  private cachedPairsByExchange: Map<string, string[]> | null = null;
+  private pairCacheTs = 0;
+  private readonly PAIR_CACHE_TTL_MS = 30_000;
   private stats: BackgroundFetcherStats = {
     lastFetchTime: null,
     lastFetchDurationMs: null,
@@ -95,11 +99,23 @@ class BackgroundMarketDataFetcher {
   }
 
   /**
+   * Invalidate the cached pair list (call when a bot starts or stops).
+   */
+  invalidatePairCache(): void {
+    this.cachedPairsByExchange = null;
+    this.pairCacheTs = 0;
+  }
+
   /**
    * Get per-exchange pair lists for running bots.
-   * Returns a Map of exchange → unique pairs.
+   * Result is cached for PAIR_CACHE_TTL_MS; call invalidatePairCache() on bot start/stop.
    */
   private async getActiveBotPairsByExchange(): Promise<Map<string, string[]>> {
+    const now = Date.now();
+    if (this.cachedPairsByExchange && now - this.pairCacheTs < this.PAIR_CACHE_TTL_MS) {
+      return this.cachedPairsByExchange;
+    }
+
     try {
       const result = await query<{ exchange: string; enabled_pairs: string[] }>(
         `SELECT exchange, enabled_pairs FROM bot_instances WHERE status = 'running'`
@@ -114,12 +130,15 @@ class BackgroundMarketDataFetcher {
         }
       }
 
-      return new Map(Array.from(byExchange.entries()).map(([ex, pairs]) => [ex, Array.from(pairs)]));
+      const result2 = new Map(Array.from(byExchange.entries()).map(([ex, pairs]) => [ex, Array.from(pairs)]));
+      this.cachedPairsByExchange = result2;
+      this.pairCacheTs = now;
+      return result2;
     } catch (error) {
       logger.debug('Failed to get active bot pairs by exchange', {
         error: error instanceof Error ? error.message : String(error),
       });
-      return new Map();
+      return this.cachedPairsByExchange ?? new Map();
     }
   }
 

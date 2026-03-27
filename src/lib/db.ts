@@ -96,8 +96,10 @@ export async function query<T = any>(
           error: lastError.message,
           query: text.slice(0, 50),
         });
-        // Wait before retry (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500));
+        // Wait before retry (trading-optimized backoff: 0ms, 100ms, 300ms)
+        const retryDelays = [0, 100, 300];
+        const delayMs = retryDelays[attempt] ?? 300;
+        if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
         continue;
       }
 

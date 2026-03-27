@@ -40,15 +40,17 @@ interface BotInstance {
  */
 class TradeSignalOrchestrator {
   private isRunning = false;
-  private isCycleRunning = false; // Per-cycle lock — prevents overlap when a cycle takes longer than the interval
+  private isCycleRunning = false;      // Main cycle guard
+  private isPeakRunning = false;       // Peak-tracking guard (1s loop)
+  private isPyramidRunning = false;    // Pyramid guard (5s loop)
   private interval: NodeJS.Timer | null = null;
   private peakTrackingInterval: NodeJS.Timer | null = null;
   private pyramidCheckInterval: NodeJS.Timer | null = null;
-  private reconcileInterval: NodeJS.Timer | null = null;
+  private reconcileInterval: NodeJS.Timer | null = null; // Combined housekeeping (reconcile + low-balance)
   // Pairs exited for stale reasons in the current cycle — block re-entry until next cycle
   private staleExitedPairsThisCycle = new Set<string>();
-
-  private lowBalanceCheckInterval: NodeJS.Timer | null = null;
+  private lowBalanceCheckInterval: NodeJS.Timer | null = null; // kept for stop() cleanup reference
+  private lastLowBalanceCheckTs = 0; // tracks last low-balance check within housekeeping interval
 
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
   // Cache structure: Map<pair:timeframe, { data: OHLCCandle[], timestamp: number }>
@@ -60,6 +62,10 @@ class TradeSignalOrchestrator {
   // Key: pair, Value: { regime, timestamp }
   private regimeCache = new Map<string, { regime: string; timestamp: number }>();
   private readonly REGIME_CACHE_TTL_MS = 60000; // 60s — stale after one orchestrator cycle
+
+  // HOT-PATH REUSE: Pre-allocated maps cleared between cycles (avoid GC pressure in 1s peak loop)
+  private readonly _pairsByExchange = new Map<string, Set<string>>();
+  private readonly _pricesByExchangePair = new Map<string, any>();
 
   // MARKET STATUS: Last cycle result exposed to the dashboard API
   private lastCycleStatus: {
@@ -350,20 +356,22 @@ class TradeSignalOrchestrator {
     reconcileBinanceFills().catch(err => {
       logger.warn('Startup fill reconciliation failed', { error: err instanceof Error ? err.message : String(err) });
     });
+    // HOUSEKEEPING: Single 5-min interval combining fill reconciliation (every tick)
+    // and low-balance check (every 15 min = every 3rd tick). Reduces interval count from 5 → 4.
+    this.lastLowBalanceCheckTs = Date.now(); // treat startup run as first check
     this.reconcileInterval = setInterval(() => {
       reconcileBinanceFills().catch(err => {
         logger.warn('Periodic fill reconciliation failed', { error: err instanceof Error ? err.message : String(err) });
       });
-    }, 5 * 60_000); // every 5 minutes
-
-    // PROACTIVE LOW-BALANCE ALERT: Check every 4 hours for live bots with insufficient free cash.
-    // Emails user once per 24h so they know trades are paused before the next signal fires.
-    this.lowBalanceCheckInterval = setInterval(() => {
-      this.checkLowBalanceForLiveBots().catch(err => {
-        logger.warn('Low balance proactive check error', { error: err instanceof Error ? err.message : String(err) });
-      });
-    }, 15 * 60_000);
-    // Run once immediately on startup so user is alerted right away
+      // Low-balance check: every 15 minutes within the same interval
+      if (Date.now() - this.lastLowBalanceCheckTs >= 15 * 60_000) {
+        this.lastLowBalanceCheckTs = Date.now();
+        this.checkLowBalanceForLiveBots().catch(err => {
+          logger.warn('Low balance proactive check error', { error: err instanceof Error ? err.message : String(err) });
+        });
+      }
+    }, 5 * 60_000);
+    // Run low-balance check once immediately on startup
     this.checkLowBalanceForLiveBots().catch(() => {});
 
     // HIGH-FREQUENCY PEAK TRACKING (runs every 5 seconds)
@@ -374,10 +382,14 @@ class TradeSignalOrchestrator {
     logger.info('Starting high-frequency peak tracking', { peakTrackingIntervalMs });
 
     this.peakTrackingInterval = setInterval(async () => {
+      if (this.isPeakRunning) return; // skip if previous tick still running
+      this.isPeakRunning = true;
       try {
         await this.updatePeaksForAllOpenTrades();
       } catch (error) {
         logger.error('Peak tracking error', error instanceof Error ? error : null);
+      } finally {
+        this.isPeakRunning = false;
       }
     }, peakTrackingIntervalMs);
 
@@ -389,10 +401,14 @@ class TradeSignalOrchestrator {
     logger.info('Starting pyramid check interval', { pyramidCheckIntervalMs });
 
     this.pyramidCheckInterval = setInterval(async () => {
+      if (this.isPyramidRunning) return;
+      this.isPyramidRunning = true;
       try {
         await this.addPyramidLevelsToOpenTrades([]);
       } catch (error) {
         logger.error('Pyramid check interval error', error instanceof Error ? error : null);
+      } finally {
+        this.isPyramidRunning = false;
       }
     }, pyramidCheckIntervalMs);
 
@@ -490,17 +506,19 @@ class TradeSignalOrchestrator {
         return; // No trades to track
       }
 
-      // Group pairs by exchange for accurate pricing
-      const pairsByExchange = new Map<string, Set<string>>();
+      // Group pairs by exchange for accurate pricing (reuse pre-allocated maps)
+      this._pairsByExchange.clear();
       for (const trade of openTrades) {
         const ex = (trade.exchange || 'binance').toLowerCase();
-        if (!pairsByExchange.has(ex)) pairsByExchange.set(ex, new Set());
-        pairsByExchange.get(ex)!.add(trade.pair);
+        if (!this._pairsByExchange.has(ex)) this._pairsByExchange.set(ex, new Set());
+        this._pairsByExchange.get(ex)!.add(trade.pair);
       }
+      const pairsByExchange = this._pairsByExchange;
 
       // Fetch prices: prefer live WebSocket store (zero latency, no DB) for Binance,
       // fall back to aggregator (PG kv_cache) for non-Binance or cold start.
-      const pricesByExchangePair = new Map<string, any>();
+      this._pricesByExchangePair.clear();
+      const pricesByExchangePair = this._pricesByExchangePair;
       for (const [ex, pairs] of pairsByExchange.entries()) {
         if (ex === 'binance') {
           // Use live in-process store — fed directly by WS ticker, no cache TTL lag
