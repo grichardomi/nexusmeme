@@ -168,9 +168,68 @@ class RiskManager {
       const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= -3.0;
 
       if (mom4h >= -0.5 || allow4hLag) {
+        // SUSTAINED RALLY GATE (smart, regime-aware)
+        // Problem: a negative slope means the 1h rally peaked before entry — one-tick bounce.
+        // Example: 14:00 ETH slope=-0.017% with score=2/3 → entered fading move, closed -0.12%
+        //
+        // But a blunt "slope >= 0" blocks valid entries in strong trends where brief dips are noise.
+        // Solution: dynamic slope floor that tightens in weak/choppy (high fake-rally risk)
+        // and relaxes in strong regime (confirmed trend, brief dips are pullbacks not reversals).
+        //
+        // Self-healing overrides:
+        //  1. Perfect score (3/3): all three direction signals confirm → slope irrelevant
+        //  2. Very strong 1h momentum (>= RISK_STRONG_MOMENTUM_OVERRIDE_PCT): move is self-proving
+        //  3. Strong 4h (>= 0.8%): multi-hour trend is real, short-term slope dip is noise
+        const slope = momentumSlope ?? 0;
+        const env2 = getEnvironmentConfig();
+        const strongMomOverride = env2.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
+
+        // Regime classification for slope tolerance
+        const isStrongRegime = mom1hPct >= 1.0 && mom4h >= 0.8;
+        const isModerateRegime = mom1hPct >= 0.4 && mom4h >= 0.2;
+        // Dynamic slope floor by regime: tight in weak/moderate/choppy, relaxed only in confirmed strong trends
+        // Moderate is NOT relaxed — the 14:00 ETH case was moderate regime with slope=-0.017%
+        // and still a fake rally. Relaxation only earned in genuinely strong trends (1h>1%, 4h>0.8%).
+        let dynamicMinSlope: number;
+        if (isStrongRegime) {
+          dynamicMinSlope = -0.05; // Strong trend: tolerate brief dips (normal pullback in confirmed uptrend)
+        } else {
+          dynamicMinSlope = 0.0;  // Moderate/weak/choppy: must be accelerating — negative slope = fake rally
+        }
+
+        // Self-healing overrides: strong independent evidence beats slope concern
+        const perfectScore = score >= 3;
+        const veryStrongMomentum = mom1hPct >= strongMomOverride;
+        const strongMultiHour = mom4h >= 0.8;
+        const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
+
+        if (slope < dynamicMinSlope && !slopeOverridden) {
+          const overrideNote = `perfectScore=${perfectScore} | veryStrongMom=${veryStrongMomentum}(${mom1hPct.toFixed(2)}%>=${strongMomOverride}%) | strongMultiHour=${strongMultiHour}(4h=${mom4h.toFixed(2)}%)`;
+          console.log(`\n🚫 SLOPE GATE [${isStrongRegime ? 'strong' : isModerateRegime ? 'moderate' : 'weak/choppy'} regime]: slope=${slope.toFixed(3)}% < floor=${dynamicMinSlope} — rally fading | overrides: ${overrideNote}`);
+          logger.info('RiskManager: Entry blocked - decelerating momentum (adaptive slope gate)', {
+            momentumSlope: slope.toFixed(3),
+            dynamicMinSlope,
+            regime: isStrongRegime ? 'strong' : isModerateRegime ? 'moderate' : 'weak/choppy',
+            trendScore: score,
+            momentum1h: mom1hPct.toFixed(3),
+            momentum4h: mom4h.toFixed(3),
+            perfectScore,
+            veryStrongMomentum,
+            strongMultiHour,
+          });
+          return {
+            pass: false,
+            reason: `Decelerating rally [${isStrongRegime ? 'strong' : isModerateRegime ? 'moderate' : 'weak/choppy'} regime]: slope ${slope.toFixed(3)}% < floor ${dynamicMinSlope} (no self-heal override)`,
+            stage: 'Health Gate',
+          };
+        }
+
+        const slopeNote = slopeOverridden && slope < dynamicMinSlope
+          ? ` [slope overridden: ${perfectScore ? '3/3 score' : veryStrongMomentum ? `1h=${mom1hPct.toFixed(2)}%>=${strongMomOverride}%` : `4h=${mom4h.toFixed(2)}%>=0.8%`}]`
+          : '';
         const via = allow4hLag && mom4h < -0.5 ? ` [4h lag allowed: 1h=${mom1hPct.toFixed(2)}%]` : '';
-        console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%${via}`);
-        logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3), allow4hLag });
+        console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${slope.toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%${via}${slopeNote}`);
+        logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: slope.toFixed(3), dynamicMinSlope, slopeOverridden, intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3), allow4hLag });
         return { pass: true, stage: 'Health Gate' };
       }
 

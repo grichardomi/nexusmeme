@@ -160,6 +160,10 @@ const envSchema = z.object({
   RISK_PROFIT_TARGET_MINIMUM: z.string().transform(Number).default('0.008'), // 0.8% minimum — Binance costs ~0.26% × 3 = 0.78% floor
   RISK_COST_FLOOR_MULTIPLIER: z.string().transform(Number).default('3.0'), // Profit must be N× total costs (fees+spread+slippage) to enter
   RISK_EMA200_DOWNTREND_BLOCK_ENABLED: z.string().transform(val => val === 'true').default('false'), // Block entries when price < EMA200 (disable to catch reversals)
+  // Require minimum momentum slope to confirm sustained rally (not a one-tick spike)
+  // Slope = change in 1h momentum vs 30min ago (same unit as momentum1h, i.e. %)
+  // Default 0.0 = block any decelerating (negative slope) entry — requires rally to still be accelerating
+  RISK_MIN_MOMENTUM_SLOPE: z.string().transform(Number).default('0.0'),
 
   /* Underwater Momentum Exit - Must be LOWER than entry momentum (RISK_MIN_MOMENTUM_1H) */
   UNDERWATER_MOMENTUM_THRESHOLD: z.string().transform(Number).default('0.003'), // 0.3% - only exit if momentum collapses
@@ -508,6 +512,7 @@ function getDefaultEnvironment(): Environment {
     RISK_PROFIT_TARGET_MINIMUM: 0.008, // 0.8% - Binance costs ~0.26% × 3 = 0.78% floor
     RISK_COST_FLOOR_MULTIPLIER: 3.0, // Profit must be 3× total costs to enter
     RISK_EMA200_DOWNTREND_BLOCK_ENABLED: false, // Allow reversal entries by default
+    RISK_MIN_MOMENTUM_SLOPE: 0.0, // Block entries with decelerating momentum (negative slope = fading rally)
     UNDERWATER_MOMENTUM_THRESHOLD: 0.003,
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
