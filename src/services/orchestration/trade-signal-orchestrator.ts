@@ -2443,8 +2443,23 @@ class TradeSignalOrchestrator {
             continue;
           }
 
-          // CHECK L1: Add at L1 trigger % profit (requires ADX > PYRAMID_L1_MIN_ADX)
-          // Pyramid gate: momentum-based (no ADX). Trade already profitable at trigger % = trend confirmed.
+          // REGIME AGENT GATE: pyramiding is only for strong trends.
+          // Consult in-memory regime state (zero latency). Skip pyramid unless regime is confirmed strong.
+          // If no agent state yet, fall through to momentum-based check (safe default).
+          const regimeStateForPyramid = await regimeAgent.getState();
+          if (regimeStateForPyramid !== null && regimeStateForPyramid.btcRegime !== 'strong') {
+            logger.info('Pyramid skipped — regime not strong', {
+              pair: trade.pair,
+              btcRegime: regimeStateForPyramid.btcRegime,
+              entryBarAdjustment: regimeStateForPyramid.entryBarAdjustment,
+              reasoning: regimeStateForPyramid.reasoning,
+              currentProfitPct: currentProfitPct.toFixed(2),
+            });
+            continue;
+          }
+
+          // CHECK L1: Add at L1 trigger % profit
+          // Pyramid gate: momentum-based. Trade already profitable at trigger % = trend confirmed.
           // Require 1h momentum still positive to confirm trend is continuing, not reversing.
           const l1TriggerPct = env.PYRAMID_L1_TRIGGER_PCT * 100;
           if (!hasL1 && currentProfitPct >= l1TriggerPct) {
