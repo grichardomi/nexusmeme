@@ -5,7 +5,24 @@
  */
 
 import { getCached } from '@/lib/redis';
-import type { TradingParamOverrides } from '@/app/api/admin/trading-params/route';
+
+export interface TradingParamOverrides {
+  RISK_MIN_MOMENTUM_1H_BINANCE?: number;
+  RISK_1H_BYPASS_4H_MIN?: number;
+  RISK_1H_BYPASS_INTRABAR_MIN?: number;
+  REGIME_SIZE_STRONG?: number;
+  REGIME_SIZE_MODERATE?: number;
+  REGIME_SIZE_WEAK?: number;
+  REGIME_SIZE_TRANSITIONING?: number;
+  REGIME_SIZE_CHOPPY?: number;
+  PROFIT_TARGET_STRONG?: number;
+  PROFIT_TARGET_MODERATE?: number;
+  PROFIT_TARGET_WEAK?: number;
+  PROFIT_TARGET_CHOPPY?: number;
+  EROSION_PEAK_MIN_PCT?: number;
+  EROSION_PEAK_RELATIVE_THRESHOLD?: number;
+  RISK_BTC_MIN_VOLUME_RATIO?: number;
+}
 
 const OVERRIDES_KEY = 'admin:trading_param_overrides_v1';
 

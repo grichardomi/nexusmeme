@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { getCached, setCached } from '@/lib/redis';
 import { getEnvironmentConfig } from '@/config/environment';
+import type { TradingParamOverrides } from '@/services/admin/param-overrides';
 
 const OVERRIDES_KEY = 'admin:trading_param_overrides_v1';
 const OVERRIDES_TTL = 86400 * 365; // persist for 1 year (admin-set overrides)
@@ -24,25 +25,7 @@ export interface PerformanceStats {
   byRegime: { regime: string; count: number; wins: number; avgProfitPct: number }[];
 }
 
-export interface TradingParamOverrides {
-  RISK_MIN_MOMENTUM_1H_BINANCE?: number;
-  RISK_1H_BYPASS_4H_MIN?: number;
-  RISK_1H_BYPASS_INTRABAR_MIN?: number;
-  REGIME_SIZE_STRONG?: number;
-  REGIME_SIZE_MODERATE?: number;
-  REGIME_SIZE_WEAK?: number;
-  REGIME_SIZE_TRANSITIONING?: number;
-  REGIME_SIZE_CHOPPY?: number;
-  PROFIT_TARGET_STRONG?: number;
-  PROFIT_TARGET_MODERATE?: number;
-  PROFIT_TARGET_WEAK?: number;
-  PROFIT_TARGET_CHOPPY?: number;
-  EROSION_PEAK_MIN_PCT?: number;
-  EROSION_PEAK_RELATIVE_THRESHOLD?: number;
-  RISK_BTC_MIN_VOLUME_RATIO?: number;
-}
-
-export async function getAdminParamOverrides(): Promise<TradingParamOverrides> {
+async function getAdminParamOverrides(): Promise<TradingParamOverrides> {
   try {
     const cached = await getCached<TradingParamOverrides>(OVERRIDES_KEY);
     return cached ?? {};
