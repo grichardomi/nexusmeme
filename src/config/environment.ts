@@ -167,6 +167,10 @@ const envSchema = z.object({
   RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Legacy default — superseded by RISK_MIN_MOMENTUM_1H_BINANCE
   RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.25'), // Binance: 0.25% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
+  // 4h bypass: when 4h momentum >= this AND intrabar >= RISK_1H_BYPASS_INTRABAR_MIN, skip the 1h floor
+  // Catches early-recovery entries before the lagging 1h candle accumulates enough gain
+  RISK_1H_BYPASS_4H_MIN: z.string().transform(Number).default('1.0'),       // 4h must be >= 1.0% to bypass
+  RISK_1H_BYPASS_INTRABAR_MIN: z.string().transform(Number).default('0.05'), // intrabar must be >= +0.05% (price moving up now)
   RISK_STRONG_MOMENTUM_OVERRIDE_PCT: z.string().transform(Number).default('2.5'), // 1h momentum % that bypasses volume floor & health-gate 4h requirement
   RISK_MAX_ADVERSE_4H_MOMENTUM: z.string().transform(Number).default('-0.5'), // Block path 1/3 entries when 4h is this negative (counter-trend protection)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
@@ -550,6 +554,8 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_1H: 1.0, // Legacy default
     RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
+    RISK_1H_BYPASS_4H_MIN: 1.0,
+    RISK_1H_BYPASS_INTRABAR_MIN: 0.05,
     RISK_STRONG_MOMENTUM_OVERRIDE_PCT: 2.5, // bypass volume floor & health-gate 4h check when 1h move >= this %
     RISK_MAX_ADVERSE_4H_MOMENTUM: -0.5, // Block path 1/3 when 4h strongly negative
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,

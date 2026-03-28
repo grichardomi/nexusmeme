@@ -1157,17 +1157,27 @@ class TradeSignalOrchestrator {
             // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
             // Fee round-trip is ~0.30%. Entering with mom1h < 0.50% has no statistical edge.
             // RISK_MIN_MOMENTUM_1H_BINANCE applies to Binance; RISK_MIN_MOMENTUM_1H for others.
+            //
+            // 4H BYPASS: When 4h momentum >= RISK_1H_BYPASS_4H_MIN AND intrabar is rising,
+            // skip the 1h floor. The 4h confirms direction; waiting for 1h to catch up means
+            // entering 30-50% into the move — near the local top, not the start.
             {
               const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-              const min1h = isBinance
-                ? parseFloat(env.RISK_MIN_MOMENTUM_1H_BINANCE?.toString() || '0.50')
-                : parseFloat(env.RISK_MIN_MOMENTUM_1H?.toString() || '1.0');
+              const min1h = isBinance ? env.RISK_MIN_MOMENTUM_1H_BINANCE : env.RISK_MIN_MOMENTUM_1H;
               const mom1h = indicators.momentum1h ?? 0;
-              if (mom1h < min1h) {
+              const mom4h = indicators.momentum4h ?? 0;
+              const intrabar = indicators.intrabarMomentum ?? 0;
+              const bypass4hMin = env.RISK_1H_BYPASS_4H_MIN;
+              const bypassIntrabarMin = env.RISK_1H_BYPASS_INTRABAR_MIN;
+              const early4hBypass = mom4h >= bypass4hMin && intrabar >= bypassIntrabarMin;
+              if (mom1h < min1h && !early4hBypass) {
                 logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h });
                 this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, blockStage: 'Momentum Floor', enteredAt: null };
                 this.lastCycleStatus.updatedAt = Date.now();
                 return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, stage: 'Momentum Floor' } };
+              }
+              if (early4hBypass && mom1h < min1h) {
+                logger.info('Orchestrator: 1h floor bypassed — 4h confirmed + intrabar rising', { pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3), bypass4hMin, bypassIntrabarMin });
               }
             }
 
