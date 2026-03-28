@@ -42,21 +42,6 @@ export interface OpenPosition {
  * Provides zero-cost exit detection using only technical signals
  */
 export class MomentumFailureDetector {
-  // Configuration thresholds (from /nexus defaults)
-  private readonly MOMENTUM_FAILURE_MIN_PROFIT_PCT = 2; // Only check if profit > 2%
-  private readonly MOMENTUM_FAILURE_REQUIRED_SIGNALS = 2; // Require 2 of 3 signals
-
-  // Momentum thresholds
-  private readonly MOMENTUM_1H_FAILURE_THRESHOLD = -0.5; // Negative momentum
-  private readonly MOMENTUM_4H_FAILURE_THRESHOLD = -0.3; // Weaker for HTF
-  private readonly HTF_MOMENTUM_WEAKENING = -0.5;
-
-  // Volume thresholds
-  private readonly VOLUME_EXHAUSTION_THRESHOLD_1H = 0.8; // Below 80% of average
-  private readonly VOLUME_EXHAUSTION_THRESHOLD_4H = 0.9; // Below 90% for longer holds
-
-  // Price action thresholds
-  private readonly PRICE_NEAR_PEAK_THRESHOLD = 0.985; // 98.5% of recent high
 
   /**
    * Detect if position should exit due to momentum failure
@@ -131,30 +116,41 @@ export class MomentumFailureDetector {
       return result;
     }
 
-    // Stale trade exit: never went green + held > 15 minutes + no progress
+    // Stale trade exit: never went green + held long enough + loss is meaningful (not just fee noise)
     // Capital tied up in a dead trade = opportunity cost. Exit and redeploy.
-    if (position.profitPct <= 0 && holdMins >= 15) {
+    // Hold time scales with regime — strong/moderate markets get more room to develop.
+    const staleHoldMinutes = (() => {
+      const r = position.regime ?? regimeHint ?? '';
+      if (r === 'strong') return env.MOMENTUM_FAILURE_STALE_MINUTES_STRONG;
+      if (r === 'moderate') return env.MOMENTUM_FAILURE_STALE_MINUTES_MODERATE;
+      return env.MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY;
+    })();
+    const staleMinLossPct = env.MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT * 100; // convert to percent
+    if (position.profitPct <= staleMinLossPct && holdMins >= staleHoldMinutes) {
       result.shouldExit = true;
       result.signalCount = 2;
       result.signals.priceActionFailure = true;
       result.signals.htfBreakdown = true;
       result.reasoning.push(
-        `Stale trade: never profitable after ${holdMins.toFixed(1)}min — exit and redeploy capital`
+        `Stale trade: never profitable after ${holdMins.toFixed(1)}min (limit ${staleHoldMinutes}min), loss ${position.profitPct.toFixed(2)}% ≤ ${staleMinLossPct.toFixed(2)}% — exit and redeploy capital`
       );
       logger.info('Stale trade exit: never profitable after hold time limit', {
         pair: position.pair,
         profitPct: position.profitPct,
         holdTimeMinutes: holdMins,
+        staleHoldMinutes,
+        staleMinLossPct,
+        regime: position.regime ?? regimeHint,
       });
       return result;
     }
 
     // Gate 1: Only check if profit exceeds minimum (2%)
-    if (position.profitPct < this.MOMENTUM_FAILURE_MIN_PROFIT_PCT) {
+    if (position.profitPct < env.MOMENTUM_FAILURE_MIN_PROFIT_PCT) {
       logger.debug('Momentum failure check skipped - insufficient profit', {
         pair: position.pair,
         profitPct: position.profitPct,
-        minRequired: this.MOMENTUM_FAILURE_MIN_PROFIT_PCT,
+        minRequired: env.MOMENTUM_FAILURE_MIN_PROFIT_PCT,
       });
       return result;
     }
@@ -164,12 +160,12 @@ export class MomentumFailureDetector {
     const use4hThresholds = position.pyramidLevelsActivated >= 1;
 
     const momentumThreshold = use4hThresholds
-      ? this.MOMENTUM_4H_FAILURE_THRESHOLD
-      : this.MOMENTUM_1H_FAILURE_THRESHOLD;
+      ? env.MOMENTUM_FAILURE_4H_THRESHOLD
+      : env.MOMENTUM_FAILURE_1H_THRESHOLD;
 
     const volumeThreshold = use4hThresholds
-      ? this.VOLUME_EXHAUSTION_THRESHOLD_4H
-      : this.VOLUME_EXHAUSTION_THRESHOLD_1H;
+      ? env.MOMENTUM_FAILURE_VOLUME_4H
+      : env.MOMENTUM_FAILURE_VOLUME_1H;
 
     // Get optional indicators with defaults
     const momentum1h = indicators.momentum1h ?? 0;
@@ -183,7 +179,7 @@ export class MomentumFailureDetector {
     const momentum1hNegative = momentum1h < momentumThreshold;
 
     if (
-      priceNearPeak >= this.PRICE_NEAR_PEAK_THRESHOLD &&
+      priceNearPeak >= env.MOMENTUM_FAILURE_PRICE_NEAR_PEAK &&
       momentum1hNegative
     ) {
       result.signals.priceActionFailure = true;
@@ -217,25 +213,25 @@ export class MomentumFailureDetector {
     // 4h momentum weakening OR price breaking below EMA200
     // NOTE: momentum4h and threshold both in percentage form (e.g., -0.5 = -0.5%)
     const htfMomentumWeak =
-      momentum4h < this.HTF_MOMENTUM_WEAKENING;
+      momentum4h < env.MOMENTUM_FAILURE_HTF_WEAKENING;
 
     if (htfMomentumWeak) {
       result.signals.htfBreakdown = true;
       result.signalCount++;
       result.reasoning.push(
         `4h momentum weakening: ${momentum4h.toFixed(2)}% ` +
-          `(threshold: ${this.HTF_MOMENTUM_WEAKENING.toFixed(2)}%)`
+          `(threshold: ${env.MOMENTUM_FAILURE_HTF_WEAKENING.toFixed(2)}%)`
       );
     }
 
     // Conservative decision: Require N signals (default 2 of 3)
     result.shouldExit =
-      result.signalCount >= this.MOMENTUM_FAILURE_REQUIRED_SIGNALS;
+      result.signalCount >= env.MOMENTUM_FAILURE_REQUIRED_SIGNALS;
 
     // Add summary reasoning
     if (result.shouldExit) {
       result.reasoning.push(
-        `EXIT TRIGGERED: ${result.signalCount}/${this.MOMENTUM_FAILURE_REQUIRED_SIGNALS} signals met ` +
+        `EXIT TRIGGERED: ${result.signalCount}/${env.MOMENTUM_FAILURE_REQUIRED_SIGNALS} signals met ` +
           `(profit: ${position.profitPct.toFixed(2)}%)`
       );
 
@@ -251,7 +247,7 @@ export class MomentumFailureDetector {
         pair: position.pair,
         profitPct: position.profitPct,
         signalCount: result.signalCount,
-        required: this.MOMENTUM_FAILURE_REQUIRED_SIGNALS,
+        required: env.MOMENTUM_FAILURE_REQUIRED_SIGNALS,
         signals: result.signals,
       });
     }

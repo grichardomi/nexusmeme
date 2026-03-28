@@ -339,6 +339,21 @@ const envSchema = z.object({
   STALE_UNDERWATER_MINUTES: z.string().transform(Number).default('30'), // Exit after 30 min underwater with zero peak
   STALE_UNDERWATER_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (avoids spread noise)
 
+  /* Momentum Failure Stale Exit - regime-aware hold times + minimum loss threshold */
+  /* Prevents ejecting trades that are only slightly underwater from fee noise */
+  MOMENTUM_FAILURE_STALE_MINUTES_STRONG: z.string().transform(Number).default('30'),   // Strong regime: 30min — trending markets need room
+  MOMENTUM_FAILURE_STALE_MINUTES_MODERATE: z.string().transform(Number).default('25'), // Moderate regime: 25min
+  MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: z.string().transform(Number).default('15'),   // Choppy/weak: 15min — exit fast
+  MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (not just fee noise)
+  MOMENTUM_FAILURE_MIN_PROFIT_PCT: z.string().transform(Number).default('2'),          // Gate: only check if profit > 2%
+  MOMENTUM_FAILURE_REQUIRED_SIGNALS: z.string().transform(Number).default('2'),        // Require 2 of 3 signals to exit
+  MOMENTUM_FAILURE_1H_THRESHOLD: z.string().transform(Number).default('-0.5'),         // 1h momentum failure level
+  MOMENTUM_FAILURE_4H_THRESHOLD: z.string().transform(Number).default('-0.3'),         // 4h momentum failure level
+  MOMENTUM_FAILURE_HTF_WEAKENING: z.string().transform(Number).default('-0.5'),        // HTF breakdown threshold
+  MOMENTUM_FAILURE_VOLUME_1H: z.string().transform(Number).default('0.8'),             // Volume exhaustion (1h): below 80% of avg
+  MOMENTUM_FAILURE_VOLUME_4H: z.string().transform(Number).default('0.9'),             // Volume exhaustion (4h): below 90% of avg
+  MOMENTUM_FAILURE_PRICE_NEAR_PEAK: z.string().transform(Number).default('0.985'),     // Price near peak: within 1.5% of high
+
   /* Momentum Thesis Invalidation - exit early when entry signal has decayed */
   ENTRY_THESIS_INVALIDATION_ENABLED: z.string().transform(v => v === 'true').default('true'),
   ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES: z.string().transform(Number).default('10'), // Don't fire in first 10 min (entry noise)
@@ -625,6 +640,18 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_DAILY: -0.003,
     STALE_UNDERWATER_MINUTES: 30,
     STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
+    MOMENTUM_FAILURE_STALE_MINUTES_STRONG: 30,
+    MOMENTUM_FAILURE_STALE_MINUTES_MODERATE: 25,
+    MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: 15,
+    MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT: -0.003,
+    MOMENTUM_FAILURE_MIN_PROFIT_PCT: 2,
+    MOMENTUM_FAILURE_REQUIRED_SIGNALS: 2,
+    MOMENTUM_FAILURE_1H_THRESHOLD: -0.5,
+    MOMENTUM_FAILURE_4H_THRESHOLD: -0.3,
+    MOMENTUM_FAILURE_HTF_WEAKENING: -0.5,
+    MOMENTUM_FAILURE_VOLUME_1H: 0.8,
+    MOMENTUM_FAILURE_VOLUME_4H: 0.9,
+    MOMENTUM_FAILURE_PRICE_NEAR_PEAK: 0.985,
     ENTRY_THESIS_INVALIDATION_ENABLED: true,
     ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES: 10,
     ENTRY_THESIS_INVALIDATION_LOSS_PCT: -0.002,
