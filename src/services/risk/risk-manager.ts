@@ -31,6 +31,7 @@ export interface MarketData {
 class RiskManager {
   private btcMomentum1h = 0;    // Updated per trading iteration
   private btcVolumeRatio = 1.0; // Updated per trading iteration — used to block all pairs during BTC illiquidity
+  private btcVolumeThresholdOverride: number | null = null; // Regime agent dynamic threshold (null = use env/admin)
   private config = {
     btcDumpThreshold1h: -0.015,
     volumeSpikeMax: 3.0,
@@ -119,6 +120,19 @@ class RiskManager {
   }
 
   /**
+   * Update the BTC volume threshold derived from the regime agent's entry adjustment.
+   * Maps agent adjustment (-maxAdj..+maxAdj) to a scaled threshold:
+   *   Most bearish (-maxAdj) → full env threshold (no relaxation)
+   *   Neutral (0)            → 50% of env threshold
+   *   Most bullish (+maxAdj) → 25% of env threshold (floor)
+   * Admin override on RISK_BTC_MIN_VOLUME_RATIO always wins over this dynamic value.
+   */
+  updateBTCVolumeThreshold(dynamicThreshold: number): void {
+    this.btcVolumeThresholdOverride = dynamicThreshold;
+    logger.debug('RiskManager: BTC volume threshold updated from regime agent', { dynamicThreshold: dynamicThreshold.toFixed(3) });
+  }
+
+  /**
    * STAGE 1: Health Gate - Trend Direction Score
    * Ask: "is price moving UP right now?" — not "is price above where it was 4h ago?"
    *
@@ -141,12 +155,10 @@ class RiskManager {
     const mom1hPct = momentum1h ?? 0;
     const env = getEnvironmentConfig();
 
-    console.log(`\n🏥 HEALTH GATE: trendScore=${score}/3 | higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%`);
     logger.debug('RiskManager: Stage 1 - Health Gate (direction score)', { trendScore: score, higherCloses, momentumSlope, intrabar, momentum4h: mom4h, momentum1h });
 
     // CRASH GUARD: 4h < -3% = genuine crash or panic — dead-cat bounces are traps
     if (mom4h < -3.0) {
-      console.log(`\n🚫 CRASH GUARD: 4h=${mom4h.toFixed(2)}% — too deep to enter safely`);
       logger.info('RiskManager: Entry blocked - crash guard (4h < -3%)', { momentum4h: mom4h.toFixed(3) });
       return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < -3% (panic/crash protection)`, stage: 'Health Gate' };
     }
@@ -299,16 +311,23 @@ class RiskManager {
     // ETH/alts follow BTC; entering when BTC has 0.05x volume is a false signal.
     const env = getEnvironmentConfig();
     const adminOverrides = await getParamOverrides();
-    const btcMinVol = adminOverrides.RISK_BTC_MIN_VOLUME_RATIO ?? env.RISK_BTC_MIN_VOLUME_RATIO;
+    // Priority: admin override > regime agent dynamic threshold > env default
+    const btcMinVol = adminOverrides.RISK_BTC_MIN_VOLUME_RATIO
+      ?? this.btcVolumeThresholdOverride
+      ?? env.RISK_BTC_MIN_VOLUME_RATIO;
+    const thresholdSource = adminOverrides.RISK_BTC_MIN_VOLUME_RATIO ? 'admin'
+      : this.btcVolumeThresholdOverride !== null ? 'regime_agent'
+      : 'env';
     if (this.btcVolumeRatio < btcMinVol) {
       logger.info('RiskManager: Entry blocked - BTC market illiquid (thin volume on all pairs)', {
         pair,
         btcVolumeRatio: this.btcVolumeRatio.toFixed(3),
         threshold: btcMinVol,
+        thresholdSource,
       });
       return {
         pass: false,
-        reason: `BTC volume too thin (${this.btcVolumeRatio.toFixed(2)}x < ${btcMinVol}x) — market-wide illiquidity`,
+        reason: `BTC volume too thin (${this.btcVolumeRatio.toFixed(2)}x < ${btcMinVol.toFixed(2)}x) — market-wide illiquidity`,
         stage: 'Drop Protection',
       };
     }

@@ -61,6 +61,7 @@ export async function GET() {
       ageSeconds,
       callsToday: regimeAgent.callsToday,
       adjustmentOverride: regimeAgent.adjustmentOverride,
+      overrideExpiresInSeconds: regimeAgent.overrideExpiresInSeconds,
     },
     tradeMonitor: {
       enabled: env.AI_TRADE_MONITOR_ENABLED,

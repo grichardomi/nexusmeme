@@ -56,6 +56,7 @@ interface AgentsData {
     ageSeconds: number | null;
     callsToday: number;
     adjustmentOverride: number | null;
+    overrideExpiresInSeconds: number | null;
   };
   tradeMonitor: {
     enabled: boolean;
@@ -95,11 +96,21 @@ interface TradingParams {
   RISK_BTC_MIN_VOLUME_RATIO: number;
 }
 
+interface ParamChangeEntry {
+  timestamp: string;
+  key: string;
+  oldValue: number | undefined;
+  newValue: number | undefined;
+  action: 'set' | 'reset' | 'reset_all';
+}
+
 interface TradingParamsData {
   performance: PerformanceData;
   params: TradingParams;
   envDefaults: TradingParams;
   overrides: Partial<TradingParams>;
+  changelog: ParamChangeEntry[];
+  overrideSetAt: Record<string, string>; // ISO timestamp when each override was last set
 }
 
 const REGIME_COLORS: Record<string, string> = {
@@ -137,6 +148,20 @@ function AgeIndicator({ ageSeconds, ttlSeconds }: { ageSeconds: number; ttlSecon
   );
 }
 
+const OVERRIDE_EXPIRY_DAYS = 7;
+const PROMOTE_NUDGE_HOURS = 24;
+
+function overrideAge(setAt: string | undefined): { ageMs: number; ageLabel: string; expiresInDays: number } | null {
+  if (!setAt) return null;
+  const ageMs = Date.now() - new Date(setAt).getTime();
+  const totalHours = ageMs / 3600000;
+  const days = Math.floor(totalHours / 24);
+  const hours = Math.floor(totalHours % 24);
+  const ageLabel = days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+  const expiresInDays = Math.max(0, OVERRIDE_EXPIRY_DAYS - days);
+  return { ageMs, ageLabel, expiresInDays };
+}
+
 interface SliderRowProps {
   label: string;
   description: string;
@@ -144,6 +169,7 @@ interface SliderRowProps {
   value: number;
   envDefault: number;
   isOverridden: boolean;
+  setAt?: string; // ISO timestamp when override was set
   min: number;
   max: number;
   step: number;
@@ -152,15 +178,20 @@ interface SliderRowProps {
   onReset: (key: keyof TradingParams) => void;
 }
 
-function SliderRow({ label, description, paramKey, value, envDefault, isOverridden, min, max, step, format, onChange, onReset }: SliderRowProps) {
+function SliderRow({ label, description, paramKey, value, envDefault, isOverridden, setAt, min, max, step, format, onChange, onReset }: SliderRowProps) {
+  const age = isOverridden ? overrideAge(setAt) : null;
+  const showPromoteNudge = age !== null && age.ageMs > PROMOTE_NUDGE_HOURS * 3600000;
+
   return (
     <div className={`px-4 py-3 rounded-lg ${isOverridden ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40' : 'bg-slate-50 dark:bg-slate-900/50'}`}>
       <div className="flex items-start justify-between mb-2 gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{label}</span>
-            {isOverridden && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 font-medium">override</span>
+            {isOverridden && age && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 font-medium">
+                override · {age.ageLabel} · expires in {age.expiresInDays}d
+              </span>
             )}
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{description}</p>
@@ -191,6 +222,11 @@ function SliderRow({ label, description, paramKey, value, envDefault, isOverridd
         {isOverridden && <span className="text-amber-500">env default: {format(envDefault)}</span>}
         <span>max {format(max)}</span>
       </div>
+      {showPromoteNudge && (
+        <div className="mt-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/40 px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+          Stable for {age!.ageLabel} — ready to promote. Set <code className="bg-blue-100 dark:bg-blue-900/40 px-1 rounded font-mono">{String(paramKey)}={format(value)}</code> in <code className="bg-blue-100 dark:bg-blue-900/40 px-1 rounded">.env.local</code> then click reset to remove this override.
+        </div>
+      )}
     </div>
   );
 }
@@ -325,8 +361,10 @@ export default function AgentsDashboardPage() {
   const estimatedCostToday = ((regime?.callsToday ?? 0) * 0.00025).toFixed(4);
   const perf = paramsData?.performance;
   const winRate = perf && perf.totalTrades > 0 ? (perf.wins / perf.totalTrades * 100).toFixed(1) : '—';
+  // Gross P&L is stored in DB; subtract estimated round-trip fee (0.20% Binance maker+taker)
+  const FEE_ROUNDTRIP_PCT = 0.20;
   const expectancy = perf && perf.totalTrades > 0
-    ? ((perf.wins / perf.totalTrades) * perf.avgWinPct - (perf.losses / perf.totalTrades) * Math.abs(perf.avgLossPct)).toFixed(3)
+    ? ((perf.wins / perf.totalTrades) * perf.avgWinPct - (perf.losses / perf.totalTrades) * Math.abs(perf.avgLossPct) - FEE_ROUNDTRIP_PCT).toFixed(3)
     : null;
   const hasOverrides = paramsData && Object.keys(paramsData.overrides).length > 0;
 
@@ -425,7 +463,7 @@ export default function AgentsDashboardPage() {
             {/* Expectancy */}
             {expectancy !== null && (
               <div className={`rounded-lg px-4 py-3 text-sm font-medium flex items-center justify-between ${parseFloat(expectancy) >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'}`}>
-                <span>Net expectancy per trade</span>
+                <span>Net expectancy per trade <span className="font-normal opacity-70">(after ~0.20% fees)</span></span>
                 <span className="font-mono font-bold">{parseFloat(expectancy) >= 0 ? '+' : ''}{expectancy}%</span>
               </div>
             )}
@@ -463,79 +501,6 @@ export default function AgentsDashboardPage() {
         </div>
       )}
 
-      {/* ── STRATEGY TUNING ── */}
-      {localParams && paramsData && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-            <div>
-              <span className="text-base font-semibold text-slate-900 dark:text-white">Strategy Tuning</span>
-              <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">live · no restart needed</span>
-            </div>
-            <div className="flex gap-2">
-              {hasOverrides && (
-                <button onClick={resetAllParams} disabled={savingParams} className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition">
-                  Reset all
-                </button>
-              )}
-              <button onClick={saveParams} disabled={savingParams} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition font-medium">
-                {savingParams ? 'Saving…' : 'Save changes'}
-              </button>
-            </div>
-          </div>
-
-          <div className="p-5 space-y-5">
-            {/* Entry sensitivity */}
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Entry Sensitivity</div>
-              <div className="space-y-3">
-                <SliderRow label="1h Momentum Floor (Binance)" description="Minimum 1h momentum % required to enter. Lower = earlier entries." paramKey="RISK_MIN_MOMENTUM_1H_BINANCE" value={localParams.RISK_MIN_MOMENTUM_1H_BINANCE} envDefault={paramsData.envDefaults.RISK_MIN_MOMENTUM_1H_BINANCE} isOverridden={'RISK_MIN_MOMENTUM_1H_BINANCE' in paramsData.overrides} min={0} max={2} step={0.05} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="4h Bypass Threshold" description="4h momentum % needed to bypass the 1h floor. Allows early entries when 4h is strong." paramKey="RISK_1H_BYPASS_4H_MIN" value={localParams.RISK_1H_BYPASS_4H_MIN} envDefault={paramsData.envDefaults.RISK_1H_BYPASS_4H_MIN} isOverridden={'RISK_1H_BYPASS_4H_MIN' in paramsData.overrides} min={0.5} max={3} step={0.1} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Intrabar Bypass Min" description="Minimum intrabar momentum % to activate 4h bypass." paramKey="RISK_1H_BYPASS_INTRABAR_MIN" value={localParams.RISK_1H_BYPASS_INTRABAR_MIN} envDefault={paramsData.envDefaults.RISK_1H_BYPASS_INTRABAR_MIN} isOverridden={'RISK_1H_BYPASS_INTRABAR_MIN' in paramsData.overrides} min={0} max={0.5} step={0.01} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
-              </div>
-            </div>
-
-            {/* Regime position sizing */}
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Position Size Multipliers by Regime</div>
-              <div className="space-y-3">
-                <SliderRow label="Strong" description="mom1h ≥ 1.0% + mom4h ≥ 0.8% — confirmed trend." paramKey="REGIME_SIZE_STRONG" value={localParams.REGIME_SIZE_STRONG} envDefault={paramsData.envDefaults.REGIME_SIZE_STRONG} isOverridden={'REGIME_SIZE_STRONG' in paramsData.overrides} min={0.5} max={2} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Moderate" description="mom1h ≥ 0.4% + mom4h ≥ 0.2% — developing trend." paramKey="REGIME_SIZE_MODERATE" value={localParams.REGIME_SIZE_MODERATE} envDefault={paramsData.envDefaults.REGIME_SIZE_MODERATE} isOverridden={'REGIME_SIZE_MODERATE' in paramsData.overrides} min={0.25} max={1.5} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Weak" description="mom1h ≥ 0.2% — weak trend." paramKey="REGIME_SIZE_WEAK" value={localParams.REGIME_SIZE_WEAK} envDefault={paramsData.envDefaults.REGIME_SIZE_WEAK} isOverridden={'REGIME_SIZE_WEAK' in paramsData.overrides} min={0.1} max={1} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Choppy / Transitioning" description="mom4h ≤ 0 or mom1h < 0.2% — minimal exposure." paramKey="REGIME_SIZE_CHOPPY" value={localParams.REGIME_SIZE_CHOPPY} envDefault={paramsData.envDefaults.REGIME_SIZE_CHOPPY} isOverridden={'REGIME_SIZE_CHOPPY' in paramsData.overrides} min={0.1} max={0.75} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
-              </div>
-            </div>
-
-            {/* Profit targets */}
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Profit Targets by Regime</div>
-              <div className="space-y-3">
-                <SliderRow label="Strong" description="mom1h ≥ 1.0% + mom4h ≥ 0.8% — ride the move." paramKey="PROFIT_TARGET_STRONG" value={localParams.PROFIT_TARGET_STRONG} envDefault={paramsData.envDefaults.PROFIT_TARGET_STRONG} isOverridden={'PROFIT_TARGET_STRONG' in paramsData.overrides} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Moderate" description="mom1h ≥ 0.4% + mom4h ≥ 0.2% — developing trend target." paramKey="PROFIT_TARGET_MODERATE" value={localParams.PROFIT_TARGET_MODERATE} envDefault={paramsData.envDefaults.PROFIT_TARGET_MODERATE} isOverridden={'PROFIT_TARGET_MODERATE' in paramsData.overrides} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Weak" description="mom1h ≥ 0.2% — quick exit before fade." paramKey="PROFIT_TARGET_WEAK" value={localParams.PROFIT_TARGET_WEAK} envDefault={paramsData.envDefaults.PROFIT_TARGET_WEAK} isOverridden={'PROFIT_TARGET_WEAK' in paramsData.overrides} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Choppy" description="mom4h ≤ 0 — scalp only, fees eat anything bigger." paramKey="PROFIT_TARGET_CHOPPY" value={localParams.PROFIT_TARGET_CHOPPY} envDefault={paramsData.envDefaults.PROFIT_TARGET_CHOPPY} isOverridden={'PROFIT_TARGET_CHOPPY' in paramsData.overrides} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
-              </div>
-            </div>
-
-            {/* Exit protection */}
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Exit Protection (Erosion Cap)</div>
-              <div className="space-y-3">
-                <SliderRow label="Peak Arming Threshold" description="Minimum peak profit % before erosion cap arms. Lower = more trades protected." paramKey="EROSION_PEAK_MIN_PCT" value={localParams.EROSION_PEAK_MIN_PCT} envDefault={paramsData.envDefaults.EROSION_PEAK_MIN_PCT} isOverridden={'EROSION_PEAK_MIN_PCT' in paramsData.overrides} min={0.05} max={2} step={0.05} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
-                <SliderRow label="Erosion Exit Threshold" description="Exit when profit drops this much from peak (e.g. 0.35 = exit at 65% of peak)." paramKey="EROSION_PEAK_RELATIVE_THRESHOLD" value={localParams.EROSION_PEAK_RELATIVE_THRESHOLD} envDefault={paramsData.envDefaults.EROSION_PEAK_RELATIVE_THRESHOLD} isOverridden={'EROSION_PEAK_RELATIVE_THRESHOLD' in paramsData.overrides} min={0.1} max={0.8} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
-              </div>
-            </div>
-
-            {/* Volume / liquidity guard */}
-            <div>
-              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Market Liquidity Guard</div>
-              <div className="space-y-3">
-                <SliderRow label="BTC Min Volume Ratio" description="Block ALL entries when BTC volume is below this fraction of its 20-candle average. 0.4 = require 40% of normal volume. Lower during weekend low-liquidity periods." paramKey="RISK_BTC_MIN_VOLUME_RATIO" value={localParams.RISK_BTC_MIN_VOLUME_RATIO} envDefault={paramsData.envDefaults.RISK_BTC_MIN_VOLUME_RATIO} isOverridden={'RISK_BTC_MIN_VOLUME_RATIO' in paramsData.overrides} min={0.01} max={0.8} step={0.01} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ── REGIME AGENT ── */}
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
@@ -545,10 +510,15 @@ export default function AgentsDashboardPage() {
               {regime?.enabled ? 'enabled' : 'disabled'}
             </span>
             {regime?.adjustmentOverride !== null && (
-              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">override active</span>
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                override active{regime?.overrideExpiresInSeconds != null ? ` · expires ${Math.ceil(regime.overrideExpiresInSeconds / 3600)}h` : ' · no expiry'}
+              </span>
             )}
           </div>
-          <span className="text-xs text-slate-400 dark:text-slate-500">{regime?.model}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 dark:text-slate-500 hidden sm:inline">{regime?.model}</span>
+            <button onClick={flushCache} disabled={actionBusy} className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-50 transition font-medium">Refresh</button>
+          </div>
         </div>
 
         <div className="p-5">
@@ -596,27 +566,152 @@ export default function AgentsDashboardPage() {
         </div>
 
         <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-700 space-y-3">
-          <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Controls</div>
-          <div className="flex flex-wrap gap-2">
-            <button onClick={flushCache} disabled={actionBusy} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-50 transition font-medium">Force Refresh Now</button>
-            {regime?.adjustmentOverride !== null ? (
-              <button onClick={clearOverride} disabled={actionBusy} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-50 transition font-medium">Clear Override (restore agent)</button>
-            ) : (
-              <button onClick={() => setShowOverrideInput(v => !v)} disabled={actionBusy} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition font-medium">Override Adjustment</button>
-            )}
-            {regime?.adjustmentOverride === null && (
-              <button onClick={async () => { setActionBusy(true); await fetch('/api/admin/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_override', value: 0 }) }); flash('Override set to 0 — agent paused at neutral', true); await fetchData(); setActionBusy(false); }} disabled={actionBusy} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition font-medium">Pause at Neutral (0)</button>
-            )}
+          {/* Permanent tuning lever */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-500 dark:text-slate-400">Max adjustment range (permanent lever)</span>
+            <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">±{maxAdj} — set via <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">AI_REGIME_AGENT_MAX_ADJUSTMENT</code></span>
           </div>
-          {showOverrideInput && regime?.adjustmentOverride === null && (
-            <div className="flex items-center gap-2">
-              <input type="number" min={-maxAdj} max={maxAdj} value={overrideInput} onChange={e => setOverrideInput(e.target.value)} placeholder={`-${maxAdj} to +${maxAdj}`} className="text-sm px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-36 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <button onClick={setOverride} disabled={actionBusy || overrideInput === ''} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition font-medium">Apply</button>
-              <button onClick={() => { setShowOverrideInput(false); setOverrideInput(''); }} className="text-xs px-3 py-2 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition">Cancel</button>
+
+          {/* Active override warning — urge clearing */}
+          {regime && regime.adjustmentOverride !== null && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-4 py-3 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  ⚠ Emergency override active: {regime.adjustmentOverride > 0 ? '+' : ''}{regime.adjustmentOverride}
+                </span>
+                <span className="text-xs text-amber-600 dark:text-amber-400">
+                  {regime.overrideExpiresInSeconds != null
+                    ? `auto-restores in ${Math.ceil(regime.overrideExpiresInSeconds / 3600)}h`
+                    : 'no auto-expiry set'}
+                </span>
+              </div>
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Agent output is being ignored. For permanent tuning, clear this and adjust <code className="bg-amber-100 dark:bg-amber-800/40 px-1 rounded">AI_REGIME_AGENT_MAX_ADJUSTMENT</code> in env vars instead.
+              </p>
+              <button onClick={clearOverride} disabled={actionBusy} className="mt-1 text-xs px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-800/40 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60 disabled:opacity-50 transition font-medium">
+                Clear override — restore agent control
+              </button>
             </div>
           )}
+
+          {/* Emergency override — collapsed by default */}
+          <details className="group">
+            <summary className="cursor-pointer text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 select-none list-none flex items-center gap-1">
+              <span className="group-open:hidden">▶</span><span className="hidden group-open:inline">▼</span>
+              Emergency override (temporary, use sparingly)
+            </summary>
+            <div className="mt-3 space-y-2 pl-3 border-l-2 border-amber-300 dark:border-amber-700">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                <span className="font-semibold text-amber-600 dark:text-amber-400">Manual overrides work against long-term consistency.</span> Only use when you know something the agent doesn&apos;t (e.g., exchange maintenance, known news event). Auto-expires in 4h. For permanent calibration, use <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">AI_REGIME_AGENT_MAX_ADJUSTMENT</code> in env vars.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setShowOverrideInput(v => !v)} disabled={actionBusy} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition font-medium">
+                  {showOverrideInput ? 'Cancel' : 'Set Override'}
+                </button>
+                <button onClick={async () => { setActionBusy(true); await fetch('/api/admin/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'set_override', value: 0 }) }); flash('Override set to 0 — agent paused at neutral for 4h', true); await fetchData(); setActionBusy(false); }} disabled={actionBusy} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition font-medium">
+                  Pause at Neutral (0)
+                </button>
+              </div>
+              {showOverrideInput && (
+                <div className="space-y-2">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Value from <span className="font-mono">-{maxAdj}</span> to <span className="font-mono">+{maxAdj}</span>. Positive = lower bar (more entries). Negative = raise bar (fewer entries).
+                    {regime?.state?.entryBarAdjustment !== undefined && (
+                      <> Agent currently at <span className="font-semibold">{regime.state.entryBarAdjustment > 0 ? '+' : ''}{regime.state.entryBarAdjustment}</span>.</>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={-maxAdj}
+                      max={maxAdj}
+                      value={overrideInput}
+                      onChange={e => setOverrideInput(e.target.value)}
+                      placeholder={regime?.state?.entryBarAdjustment !== undefined ? `agent: ${regime.state.entryBarAdjustment > 0 ? '+' : ''}${regime.state.entryBarAdjustment}` : `−${maxAdj} to +${maxAdj}`}
+                      className="text-sm px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white w-44 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button onClick={setOverride} disabled={actionBusy || overrideInput === ''} className="text-xs px-3 py-2 min-h-[36px] rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition font-medium">Apply</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
         </div>
       </div>
+
+      {/* ── STRATEGY TUNING ── */}
+      {localParams && paramsData && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+            <div>
+              <span className="text-base font-semibold text-slate-900 dark:text-white">Strategy Tuning</span>
+              <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">live · no restart needed</span>
+            </div>
+            <div className="flex gap-2">
+              {hasOverrides && (
+                <button onClick={resetAllParams} disabled={savingParams} className="text-xs px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 transition">
+                  Reset all
+                </button>
+              )}
+              <button onClick={saveParams} disabled={savingParams} className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition font-medium">
+                {savingParams ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {/* Entry sensitivity */}
+            <div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Entry Sensitivity</div>
+              <div className="space-y-3">
+                <SliderRow label="1h Momentum Floor (Binance)" description="Minimum 1h momentum % required to enter. Lower = earlier entries." paramKey="RISK_MIN_MOMENTUM_1H_BINANCE" value={localParams.RISK_MIN_MOMENTUM_1H_BINANCE} envDefault={paramsData.envDefaults.RISK_MIN_MOMENTUM_1H_BINANCE} isOverridden={'RISK_MIN_MOMENTUM_1H_BINANCE' in paramsData.overrides} setAt={paramsData.overrideSetAt['RISK_MIN_MOMENTUM_1H_BINANCE']} min={0} max={2} step={0.05} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="4h Bypass Threshold" description="4h momentum % needed to bypass the 1h floor. Allows early entries when 4h is strong." paramKey="RISK_1H_BYPASS_4H_MIN" value={localParams.RISK_1H_BYPASS_4H_MIN} envDefault={paramsData.envDefaults.RISK_1H_BYPASS_4H_MIN} isOverridden={'RISK_1H_BYPASS_4H_MIN' in paramsData.overrides} setAt={paramsData.overrideSetAt['RISK_1H_BYPASS_4H_MIN']} min={0.5} max={3} step={0.1} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Intrabar Bypass Min" description="Minimum intrabar momentum % to activate 4h bypass." paramKey="RISK_1H_BYPASS_INTRABAR_MIN" value={localParams.RISK_1H_BYPASS_INTRABAR_MIN} envDefault={paramsData.envDefaults.RISK_1H_BYPASS_INTRABAR_MIN} isOverridden={'RISK_1H_BYPASS_INTRABAR_MIN' in paramsData.overrides} setAt={paramsData.overrideSetAt['RISK_1H_BYPASS_INTRABAR_MIN']} min={0} max={0.5} step={0.01} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
+              </div>
+            </div>
+
+            {/* Regime position sizing */}
+            <div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Position Size Multipliers by Regime</div>
+              <div className="space-y-3">
+                <SliderRow label="Strong" description="mom1h ≥ 1.0% + mom4h ≥ 0.8% — confirmed trend." paramKey="REGIME_SIZE_STRONG" value={localParams.REGIME_SIZE_STRONG} envDefault={paramsData.envDefaults.REGIME_SIZE_STRONG} isOverridden={'REGIME_SIZE_STRONG' in paramsData.overrides} setAt={paramsData.overrideSetAt['REGIME_SIZE_STRONG']} min={0.5} max={2} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Moderate" description="mom1h ≥ 0.4% + mom4h ≥ 0.2% — developing trend." paramKey="REGIME_SIZE_MODERATE" value={localParams.REGIME_SIZE_MODERATE} envDefault={paramsData.envDefaults.REGIME_SIZE_MODERATE} isOverridden={'REGIME_SIZE_MODERATE' in paramsData.overrides} setAt={paramsData.overrideSetAt['REGIME_SIZE_MODERATE']} min={0.25} max={1.5} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Weak" description="mom1h ≥ 0.2% — weak trend." paramKey="REGIME_SIZE_WEAK" value={localParams.REGIME_SIZE_WEAK} envDefault={paramsData.envDefaults.REGIME_SIZE_WEAK} isOverridden={'REGIME_SIZE_WEAK' in paramsData.overrides} setAt={paramsData.overrideSetAt['REGIME_SIZE_WEAK']} min={0.1} max={1} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Transitioning" description="4h positive but 1h lagging — early move, reduced size." paramKey="REGIME_SIZE_TRANSITIONING" value={localParams.REGIME_SIZE_TRANSITIONING} envDefault={paramsData.envDefaults.REGIME_SIZE_TRANSITIONING} isOverridden={'REGIME_SIZE_TRANSITIONING' in paramsData.overrides} setAt={paramsData.overrideSetAt['REGIME_SIZE_TRANSITIONING']} min={0.1} max={1} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Choppy" description="mom4h ≤ 0 — minimal exposure, speculative entry only." paramKey="REGIME_SIZE_CHOPPY" value={localParams.REGIME_SIZE_CHOPPY} envDefault={paramsData.envDefaults.REGIME_SIZE_CHOPPY} isOverridden={'REGIME_SIZE_CHOPPY' in paramsData.overrides} setAt={paramsData.overrideSetAt['REGIME_SIZE_CHOPPY']} min={0.1} max={0.75} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+              </div>
+            </div>
+
+            {/* Profit targets */}
+            <div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Profit Targets by Regime</div>
+              <div className="space-y-3">
+                <SliderRow label="Strong" description="mom1h ≥ 1.0% + mom4h ≥ 0.8% — ride the move." paramKey="PROFIT_TARGET_STRONG" value={localParams.PROFIT_TARGET_STRONG} envDefault={paramsData.envDefaults.PROFIT_TARGET_STRONG} isOverridden={'PROFIT_TARGET_STRONG' in paramsData.overrides} setAt={paramsData.overrideSetAt['PROFIT_TARGET_STRONG']} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Moderate" description="mom1h ≥ 0.4% + mom4h ≥ 0.2% — developing trend target." paramKey="PROFIT_TARGET_MODERATE" value={localParams.PROFIT_TARGET_MODERATE} envDefault={paramsData.envDefaults.PROFIT_TARGET_MODERATE} isOverridden={'PROFIT_TARGET_MODERATE' in paramsData.overrides} setAt={paramsData.overrideSetAt['PROFIT_TARGET_MODERATE']} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Weak" description="mom1h ≥ 0.2% — quick exit before fade." paramKey="PROFIT_TARGET_WEAK" value={localParams.PROFIT_TARGET_WEAK} envDefault={paramsData.envDefaults.PROFIT_TARGET_WEAK} isOverridden={'PROFIT_TARGET_WEAK' in paramsData.overrides} setAt={paramsData.overrideSetAt['PROFIT_TARGET_WEAK']} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Choppy" description="mom4h ≤ 0 — scalp only, fees eat anything bigger." paramKey="PROFIT_TARGET_CHOPPY" value={localParams.PROFIT_TARGET_CHOPPY} envDefault={paramsData.envDefaults.PROFIT_TARGET_CHOPPY} isOverridden={'PROFIT_TARGET_CHOPPY' in paramsData.overrides} setAt={paramsData.overrideSetAt['PROFIT_TARGET_CHOPPY']} min={0.005} max={0.12} step={0.005} format={pctFmt} onChange={handleParamChange} onReset={handleParamReset} />
+              </div>
+            </div>
+
+            {/* Exit protection */}
+            <div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Exit Protection (Erosion Cap)</div>
+              <div className="space-y-3">
+                <SliderRow label="Peak Arming Threshold" description="Minimum peak profit % before erosion cap arms. Lower = more trades protected." paramKey="EROSION_PEAK_MIN_PCT" value={localParams.EROSION_PEAK_MIN_PCT} envDefault={paramsData.envDefaults.EROSION_PEAK_MIN_PCT} isOverridden={'EROSION_PEAK_MIN_PCT' in paramsData.overrides} setAt={paramsData.overrideSetAt['EROSION_PEAK_MIN_PCT']} min={0.05} max={2} step={0.05} format={rawFmt} onChange={handleParamChange} onReset={handleParamReset} />
+                <SliderRow label="Erosion Exit Threshold" description="Exit when profit drops this much from peak (e.g. 0.35 = exit at 65% of peak)." paramKey="EROSION_PEAK_RELATIVE_THRESHOLD" value={localParams.EROSION_PEAK_RELATIVE_THRESHOLD} envDefault={paramsData.envDefaults.EROSION_PEAK_RELATIVE_THRESHOLD} isOverridden={'EROSION_PEAK_RELATIVE_THRESHOLD' in paramsData.overrides} setAt={paramsData.overrideSetAt['EROSION_PEAK_RELATIVE_THRESHOLD']} min={0.1} max={0.8} step={0.05} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+              </div>
+            </div>
+
+            {/* Volume / liquidity guard */}
+            <div>
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3 uppercase tracking-wide">Market Liquidity Guard</div>
+              <div className="space-y-3">
+                <SliderRow label="BTC Min Volume Ratio" description="Block ALL entries when BTC volume is below this fraction of its 20-candle average. 0.4 = require 40% of normal volume. Lower during weekend low-liquidity periods." paramKey="RISK_BTC_MIN_VOLUME_RATIO" value={localParams.RISK_BTC_MIN_VOLUME_RATIO} envDefault={paramsData.envDefaults.RISK_BTC_MIN_VOLUME_RATIO} isOverridden={'RISK_BTC_MIN_VOLUME_RATIO' in paramsData.overrides} setAt={paramsData.overrideSetAt['RISK_BTC_MIN_VOLUME_RATIO']} min={0.01} max={0.8} step={0.01} format={multFmt} onChange={handleParamChange} onReset={handleParamReset} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── TRADE MONITOR ── */}
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -719,6 +814,42 @@ export default function AgentsDashboardPage() {
           </div>
         );
       })()}
+
+      {/* ── PARAM CHANGE LOG ── */}
+      {paramsData && paramsData.changelog.length > 0 && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+            <div>
+              <span className="text-base font-semibold text-slate-900 dark:text-white">Parameter Change Log</span>
+              <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">last {paramsData.changelog.length} changes · use to evaluate impact before changing again</span>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-700">
+            {paramsData.changelog.map((entry, i) => {
+              const isReset = entry.newValue === undefined;
+              const increased = !isReset && entry.oldValue !== undefined && entry.newValue! > entry.oldValue;
+              const decreased = !isReset && entry.oldValue !== undefined && entry.newValue! < entry.oldValue;
+              return (
+                <div key={i} className="px-5 py-3 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded font-mono font-medium ${isReset ? 'bg-slate-100 dark:bg-slate-700 text-slate-500' : increased ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : decreased ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
+                      {isReset ? '↺' : increased ? '↑' : '↓'}
+                    </span>
+                    <span className="text-xs font-mono text-slate-700 dark:text-slate-200 truncate">{entry.key}</span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 text-xs text-slate-500 dark:text-slate-400">
+                    {isReset
+                      ? <span>reset to env default{entry.oldValue !== undefined ? ` (was ${entry.oldValue})` : ''}</span>
+                      : <span className="font-mono">{entry.oldValue ?? 'env'} → <span className="font-semibold text-slate-700 dark:text-slate-200">{entry.newValue}</span></span>
+                    }
+                    <span className="text-slate-400 dark:text-slate-500">{new Date(entry.timestamp).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Config + Usage */}
       <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 p-4">

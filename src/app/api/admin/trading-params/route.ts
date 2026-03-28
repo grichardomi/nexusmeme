@@ -9,6 +9,26 @@ import type { TradingParamOverrides } from '@/services/admin/param-overrides';
 const OVERRIDES_KEY = 'admin:trading_param_overrides_v1';
 const OVERRIDES_TTL = 86400 * 365; // persist for 1 year (admin-set overrides)
 
+const CHANGELOG_KEY = 'admin:param_changelog_v1';
+const CHANGELOG_TTL = 86400 * 365;
+const CHANGELOG_MAX = 50; // keep last 50 entries
+
+export interface ParamChangeEntry {
+  timestamp: string;
+  key: string;
+  oldValue: number | undefined;
+  newValue: number | undefined; // undefined = reset to env default
+  action: 'set' | 'reset' | 'reset_all';
+}
+
+async function appendChangelog(entries: ParamChangeEntry[]): Promise<void> {
+  try {
+    const existing = await getCached<ParamChangeEntry[]>(CHANGELOG_KEY) ?? [];
+    const updated = [...entries, ...existing].slice(0, CHANGELOG_MAX);
+    await setCached(CHANGELOG_KEY, updated, CHANGELOG_TTL);
+  } catch { /* non-critical */ }
+}
+
 async function requireAdmin() {
   const session = await getServerSession(authOptions);
   if (!session || (session.user as any)?.role !== 'admin') return null;
@@ -42,7 +62,7 @@ export async function GET() {
   const env = getEnvironmentConfig();
 
   // Performance stats — last 7 days across all bots
-  const [overallRows, exitRows] = await Promise.all([
+  const [overallRows, exitRows, regimeRows] = await Promise.all([
     query<{ total: string; wins: string; losses: string; avg_win: string; avg_loss: string }>(`
       SELECT
         COUNT(*) AS total,
@@ -66,6 +86,19 @@ export async function GET() {
       GROUP BY exit_reason
       ORDER BY count DESC
     `).catch(() => []),
+    query<{ regime: string | null; count: string; wins: string; avg_profit: string }>(`
+      SELECT
+        metadata->>'regime' AS regime,
+        COUNT(*) AS count,
+        SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) AS wins,
+        AVG(profit_loss_percent) AS avg_profit
+      FROM trades
+      WHERE status = 'closed'
+        AND closed_at >= NOW() - INTERVAL '7 days'
+        AND metadata->>'regime' IS NOT NULL
+      GROUP BY metadata->>'regime'
+      ORDER BY count DESC
+    `).catch(() => []),
   ]);
 
   const overall = overallRows[0];
@@ -81,7 +114,12 @@ export async function GET() {
       avgPnlPct: parseFloat(r.avg_pnl ?? '0') || 0,
       wins: parseInt(r.wins ?? '0'),
     })),
-    byRegime: [] as { regime: string; count: number; wins: number; avgProfitPct: number }[],
+    byRegime: regimeRows.map(r => ({
+      regime: r.regime ?? 'unknown',
+      count: parseInt(r.count),
+      wins: parseInt(r.wins ?? '0'),
+      avgProfitPct: parseFloat(r.avg_profit ?? '0') || 0,
+    })),
   };
 
   // Current param values (env, possibly overridden)
@@ -123,7 +161,43 @@ export async function GET() {
     RISK_BTC_MIN_VOLUME_RATIO: env.RISK_BTC_MIN_VOLUME_RATIO,
   };
 
-  return NextResponse.json({ performance, params, envDefaults, overrides });
+  const changelog = await getCached<ParamChangeEntry[]>(CHANGELOG_KEY).catch(() => null) ?? [];
+
+  // Derive per-key setAt from changelog (newest-first, find first 'set' action per key)
+  const overrideSetAt: Record<string, string> = {};
+  for (const entry of changelog) {
+    if (entry.action === 'set' && !(entry.key in overrideSetAt)) {
+      overrideSetAt[entry.key] = entry.timestamp;
+    }
+  }
+
+  // Auto-expire overrides older than 7 days
+  const EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const expiredKeys = Object.keys(overrides).filter(k => {
+    const setAt = overrideSetAt[k];
+    return setAt && (now - new Date(setAt).getTime()) > EXPIRY_MS;
+  });
+  if (expiredKeys.length > 0) {
+    const freshOverrides = { ...overrides };
+    expiredKeys.forEach(k => delete (freshOverrides as any)[k]);
+    await setCached(OVERRIDES_KEY, freshOverrides, OVERRIDES_TTL);
+    const ts = new Date().toISOString();
+    const expiryEntries: ParamChangeEntry[] = expiredKeys.map(key => ({
+      timestamp: ts, key, oldValue: (overrides as any)[key], newValue: undefined, action: 'reset',
+    }));
+    await appendChangelog(expiryEntries);
+    // Refresh overrides and params after expiry
+    const updatedOverrides = freshOverrides;
+    const updatedParams = { ...params };
+    for (const key of expiredKeys) {
+      (updatedParams as any)[key] = (envDefaults as any)[key];
+      delete overrideSetAt[key];
+    }
+    return NextResponse.json({ performance, params: updatedParams, envDefaults, overrides: updatedOverrides, changelog, overrideSetAt });
+  }
+
+  return NextResponse.json({ performance, params, envDefaults, overrides, changelog, overrideSetAt });
 }
 
 export async function POST(req: Request) {
@@ -135,23 +209,39 @@ export async function POST(req: Request) {
 
   if (body.action === 'set_params') {
     const incoming: TradingParamOverrides = body.params ?? {};
-    // Merge with existing overrides
     const existing = await getAdminParamOverrides();
     const merged = { ...existing, ...incoming };
     await setCached(OVERRIDES_KEY, merged, OVERRIDES_TTL);
+    const ts = new Date().toISOString();
+    const entries: ParamChangeEntry[] = Object.entries(incoming).map(([key, newValue]) => ({
+      timestamp: ts,
+      key,
+      oldValue: (existing as any)[key],
+      newValue: newValue as number,
+      action: 'set',
+    }));
+    await appendChangelog(entries);
     return NextResponse.json({ saved: true, overrides: merged });
   }
 
   if (body.action === 'reset_param') {
     const key = body.key as keyof TradingParamOverrides;
     const existing = await getAdminParamOverrides();
+    const oldValue = (existing as any)[key];
     delete existing[key];
     await setCached(OVERRIDES_KEY, existing, OVERRIDES_TTL);
+    await appendChangelog([{ timestamp: new Date().toISOString(), key, oldValue, newValue: undefined, action: 'reset' }]);
     return NextResponse.json({ saved: true, overrides: existing });
   }
 
   if (body.action === 'reset_all') {
+    const existing = await getAdminParamOverrides();
     await setCached(OVERRIDES_KEY, {}, OVERRIDES_TTL);
+    const ts = new Date().toISOString();
+    const entries: ParamChangeEntry[] = Object.entries(existing).map(([key, oldValue]) => ({
+      timestamp: ts, key, oldValue: oldValue as number, newValue: undefined, action: 'reset_all',
+    }));
+    if (entries.length) await appendChangelog(entries);
     return NextResponse.json({ saved: true, overrides: {} });
   }
 

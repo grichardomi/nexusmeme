@@ -20,6 +20,8 @@ import type { TechnicalIndicators, RegimeAgentState } from '@/types/ai';
 
 const CACHE_KEY = 'agent:regime_v1';
 
+const DEFAULT_OVERRIDE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
 class RegimeAgent {
   private lastState: RegimeAgentState | null = null;
   private lastAnalyzedAt = 0;
@@ -27,6 +29,7 @@ class RegimeAgent {
   private _callsToday = 0;
   private _callsResetAt = new Date().toDateString();
   private _adjustmentOverride: number | null = null; // admin override, null = use agent value
+  private _overrideExpiresAt: number | null = null;  // epoch ms, null = no expiry
 
   /** Daily call count (resets at midnight, in-process only) */
   get callsToday(): number {
@@ -35,8 +38,22 @@ class RegimeAgent {
     return this._callsToday;
   }
 
-  /** Admin override: force a fixed adjustment (null = use agent value) */
-  get adjustmentOverride(): number | null { return this._adjustmentOverride; }
+  /** Admin override: force a fixed adjustment (null = use agent value). Auto-clears when expired. */
+  get adjustmentOverride(): number | null {
+    if (this._adjustmentOverride !== null && this._overrideExpiresAt !== null && Date.now() > this._overrideExpiresAt) {
+      logger.info('RegimeAgent: override expired — restoring agent control', { hadOverride: this._adjustmentOverride });
+      this._adjustmentOverride = null;
+      this._overrideExpiresAt = null;
+    }
+    return this._adjustmentOverride;
+  }
+
+  /** Seconds until override expires, null if no override or no expiry set */
+  get overrideExpiresInSeconds(): number | null {
+    if (this._adjustmentOverride === null || this._overrideExpiresAt === null) return null;
+    const remaining = Math.round((this._overrideExpiresAt - Date.now()) / 1000);
+    return remaining > 0 ? remaining : null;
+  }
 
   /** Flush in-memory cache so next cycle forces a fresh Claude call */
   flushCache(): void {
@@ -45,9 +62,11 @@ class RegimeAgent {
     this.kvCacheFailing = false;
   }
 
-  /** Set admin override adjustment (-maxAdj..+maxAdj). Pass null to clear. */
-  setOverride(value: number | null): void {
+  /** Set admin override adjustment (-maxAdj..+maxAdj). Pass null to clear.
+   *  ttlMs defaults to 4 hours — override auto-expires to prevent forgotten disables. */
+  setOverride(value: number | null, ttlMs = DEFAULT_OVERRIDE_TTL_MS): void {
     this._adjustmentOverride = value;
+    this._overrideExpiresAt = value !== null ? Date.now() + ttlMs : null;
   }
 
   /**

@@ -922,6 +922,27 @@ class TradeSignalOrchestrator {
         // non-critical — entry scorer proceeds without regime context
       }
 
+      // AGENTIC VOLUME THRESHOLD: Scale RISK_BTC_MIN_VOLUME_RATIO based on regime agent assessment.
+      // When agent is bearish (adj=-10): use full configured threshold (no relaxation).
+      // When agent is bullish (adj=+10): use 25% of threshold (floor).
+      // This prevents the hard volume block from missing opportunities in genuine moves
+      // while keeping full protection when the agent flags fake rally risk.
+      if (regimeAgentState !== null) {
+        const envCfg = getEnvironmentConfig();
+        const maxAdj = envCfg.AI_REGIME_AGENT_MAX_ADJUSTMENT ?? 10;
+        const adj = regimeAgentState.entryBarAdjustment;
+        const envThreshold = envCfg.RISK_BTC_MIN_VOLUME_RATIO;
+        const floorThreshold = envThreshold * 0.25;
+        const scale = (maxAdj - adj) / (2 * maxAdj); // 1.0 when most bearish, 0.0 when most bullish
+        const dynamicThreshold = floorThreshold + (envThreshold - floorThreshold) * scale;
+        riskManager.updateBTCVolumeThreshold(dynamicThreshold);
+        logger.debug('Orchestrator: agentic volume threshold set', {
+          agentAdj: adj,
+          envThreshold,
+          dynamicThreshold: dynamicThreshold.toFixed(3),
+        });
+      }
+
       // CAPITAL PRESERVATION: Layer 1 - BTC Daily Trend Gate (market-wide)
       // Blocks ALL entries if BTC is below EMA200 (sustained downtrend)
       // Reduces size 50% if BTC below EMA50 (weakening trend)
