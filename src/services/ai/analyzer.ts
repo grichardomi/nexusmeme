@@ -288,8 +288,13 @@ export async function analyzeMarket(
       const mom4hForGate = indicators.momentum4h ?? 0;
       // Skip Claude when 4h momentum < -0.5%: outcome is deterministic (would always veto).
       const claudeWouldBeUseful = mom4hForGate >= -0.5;
-      const scoreInVetoWindow = result.signal.confidence >= minDeterministic
-        && result.signal.confidence <= maxDeterministic;
+      // If regime agent applied a NEGATIVE adjustment, force Claude review even if score
+      // is above the veto ceiling. The agent flagged qualitative risk (e.g. deceleration,
+      // thin volume) that deterministic scoring can't capture — Claude must evaluate it.
+      const regimeAgentFlaggedRisk = regimeContext !== null && (regimeContext.entryBarAdjustment ?? 0) < 0;
+      const scoreInVetoWindow = (result.signal.confidence >= minDeterministic
+        && result.signal.confidence <= maxDeterministic)
+        || regimeAgentFlaggedRisk;
       const shouldCallAI = aiConfig.confidenceBoostEnabled
         && result.signal.signal === 'buy'
         && scoreInVetoWindow
