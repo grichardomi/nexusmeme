@@ -25,6 +25,9 @@ import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconci
 import type { TradeDecision } from '@/types/market';
 import { closeTrade } from '@/services/trading/close-trade';
 import { livePriceStore } from '@/services/market-data/live-price-store';
+import { regimeAgent } from '@/services/ai/regime-agent';
+import { tradeMonitorAgent, type OpenTradeContext } from '@/services/ai/trade-monitor-agent';
+import type { RegimeAgentState } from '@/types/ai';
 
 interface BotInstance {
   id: string;
@@ -861,6 +864,8 @@ class TradeSignalOrchestrator {
 
       // BTC 1h momentum — used for ETH position size reduction (Rec #3)
       let btcMomentum1h = 0;
+      // BTC indicators lifted to outer scope so regime agent can use them
+      let btcIndicatorsForAgents: import('@/types/ai').TechnicalIndicators = {};
 
       // ZERO PASS A: Fetch BTC momentum for drop protection (needed by risk manager)
       try {
@@ -878,6 +883,7 @@ class TradeSignalOrchestrator {
             btcRaw.indicators.momentum1h = ((btcLivePrice - btcBase1h) / btcBase1h) * 100;
           }
           const btcCandles = btcRaw.indicators;
+          btcIndicatorsForAgents = btcCandles; // expose to agents below
           if (btcCandles.momentum1h !== undefined) {
             btcMomentum1h = btcCandles.momentum1h; // store for per-pair ETH size reduction
             riskManager.updateBTCMomentum(btcCandles.momentum1h / 100); // Convert percent to decimal
@@ -898,6 +904,17 @@ class TradeSignalOrchestrator {
         }
       } catch (error) {
         logger.warn('Failed to fetch BTC momentum for risk manager', error instanceof Error ? error : undefined);
+      }
+
+      // REGIME AGENT: BTC bellwether pre-assessment (async, caches per TTL)
+      // analyze() returns cached state immediately if TTL not expired (no Claude call).
+      // On cache miss: calls Claude Haiku, writes to kv_cache + in-memory.
+      // Returns null on timeout/failure → no entryBarAdjustment applied (safe default).
+      let regimeAgentState: RegimeAgentState | null = null;
+      try {
+        regimeAgentState = await regimeAgent.analyze(btcIndicatorsForAgents);
+      } catch {
+        // non-critical — entry scorer proceeds without regime context
       }
 
       // CAPITAL PRESERVATION: Layer 1 - BTC Daily Trend Gate (market-wide)
@@ -971,6 +988,11 @@ class TradeSignalOrchestrator {
         this.checkOpenTradesForProfitTargets(),
         ohlcPrefetch,
       ]);
+
+      // TRADE MONITOR AGENT: Advisory health check on open trades (fire-and-forget)
+      // Non-blocking — result logged as HEALTHY/WATCH/CONCERN, never triggers exits.
+      // Silently skipped on timeout or API failure.
+      this.runTradeMonitorAgent(btcIndicatorsForAgents).catch(() => {});
 
       // PYRAMID PASS: Add levels to profitable open trades (after exits complete)
       await this.addPyramidLevelsToOpenTrades(allPairs);
@@ -1184,6 +1206,7 @@ class TradeSignalOrchestrator {
               currentPrice,
               indicators,
               isCreepingUptrend,
+              regimeContext: regimeAgentState,
             });
 
             console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
@@ -1363,6 +1386,53 @@ class TradeSignalOrchestrator {
 
     // Calculate technical indicators from real candles
     return calculateTechnicalIndicators(candles);
+  }
+
+  /**
+   * Run trade monitor agent — advisory only, fire-and-forget.
+   * Fetches open trades, passes to agent with BTC indicators for health assessment.
+   */
+  private async runTradeMonitorAgent(btcIndicators: import('@/types/ai').TechnicalIndicators): Promise<void> {
+    const env = getEnvironmentConfig();
+    if (!env.AI_TRADE_MONITOR_ENABLED) return;
+
+    try {
+      const openTradesRaw = await query<{
+        pair: string;
+        entry_price: string;
+        entry_time: string;
+        regime: string | null;
+      }>(
+        `SELECT t.pair, t.entry_price, t.entry_time,
+                t.entry_notes->>'regime' AS regime
+         FROM trades t
+         JOIN bot_instances b ON b.id = t.bot_instance_id
+         WHERE t.exit_time IS NULL AND b.status = 'running'
+         LIMIT 10`
+      );
+
+      if (!openTradesRaw.length) return;
+
+      const trades: OpenTradeContext[] = openTradesRaw.map(row => {
+        const entry = parseFloat(row.entry_price);
+        const livePrice = livePriceStore.getPrice(row.pair);
+        const current = livePrice ?? entry;
+        const ageMs = Date.now() - new Date(row.entry_time).getTime();
+        const unrealizedPct = entry > 0 ? ((current - entry) / entry) * 100 : 0;
+        return {
+          pair: row.pair,
+          entryPrice: entry,
+          currentPrice: current,
+          unrealizedPctGross: unrealizedPct,
+          ageMinutes: ageMs / 60000,
+          regime: row.regime ?? 'unknown',
+        };
+      });
+
+      await tradeMonitorAgent.analyze(trades, btcIndicators);
+    } catch {
+      // non-critical
+    }
   }
 
   /**

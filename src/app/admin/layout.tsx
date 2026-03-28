@@ -50,6 +50,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const navItems: NavItem[] = [
     { href: '/admin/tickets', label: 'Support Tickets', icon: '🎫' },
     { href: '/admin/users', label: 'Users', icon: '👥' },
+    { href: '/admin/agents', label: 'Agentic AI', icon: '🤖' },
     { href: '/admin/analytics', label: 'Analytics', icon: '📊', disabled: true },
     { href: '/admin/settings', label: 'Settings', icon: '⚙️', disabled: true },
   ];

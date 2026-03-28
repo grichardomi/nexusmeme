@@ -14,6 +14,7 @@ import {
   TradeSignal,
   SignalStrength,
   OHLCCandle,
+  RegimeAgentState,
 } from '@/types/ai';
 
 
@@ -760,7 +761,8 @@ export async function aiConfidenceBoost(
   deterministicConfidence: number,
   _regime: string,
   isVolumeSurge = false,
-  isCreepingUptrend = false
+  isCreepingUptrend = false,
+  regimeContext: RegimeAgentState | null = null
 ): Promise<AIConfidenceBoostResult> {
   const startTime = Date.now();
   const maxAdj = aiConfig.confidenceBoostMaxAdjustment;
@@ -797,6 +799,20 @@ export async function aiConfidenceBoost(
     ? `\n⚠️ 4H DOWNTREND: 4h momentum is ${mom4h.toFixed(2)}% — the broader trend is DOWN. The 1h bounce (${mom1h.toFixed(2)}%) is likely a counter-trend move in a falling market. Apply a strong negative adjustment unless you see compelling reversal evidence.`
     : '';
 
+  // Regime agent context — BTC bellwether pre-assessment (computed async, zero latency here)
+  const regimeAgentContext = regimeContext
+    ? `\nREGIME AGENT (BTC bellwether analysis): BTC regime is ${regimeContext.btcRegime}` +
+      (regimeContext.trendTransitioning ? ` [TRANSITIONING ${regimeContext.transitionDirection.toUpperCase()}]` : '') +
+      `. BTC leading ETH: ${regimeContext.btcLeading ? 'yes' : 'no (diverging)'}. ` +
+      `Agent assessment: "${regimeContext.reasoning}". ` +
+      `Pre-adjustment already applied: ${regimeContext.entryBarAdjustment > 0 ? '+' : ''}${regimeContext.entryBarAdjustment}. ` +
+      (regimeContext.trendTransitioning && regimeContext.transitionDirection === 'weakening'
+        ? 'IMPORTANT: BTC is transitioning WEAKER — be conservative with positive adjustments.'
+        : regimeContext.entryBarAdjustment < 0
+          ? 'Regime agent already flagged concern — consider negative or neutral adjustment.'
+          : '')
+    : '';
+
   const prompt = `You are a crypto trading signal validator. A deterministic system has generated a BUY signal for ${pair}. Your job is to assess whether this buy makes sense given ALL available context — trend direction, momentum across timeframes, and candle patterns.
 
 RECENT CANDLES (oldest to newest):
@@ -805,7 +821,7 @@ ${formatCandlesForPrompt(recentCandles)}
 CURRENT INDICATORS:
 - 1h momentum: ${mom1h.toFixed(3)}%
 - 4h momentum: ${mom4h.toFixed(3)}%
-- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${creepingUptrendContext}${downtrend4hContext}
+- Volume ratio: ${(indicators.volumeRatio || 1).toFixed(2)}x${volumeSurgeContext}${creepingUptrendContext}${downtrend4hContext}${regimeAgentContext}
 
 DETERMINISTIC SYSTEM says: BUY with ${deterministicConfidence}% confidence.
 

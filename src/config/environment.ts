@@ -121,6 +121,20 @@ const envSchema = z.object({
 
   AI_VETO_THRESHOLD: z.string().transform(Number).default('88'),               // Veto when AI gives negative adjustment AND final confidence < this (e.g. 93→-8→85 blocked, 100→-8→92 allowed)
 
+  /* Agentic AI — background agents that pre-compute market context */
+  // Regime agent: BTC-focused bellwether analysis, runs async each orchestrator cycle,
+  // caches result for TTL. Entry scorer reads from cache (< 5ms). Zero hot-path impact.
+  AI_REGIME_AGENT_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  AI_REGIME_AGENT_CACHE_TTL_SECONDS: z.string().transform(Number).default('360'),  // 6 min — Claude called at most once per TTL
+  AI_REGIME_AGENT_TIMEOUT_MS: z.string().transform(Number).default('8000'),        // 8s hard timeout, falls back to null (no adjustment)
+  AI_REGIME_AGENT_MODEL: z.string().default('claude-haiku-4-5-20251001'),          // Haiku: lightweight, high-frequency
+  AI_REGIME_AGENT_MAX_ADJUSTMENT: z.string().transform(Number).default('10'),      // ±10 pre-adjustment before Claude veto window check
+  // Trade monitor agent: advisory-only open trade health watcher
+  // Logs HEALTHY/WATCH/CONCERN per trade. Never triggers exits directly.
+  AI_TRADE_MONITOR_ENABLED: z.string().transform(val => val === 'true').default('true'),
+  AI_TRADE_MONITOR_CACHE_TTL_SECONDS: z.string().transform(Number).default('120'), // 2 min — avoids redundant calls
+  AI_TRADE_MONITOR_TIMEOUT_MS: z.string().transform(Number).default('5000'),       // 5s hard timeout, silently skipped on failure
+
   /* AI Confidence Boost - Hybrid AI layer for entry decisions */
   /* Deterministic 3-path gate remains primary. AI adjusts confidence ±15 as advisor. */
   /* Uses Claude Haiku — ~$0.30/month at typical call volume (buy signals only) */
@@ -477,6 +491,14 @@ function getDefaultEnvironment(): Environment {
     TRANSITIONING_TIME_GUARD_MINUTES: 10,
     TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT: 0.5,
     AI_VETO_THRESHOLD: 88,
+    AI_REGIME_AGENT_ENABLED: true,
+    AI_REGIME_AGENT_CACHE_TTL_SECONDS: 360,
+    AI_REGIME_AGENT_TIMEOUT_MS: 8000,
+    AI_REGIME_AGENT_MODEL: 'claude-haiku-4-5-20251001',
+    AI_REGIME_AGENT_MAX_ADJUSTMENT: 10,
+    AI_TRADE_MONITOR_ENABLED: true,
+    AI_TRADE_MONITOR_CACHE_TTL_SECONDS: 120,
+    AI_TRADE_MONITOR_TIMEOUT_MS: 5000,
     AI_CONFIDENCE_BOOST_ENABLED: true,
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,

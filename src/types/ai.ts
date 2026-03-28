@@ -82,6 +82,22 @@ export interface TradeSignalAnalysis {
   expiresAt: Date;
 }
 
+/**
+ * Regime Agent State — pre-computed by BTC bellwether analysis each cycle.
+ * Stored in kv_cache (TTL-controlled), read by entry scorer (<5ms).
+ * Adjusts entry confidence ±AI_REGIME_AGENT_MAX_ADJUSTMENT before Claude veto window.
+ */
+export interface RegimeAgentState {
+  btcRegime: 'strong' | 'moderate' | 'weak' | 'choppy' | 'transitioning';
+  trendTransitioning: boolean;            // Is regime actively changing?
+  transitionDirection: 'strengthening' | 'weakening' | 'none';
+  entryBarAdjustment: number;             // -10 to +10 pre-applied to confidence
+  btcLeading: boolean;                    // BTC move leading ETH (true = confirming)
+  reasoning: string;                      // Max 20 words
+  timestamp: string;                      // ISO string
+  source: 'agent' | 'fallback';
+}
+
 export interface AIAnalysisRequest {
   pair: string;
   timeframe: '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
@@ -94,6 +110,8 @@ export interface AIAnalysisRequest {
   indicators?: TechnicalIndicators;
   isVolumeSurge?: boolean; // Extraordinary volume breakout — tells Claude not to penalize overbought RSI
   isCreepingUptrend?: boolean; // Slow sustained directional grind — tells Claude to look for consistency not explosiveness
+  // Optional: Pre-computed regime agent state — enriches Claude's confidence boost prompt
+  regimeContext?: RegimeAgentState | null;
 }
 
 export interface AIAnalysisResult {

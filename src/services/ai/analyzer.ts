@@ -67,6 +67,7 @@ import {
   AIAnalysisResult,
   OHLCCandle,
   TechnicalIndicators,
+  RegimeAgentState,
 } from '@/types/ai';
 
 // Cache disabled per CLAUDE.md: "no cached data"
@@ -241,6 +242,32 @@ export async function analyzeMarket(
         riskRewardRatio: result.signal.riskRewardRatio,
       });
 
+      // REGIME AGENT PRE-ADJUSTMENT
+      // Applied BEFORE Claude veto window check so the window gates on the adjusted score.
+      // entryBarAdjustment < 0 (fake rally / transitioning) → lowers confidence → may push
+      //   into veto zone or below minimum → blocks entry without even calling Claude.
+      // entryBarAdjustment > 0 (genuine sustained move) → raises confidence → may push
+      //   above Claude's window → skips Claude call (saves cost) and enters directly.
+      const regimeContext: RegimeAgentState | null = request.regimeContext ?? null;
+      if (regimeContext && regimeContext.entryBarAdjustment !== 0) {
+        const originalConf = result.signal.confidence;
+        result.signal.confidence = Math.min(100, Math.max(0,
+          result.signal.confidence + regimeContext.entryBarAdjustment
+        ));
+        result.signal.factors.push(
+          `Regime agent [${regimeContext.btcRegime}${regimeContext.trendTransitioning ? ` →${regimeContext.transitionDirection}` : ''}]: ${regimeContext.entryBarAdjustment > 0 ? '+' : ''}${regimeContext.entryBarAdjustment} (${regimeContext.reasoning})`
+        );
+        logger.info('Analyzer: regime agent pre-adjustment applied', {
+          pair: request.pair,
+          regimeAdjustment: regimeContext.entryBarAdjustment,
+          originalConfidence: originalConf,
+          adjustedConfidence: result.signal.confidence,
+          btcRegime: regimeContext.btcRegime,
+          trendTransitioning: regimeContext.trendTransitioning,
+          reasoning: regimeContext.reasoning,
+        });
+      }
+
       // AI Confidence Boost - Hybrid layer (deterministic base + LLM advisor)
       // Only runs when AI_CONFIDENCE_BOOST_ENABLED=true and API key is configured
       // Only called when score is in the range where ±maxAdj can change the outcome:
@@ -298,7 +325,8 @@ export async function analyzeMarket(
           result.signal.confidence,
           regime.regime,
           request.isVolumeSurge,
-          request.isCreepingUptrend
+          request.isCreepingUptrend,
+          regimeContext
         );
         if (!cached && boostResult) {
           setAiBoostCache(request.pair, currentPrice, {
