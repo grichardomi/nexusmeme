@@ -22,7 +22,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1),
 
   /* APIs */
-  OPENAI_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: z.string().optional().default(''),
   RESEND_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   MAILGUN_API_KEY: z.string().optional().transform(v => v?.trim() || undefined),
   MAILGUN_DOMAIN: z.string().optional().transform(v => v?.trim() || undefined),
@@ -440,7 +440,7 @@ function getDefaultEnvironment(): Environment {
     NEXTAUTH_SECRET: 'build-phase-secret-' + '0'.repeat(32),
     GOOGLE_CLIENT_ID: 'build-phase',
     GOOGLE_CLIENT_SECRET: 'build-phase',
-    OPENAI_API_KEY: 'build-phase',
+    OPENAI_API_KEY: '',
     RESEND_API_KEY: undefined,
     MAILGUN_API_KEY: undefined,
     MAILGUN_DOMAIN: undefined,
