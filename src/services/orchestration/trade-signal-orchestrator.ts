@@ -7,6 +7,7 @@
 import { logger } from '@/lib/logger';
 import { query } from '@/lib/db';
 import { getEnvironmentConfig } from '@/config/environment';
+import { getParamOverrides } from '@/services/admin/param-overrides';
 import { getCachedTakerFee } from '@/services/billing/fee-rate';
 import { analyzeMarket } from '@/services/ai/analyzer';
 import { executionFanOut } from '@/services/execution/fan-out';
@@ -713,13 +714,14 @@ class TradeSignalOrchestrator {
             // Uses cached regime from main orchestrator cycle (no ADX fetch needed here).
             if (!erosionResult.shouldExit) {
               const hfEnv = getEnvironmentConfig();
+              const hfOverrides = await getParamOverrides();
               let profitTarget: number;
               switch (regime) {
-                case 'choppy':       profitTarget = hfEnv.PROFIT_TARGET_CHOPPY; break;
+                case 'choppy':       profitTarget = hfOverrides.PROFIT_TARGET_CHOPPY ?? hfEnv.PROFIT_TARGET_CHOPPY; break;
                 case 'transitioning':profitTarget = hfEnv.PROFIT_TARGET_TRANSITIONING; break;
-                case 'weak':         profitTarget = hfEnv.PROFIT_TARGET_WEAK; break;
-                case 'strong':       profitTarget = hfEnv.PROFIT_TARGET_STRONG; break;
-                default:             profitTarget = hfEnv.PROFIT_TARGET_MODERATE;
+                case 'weak':         profitTarget = hfOverrides.PROFIT_TARGET_WEAK ?? hfEnv.PROFIT_TARGET_WEAK; break;
+                case 'strong':       profitTarget = hfOverrides.PROFIT_TARGET_STRONG ?? hfEnv.PROFIT_TARGET_STRONG; break;
+                default:             profitTarget = hfOverrides.PROFIT_TARGET_MODERATE ?? hfEnv.PROFIT_TARGET_MODERATE;
               }
               const profitTargetPct = profitTarget * 100; // e.g. 0.05 → 5%
 
@@ -848,7 +850,10 @@ class TradeSignalOrchestrator {
       }
 
       // Get environment config for spread check and other thresholds
+      // Merge admin UI overrides (stored in kv_cache, updated without restart)
       const env = getEnvironmentConfig();
+      const _adminOverrides = await getParamOverrides();
+      const effectiveEnv = { ...env, ..._adminOverrides };
 
       logger.debug('Orchestrator: analyzing pairs', { pairs: allPairs, pairCount: allPairs.length });
 
@@ -1163,12 +1168,12 @@ class TradeSignalOrchestrator {
             // entering 30-50% into the move — near the local top, not the start.
             {
               const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-              const min1h = isBinance ? env.RISK_MIN_MOMENTUM_1H_BINANCE : env.RISK_MIN_MOMENTUM_1H;
+              const min1h = isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H;
               const mom1h = indicators.momentum1h ?? 0;
               const mom4h = indicators.momentum4h ?? 0;
               const intrabar = indicators.intrabarMomentum ?? 0;
-              const bypass4hMin = env.RISK_1H_BYPASS_4H_MIN;
-              const bypassIntrabarMin = env.RISK_1H_BYPASS_INTRABAR_MIN;
+              const bypass4hMin = effectiveEnv.RISK_1H_BYPASS_4H_MIN;
+              const bypassIntrabarMin = effectiveEnv.RISK_1H_BYPASS_INTRABAR_MIN;
               const early4hBypass = mom4h >= bypass4hMin && intrabar >= bypassIntrabarMin;
               if (mom1h < min1h && !early4hBypass) {
                 logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h });
@@ -2443,7 +2448,8 @@ class TradeSignalOrchestrator {
 
           // Only add pyramids if trade hasn't reached profit target yet
           // (trades reaching target will be closed in profit target pass)
-          const profitTargetStrong = env.PROFIT_TARGET_STRONG * 100; // e.g. 0.20 → 20%
+          const _pyramidOverrides = await getParamOverrides();
+          const profitTargetStrong = (_pyramidOverrides.PROFIT_TARGET_STRONG ?? env.PROFIT_TARGET_STRONG) * 100; // e.g. 0.20 → 20%
           if (currentProfitPct >= profitTargetStrong) {
             logger.debug('Trade approaching profit target - skip pyramid add', {
               pair: trade.pair,

@@ -9,6 +9,7 @@ import { marketDataAggregator } from '@/services/market-data/aggregator';
 import { getEnvironmentConfig } from '@/config/environment';
 import { getExchangeFeeRates, getCachedTakerFee } from '@/services/billing/fee-rate';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
+import { getParamOverrides } from '@/services/admin/param-overrides';
 
 interface BotInstance {
   id: string;
@@ -356,7 +357,7 @@ class ExecutionFanOut {
     const positionSizer = new DynamicPositionSizer(effectiveBalance);
 
     // Fetch closed trade history + capital preservation in parallel (independent)
-    const env = getEnvironmentConfig();
+    const [env, adminOverrides] = [getEnvironmentConfig(), await getParamOverrides()];
     let stopLossPct = env.DEFAULT_STOP_LOSS_PCT;
     if (decision.stopLoss && Math.abs(decision.stopLoss - decision.price) > 0.01) {
       stopLossPct = Math.abs((decision.stopLoss - decision.price) / decision.price);
@@ -432,11 +433,11 @@ class ExecutionFanOut {
     // Strong trends = bigger positions (ride the wave)
     // Weak/choppy = smaller positions (reduce risk in uncertain markets)
     const regimeMultipliers: Record<string, number> = {
-      strong: env.REGIME_SIZE_STRONG,
-      moderate: env.REGIME_SIZE_MODERATE,
-      weak: env.REGIME_SIZE_WEAK,
-      transitioning: env.REGIME_SIZE_TRANSITIONING,
-      choppy: env.REGIME_SIZE_CHOPPY,
+      strong: adminOverrides.REGIME_SIZE_STRONG ?? env.REGIME_SIZE_STRONG,
+      moderate: adminOverrides.REGIME_SIZE_MODERATE ?? env.REGIME_SIZE_MODERATE,
+      weak: adminOverrides.REGIME_SIZE_WEAK ?? env.REGIME_SIZE_WEAK,
+      transitioning: adminOverrides.REGIME_SIZE_TRANSITIONING ?? env.REGIME_SIZE_TRANSITIONING,
+      choppy: adminOverrides.REGIME_SIZE_CHOPPY ?? env.REGIME_SIZE_CHOPPY,
     };
     const regimeType = decision.regime?.type || 'moderate';
     const regimeMultiplier = regimeMultipliers[regimeType] ?? 1.0;

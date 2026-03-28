@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getCached, deleteCached } from '@/lib/redis';
 import { getEnvironmentConfig } from '@/config/environment';
 import { regimeAgent } from '@/services/ai/regime-agent';
+import { getBoostStats } from '@/services/ai/analyzer';
 import type { RegimeAgentState } from '@/types/ai';
 import type { TradeHealthAssessment } from '@/services/ai/trade-monitor-agent';
 
@@ -34,7 +35,22 @@ export async function GET() {
     ? Math.round((Date.now() - new Date(regimeState.timestamp).getTime()) / 1000)
     : null;
 
+  const boostStats = getBoostStats();
+
   return NextResponse.json({
+    confidenceBoost: {
+      enabled: env.AI_CONFIDENCE_BOOST_ENABLED,
+      maxAdjustment: env.AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT,
+      timeoutMs: env.AI_CONFIDENCE_BOOST_TIMEOUT_MS,
+      vetoWindowMin: env.AI_CLAUDE_MIN_DETERMINISTIC,
+      vetoWindowMax: env.AI_CLAUDE_MAX_DETERMINISTIC,
+      callsToday: boostStats.callsToday,
+      cacheHitsToday: boostStats.cacheHitsToday,
+      vetosToday: boostStats.vetosToday,
+      skippedToday: boostStats.skippedToday,
+      cacheSize: boostStats.cacheSize,
+      lastResult: boostStats.lastResult,
+    },
     regimeAgent: {
       enabled: env.AI_REGIME_AGENT_ENABLED,
       cacheTtlSeconds: env.AI_REGIME_AGENT_CACHE_TTL_SECONDS,

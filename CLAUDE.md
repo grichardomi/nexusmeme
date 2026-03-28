@@ -2,15 +2,17 @@
 
 ## Position Sizing Ladder (FIXED — DO NOT CHANGE WITHOUT USER INSTRUCTION)
 
-Position size scales with regime confidence. This ladder is deliberate and must not be adjusted based on short-term trade outcomes:
+Position size scales with regime. This ladder is deliberate and must not be adjusted based on short-term trade outcomes:
 
-| Regime | Multiplier | Rationale |
-|--------|-----------|-----------|
-| Strong (ADX >40) | **1.5x** | Confirmed trend — maximize gains |
-| Moderate (ADX 25-40) | **0.75x** | Developing trend — reduced risk in slow/creeping markets |
-| Weak (ADX 15-25) | **0.75x** | Weak trend — conservative sizing |
-| Transitioning | **0.5x** | Uncertain direction — half size |
-| Choppy (ADX <15) | **0.5x** | No trend — minimal exposure |
+| Regime | Condition | Multiplier | Rationale |
+|--------|-----------|-----------|-----------|
+| Strong | mom1h ≥ 1.0% AND mom4h ≥ 0.8% | **1.5x** | Both timeframes confirmed — full deployment |
+| Moderate | mom1h ≥ 0.4% AND mom4h ≥ 0.2% | **1.0x** | Developing trend — normal size, 4h backing |
+| Transitioning | mom1h < 0.2%, mom4h > 0 | **0.5x** | 4h positive but 1h lagging — early move |
+| Weak | mom1h ≥ 0.2% only | **0.35x** | 1h signal only, no 4h confirmation — reduced |
+| Choppy | mom4h ≤ 0 | **0.25x** | 4h declining — speculative entry, minimal exposure |
+
+**Regime detection is momentum-based (1h + 4h price momentum), NOT ADX.** ADX was removed due to lag and unreliability. See `src/services/ai/market-analysis.ts:detectMarketRegime`.
 
 Source: `REGIME_SIZE_*` env vars in `.env.local`. Capital preservation (BTC EMA layers) multiplies on top of this.
 
@@ -61,12 +63,12 @@ The bot's entire purpose is to capture profitable opportunities without leaving 
 
 **Expected Trade Paths (Targets Drive Behavior, Not Guarantees)**
 - Quick scalp exits (1-2% target): triggered in weak/moderate trends; intended to close within minutes to ~1h with minimal drawdown
-- Trend run exits (5-12% target): activated when ADX > 25/40; holds longer (multi-hour) and tolerates controlled pullbacks to avoid premature exit
+- Trend run exits (5-12% target): activated when mom1h ≥ 0.4% + mom4h ≥ 0.2% (moderate/strong regime); holds longer (multi-hour) and tolerates controlled pullbacks to avoid premature exit
 - Early loss protection: exits small reds early to prevent -2%+ slides; goal is low average loss magnitude
 - Net objective: positive expectancy through smaller average loss vs. larger average win while keeping fee drag below target
 
 **Key KPIs to Track Weekly**
-- Win rate by regime: weak vs. moderate vs. strong ADX
+- Win rate by regime: weak vs. moderate vs. strong (momentum-based)
 - Average win/loss size and expectancy after fees
 - Median vs. P90 hold time for each exit path
 - Slippage vs. fee budget per venue; % trades breaching budget
@@ -74,7 +76,7 @@ The bot's entire purpose is to capture profitable opportunities without leaving 
 - Pyramid contribution: incremental P&L and risk when L1/L2 enabled
 
 **Current Weaknesses / Gaps**
-- ADX-only regime detection can lag; late recognition of chop causes overstay and profit give-back
+- Momentum-based regime can lag on sudden reversals; 4h candle window includes prior decline
 - No explicit max adverse excursion (MAE) guard tuned per pair/venue; early weakness rules may be too coarse
 - Limited slippage/fee budget enforcement; thin-liquidity pairs can erase small targets
 - Pyramiding depends on static thresholds; lacks volatility-adjusted sizing and staggered exits
@@ -84,7 +86,7 @@ The bot's entire purpose is to capture profitable opportunities without leaving 
 - Add trailing/ratchet exits once unrealized > target/2 to avoid green-to-red flips
 - Enforce per-trade cost budget (fees+slippage) and block entries when spread exceeds budget
 - Add volatility-aware MAE and time-based stops (e.g., exit if not +0.5% in 10-15m)
-- Incorporate secondary regime signal (e.g., volume trend or realized volatility) to confirm ADX before pyramiding
+- Incorporate secondary regime signal (e.g., volume trend or realized volatility) to confirm momentum regime before pyramiding
 - Stagger pyramid exits (scale-out) and size pyramids with volatility-normalized units instead of static levels
 - Log and review KPIs weekly; adapt thresholds per venue/pair based on observed slippage and hold-time distributions
 
@@ -96,7 +98,7 @@ The bot's entire purpose is to capture profitable opportunities without leaving 
 
 | Metric | Weak Regime | Moderate | Strong |
 |--------|-------------|----------|--------|
-| ADX Range | < 25 | 25-40 | > 40 |
+| Regime Condition | mom1h<0.2% or mom4h≤0 | mom1h≥0.4% + mom4h≥0.2% | mom1h≥1.0% + mom4h≥0.8% |
 | Win Rate | 60% | 65% | 70% |
 | Avg Win | 2.0% | 5.0% | 12.0% |
 | Avg Loss | 1.5% | 2.0% | 3.0% |
@@ -194,9 +196,9 @@ After:  (0.55 × 2.0%) + (0.15 × 1.0%) - (0.30 × 1.3%) - 0.5% = +0.36%
 
 ---
 
-### Improvement #4: Secondary Regime Confirmation (ADX + Volume)
+### Improvement #4: Secondary Regime Confirmation (Momentum + Volume)
 
-**Problem:** ADX says "moderate trend" but actually chop → wrong target, overstay
+**Problem:** Momentum regime says "moderate" but actually chop → wrong target, overstay
 
 | Metric | Before | After |
 |--------|--------|-------|
@@ -211,7 +213,7 @@ Misclassified trade (moderate target in weak market):
 Reduction: 12% fewer misclassified × 2.5% avoided loss = +0.30% overall
 ```
 
-**Implementation:** Require ADX + volume trend confirmation before moderate/strong classification
+**Implementation:** Require momentum + volume trend confirmation before moderate/strong classification
 
 ---
 
@@ -292,22 +294,23 @@ Similar return, **much lower risk** (blowup rate 8% → 3%)
 **3. Conditional Pyramiding**
 - **ONLY pyramid in strong setups:**
   - High confidence AI signals (confidence >= 85% for L1, 90% for L2)
-  - Strong trend conditions (ADX > 35 for L1, ADX > 40 for L2)
+  - Strong momentum regime (mom1h ≥ 1.0% + mom4h ≥ 0.8%) confirmed by regime agent
   - Positive momentum verified
-- **Single source of truth for ADX thresholds:**
-  - `.env.local` → `PYRAMID_L1_MIN_ADX=35`, `PYRAMID_L2_MIN_ADX=40`
-  - Global thresholds (consistent across all trading pairs)
+- **Pyramid thresholds from env vars:**
+  - `PYRAMID_L1_TRIGGER_PCT=4.5%`, `PYRAMID_L2_TRIGGER_PCT=8.0%` (profit % to trigger add)
+  - `PYRAMID_ADD_SIZE_PCT_L1=35%`, `PYRAMID_ADD_SIZE_PCT_L2=50%` (add size as % of original)
 - **NEVER pyramid in:**
   - Low confidence AI signals
-  - Choppy/sideways markets (low ADX)
+  - Choppy/sideways markets (mom4h ≤ 0)
   - Early-stage trades showing weakness
   - High-risk market conditions (dumps, panics, spreads widening)
 
 **4. Dynamic Profit Targeting**
-- Adapt to market regime detected by ADX:
-  - **Weak trend (ADX < 25):** 2% target → exit before volatility turns against you
-  - **Moderate trend (ADX 25-40):** 5% target → let developing momentum run
-  - **Strong trend (ADX > 40):** 12% target → maximize momentum capture
+- Adapt to market regime detected from 1h + 4h momentum:
+  - **Choppy** (mom4h ≤ 0): 0.5% target → scalp and move on
+  - **Weak** (mom1h ≥ 0.2%): 1.5% target → exit before fade
+  - **Moderate** (mom1h ≥ 0.4% + mom4h ≥ 0.2%): 2% target → developing trend
+  - **Strong** (mom1h ≥ 1.0% + mom4h ≥ 0.8%): 8% target → ride the move
 - Goal: Let winners run in trends, lock gains in choppy markets
 
 **5. Risk Management First, Profit Second**
@@ -328,7 +331,7 @@ Trading means discipline. Get in green, get out fast. No complex overlapping che
 | **1** | **EROSION CAP** | Trade had profit, erosion > cap (20%) | Protect profits |
 | **2** | **EARLY LOSS** | Never profitable, loss > threshold | Cut bad entries |
 | **3** | **EMERGENCY STOP** | Loss > -6% | Safety net |
-| **4** | **PROFIT TARGET** | Profit >= target (2-12% by ADX) | Take profit |
+| **4** | **PROFIT TARGET** | Profit >= target (0.5-8% by momentum regime) | Take profit |
 
 **How They Work:**
 
@@ -345,7 +348,7 @@ Trading means discipline. Get in green, get out fast. No complex overlapping che
    - Fixed at -6% (configurable via `emergencyLossLimit`)
 
 4. **PROFIT TARGET** - Take profit when target reached
-   - Dynamic by ADX: 2% (weak), 5% (moderate), 12% (strong)
+   - Dynamic by momentum regime: 0.5% (choppy), 1.5% (weak), 2% (moderate), 8% (strong)
 
 **What Was Removed (Redundant):**
 - ~~Profit Lock~~ → Erosion cap handles this better
@@ -365,9 +368,9 @@ Trading means discipline. Get in green, get out fast. No complex overlapping che
 - [x] Erosion cap fires immediately when triggered (no guards)
 - [x] Early loss thresholds scale with trade age
 - [x] Emergency stop as safety net
-- [x] Profit targets dynamic based on ADX regime
+- [x] Profit targets dynamic based on momentum regime
 - [x] Entry spread check - Block entry if spread > 0.3%
-- [x] Pyramiding only in strong trend conditions (ADX > 35)
+- [x] Pyramiding only in strong momentum regime (mom1h ≥ 1.0% + mom4h ≥ 0.8%)
 - [x] No artificial cooldowns between trades
 - [x] Trade exit reasons logged clearly
 - [x] Fee deduction accurate in P&L display
@@ -458,7 +461,7 @@ BINANCE_API_SECRET=your_api_secret
 All RISK_* parameters are configurable:
 - `RISK_VOLUME_SPIKE_MAX` - Volume panic spike threshold
 - `RISK_BTC_DUMP_THRESHOLD` - BTC protection threshold
-- `RISK_MIN_ADX_FOR_ENTRY` - Trend strength requirement
+- `RISK_MIN_MOMENTUM_1H_BINANCE` - 1h momentum floor for entry (replaces ADX)
 - `RISK_MIN_MOMENTUM_1H/4H` - Momentum thresholds
 - `RISK_PROFIT_TARGET_MINIMUM` - Cost floor
 

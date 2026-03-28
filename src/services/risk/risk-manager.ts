@@ -8,6 +8,7 @@
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import { getCachedTakerFee } from '@/services/billing/fee-rate';
+import { getParamOverrides } from '@/services/admin/param-overrides';
 import type { TechnicalIndicators } from '@/types/ai';
 
 export interface RiskFilterResult {
@@ -269,11 +270,11 @@ class RiskManager {
   /**
    * STAGE 2: Drop Protection - Prevent entries during market panics
    */
-  checkDropProtection(
+  async checkDropProtection(
     pair: string,
     ticker: { bid?: number; ask?: number; last?: number } | Record<string, any>,
     indicators: TechnicalIndicators
-  ): RiskFilterResult {
+  ): Promise<RiskFilterResult> {
     logger.debug('RiskManager: Stage 2 - Drop Protection', { pair, btcMomentum1h: this.btcMomentum1h });
 
     // Drop protection: Block if BTC is dumping (applies to ALL pairs including BTC)
@@ -297,7 +298,8 @@ class RiskManager {
     // crypto market lacks participation — block all pairs, not just BTC.
     // ETH/alts follow BTC; entering when BTC has 0.05x volume is a false signal.
     const env = getEnvironmentConfig();
-    const btcMinVol = env.RISK_BTC_MIN_VOLUME_RATIO;
+    const adminOverrides = await getParamOverrides();
+    const btcMinVol = adminOverrides.RISK_BTC_MIN_VOLUME_RATIO ?? env.RISK_BTC_MIN_VOLUME_RATIO;
     if (this.btcVolumeRatio < btcMinVol) {
       logger.info('RiskManager: Entry blocked - BTC market illiquid (thin volume on all pairs)', {
         pair,
@@ -617,7 +619,7 @@ class RiskManager {
     }
 
     // STAGE 2: Drop Protection - BTC dump, volume panic, spread widening
-    const stage2 = this.checkDropProtection(pair, ticker, indicators);
+    const stage2 = await this.checkDropProtection(pair, ticker, indicators);
     if (!stage2.pass) {
       return stage2;
     }

@@ -435,7 +435,7 @@ class TradeWorkerService {
     }
 
     const ticker = { bid: 0, ask: 0, last: currentPrice };
-    const dropProtection = riskManager.checkDropProtection(pair, ticker, indicators);
+    const dropProtection = await riskManager.checkDropProtection(pair, ticker, indicators);
     if (!dropProtection.pass) {
       logger.debug('TradeWorker: Drop protection blocked', {
         botId: bot.id,

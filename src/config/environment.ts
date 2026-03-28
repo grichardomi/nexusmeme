@@ -158,7 +158,7 @@ const envSchema = z.object({
 
   /* Risk Management Guardrails */
   RISK_BTC_DUMP_THRESHOLD: z.string().transform(Number).default('-0.015'),
-  RISK_BTC_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.1'), // Block ALL pairs when BTC volume < this (market-wide illiquidity)
+  RISK_BTC_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.4'), // Block ALL pairs when BTC volume < this (market-wide illiquidity)
   RISK_VOLUME_SPIKE_MAX: z.string().transform(Number).default('4.5'),
   RISK_SPREAD_MAX_PERCENT: z.string().transform(Number).default('0.005'),
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
@@ -298,11 +298,11 @@ const envSchema = z.object({
   POSITION_SIZER_AVG_LOSS_PCT: z.string().transform(Number).default('0.015'),    // Assumed avg loss % (before history builds)
 
   /* Position sizing by regime */
-  REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),        // 150% — confirmed strong momentum
-  REGIME_SIZE_MODERATE: z.string().transform(Number).default('1.0'),      // 100% — moderate momentum
-  REGIME_SIZE_WEAK: z.string().transform(Number).default('0.75'),         // 75% — weak momentum
-  REGIME_SIZE_TRANSITIONING: z.string().transform(Number).default('0.5'), // 50% — trend forming slowly
-  REGIME_SIZE_CHOPPY: z.string().transform(Number).default('0.5'),        // 50% — 4h negative, minimal exposure
+  REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),        // 150% — both timeframes confirmed
+  REGIME_SIZE_MODERATE: z.string().transform(Number).default('1.0'),      // 100% — developing trend, 4h backing
+  REGIME_SIZE_WEAK: z.string().transform(Number).default('0.35'),         // 35% — 1h only, no 4h confirmation
+  REGIME_SIZE_TRANSITIONING: z.string().transform(Number).default('0.5'), // 50% — 4h positive but 1h lagging
+  REGIME_SIZE_CHOPPY: z.string().transform(Number).default('0.25'),       // 25% — 4h declining, speculative entry
   DEFAULT_STOP_LOSS_PCT: z.string().transform(Number).default('0.05'),    // 5% default stop loss
 
   /* Regime-Based Profit Targets - TRADING not investing. Book fast, re-enter. */
@@ -545,7 +545,7 @@ function getDefaultEnvironment(): Environment {
     BINANCE_BOT_PYRAMID_EROSION_CAP_CHOPPY: 0.006,
     BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
     RISK_BTC_DUMP_THRESHOLD: -0.015,
-    RISK_BTC_MIN_VOLUME_RATIO: 0.1,
+    RISK_BTC_MIN_VOLUME_RATIO: 0.4,
     RISK_VOLUME_SPIKE_MAX: 4.5,
     RISK_SPREAD_MAX_PERCENT: 0.005,
     RISK_PRICE_TOP_THRESHOLD: 0.995,
@@ -624,9 +624,9 @@ function getDefaultEnvironment(): Environment {
     POSITION_SIZER_AVG_LOSS_PCT: 0.015,
     REGIME_SIZE_STRONG: 1.5,
     REGIME_SIZE_MODERATE: 1.0,
-    REGIME_SIZE_WEAK: 0.75,
+    REGIME_SIZE_WEAK: 0.35,
     REGIME_SIZE_TRANSITIONING: 0.5,
-    REGIME_SIZE_CHOPPY: 0.5,
+    REGIME_SIZE_CHOPPY: 0.25,
     DEFAULT_STOP_LOSS_PCT: 0.05,
     PYRAMID_L1_TRIGGER_PCT: 0.045,
     PYRAMID_L2_TRIGGER_PCT: 0.080,

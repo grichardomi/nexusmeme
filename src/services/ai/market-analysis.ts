@@ -34,10 +34,16 @@ export function calculateTechnicalIndicators(
     ? ((closes[closes.length - 1] - closes[closes.length - 16]) / closes[closes.length - 16]) * 100
     : 0;
 
-  // Volume ratio: current candle volume vs 20-candle average
-  const recentVolumes = volumes.slice(-20);
-  const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length;
-  const volumeRatio = avgVolume > 0 ? volumes[volumes.length - 1] / avgVolume : 1;
+  // Volume ratio: last COMPLETED candle vs 20-candle average
+  // Use volumes[-2] (last closed candle) not volumes[-1] (current live/partial candle).
+  // A partial candle has only 1-2 min of volume vs a full 15min candle — always reads ~10% of average,
+  // causing false "thin volume" blocks even during active markets.
+  const recentVolumes = volumes.slice(-21, -1); // 20 completed candles, excluding live candle
+  const avgVolume = recentVolumes.length > 0
+    ? recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length
+    : 0;
+  const lastCompletedVolume = volumes.length >= 2 ? volumes[volumes.length - 2] : volumes[volumes.length - 1];
+  const volumeRatio = avgVolume > 0 ? lastCompletedVolume / avgVolume : 1;
 
   // Recent high/low: actual candle highs/lows (not closes)
   const recentCandles = candles.slice(-20);

@@ -34,6 +34,48 @@ interface AiBoostCacheEntry {
 }
 const aiBoostCache = new Map<string, AiBoostCacheEntry>();
 
+// ── AI Boost Instrumentation ──────────────────────────────────────────────────
+// Lightweight in-process counters — reset on server restart, used by admin UI.
+let _boostCallsToday = 0;
+let _boostCallsResetAt = new Date().toDateString();
+let _boostCacheHitsToday = 0;
+let _boostVetosToday = 0;
+let _boostSkippedToday = 0; // above/below veto window — deterministic pass
+interface LastBoostResult {
+  pair: string;
+  adjustment: number;
+  reasoning: string;
+  provider: string;
+  vetoed: boolean;
+  deterministicScore: number;
+  finalScore: number;
+  timestamp: string;
+}
+let _lastBoostResult: LastBoostResult | null = null;
+
+function _resetBoostCountersIfNewDay() {
+  const today = new Date().toDateString();
+  if (_boostCallsResetAt !== today) {
+    _boostCallsToday = 0;
+    _boostCacheHitsToday = 0;
+    _boostVetosToday = 0;
+    _boostSkippedToday = 0;
+    _boostCallsResetAt = today;
+  }
+}
+
+export function getBoostStats() {
+  _resetBoostCountersIfNewDay();
+  return {
+    callsToday: _boostCallsToday,
+    cacheHitsToday: _boostCacheHitsToday,
+    vetosToday: _boostVetosToday,
+    skippedToday: _boostSkippedToday,
+    cacheSize: aiBoostCache.size,
+    lastResult: _lastBoostResult,
+  };
+}
+
 function getAiCacheKey(pair: string, price: number): string {
   // Log-based bucketing: bucket index increments every ~0.3% price movement
   // Math.log(price) / Math.log(1+0.003) ≈ Math.log(price) / 0.003
@@ -301,6 +343,7 @@ export async function analyzeMarket(
         && claudeWouldBeUseful;
       if (result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled && !claudeWouldBeUseful) {
         // 4h downtrend — Claude would always veto. Skip API call, keep deterministic signal.
+        _resetBoostCountersIfNewDay(); _boostSkippedToday++;
         logger.info('AI boost skipped: 4h downtrend, signal passes on deterministic strength', {
           pair: request.pair,
           momentum4h: mom4hForGate.toFixed(3),
@@ -308,6 +351,7 @@ export async function analyzeMarket(
         });
       } else if (result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled && !scoreInVetoWindow) {
         // Score above veto window — Claude's max -15 can't drop below regime min. API call wasted.
+        _resetBoostCountersIfNewDay(); _boostSkippedToday++;
         logger.info('AI boost skipped: score above veto window, trade passes on deterministic strength', {
           pair: request.pair,
           deterministicConfidence: result.signal.confidence,
@@ -316,11 +360,15 @@ export async function analyzeMarket(
       }
       if (shouldCallAI) {
         const currentPrice = candles[candles.length - 1]?.close ?? 0;
+        _resetBoostCountersIfNewDay();
         const cached = getAiBoostCached(request.pair, currentPrice, result.signal.confidence);
         if (cached) {
+          _boostCacheHitsToday++;
           logger.debug('AI boost cache hit — reusing result', {
             pair: request.pair, adjustment: cached.adjustment, reasoning: cached.reasoning,
           });
+        } else {
+          _boostCallsToday++;
         }
         const boostResult = cached ?? await aiConfidenceBoost(
           request.pair,
@@ -363,6 +411,8 @@ export async function analyzeMarket(
           // drags confidence below what the regime requires (e.g. -15 on a 68 = 53 → veto).
           const regimeMinConfidence = aiConfig.getMinConfidenceForRegime(regime.regime);
           if (boostResult.adjustment < 0 && result.signal.confidence < regimeMinConfidence) {
+            _boostVetosToday++;
+            _lastBoostResult = { pair: request.pair, adjustment: boostResult.adjustment, reasoning: boostResult.reasoning, provider: boostResult.provider, vetoed: true, deterministicScore: originalConfidence, finalScore: result.signal.confidence, timestamp: new Date().toISOString() };
             logger.warn('AI VETO: trade blocked', {
               pair: request.pair,
               regime: regime.regime,
@@ -377,6 +427,7 @@ export async function analyzeMarket(
             return result;
           }
 
+          _lastBoostResult = { pair: request.pair, adjustment: boostResult.adjustment, reasoning: boostResult.reasoning, provider: boostResult.provider, vetoed: false, deterministicScore: originalConfidence, finalScore: result.signal.confidence, timestamp: new Date().toISOString() };
           logger.info('AI confidence boost applied', {
             pair: request.pair,
             provider: boostResult.provider,
