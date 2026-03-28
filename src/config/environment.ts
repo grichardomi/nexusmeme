@@ -285,6 +285,14 @@ const envSchema = z.object({
   PYRAMID_ADD_SIZE_PCT_L1: z.string().transform(Number).default('0.35'),  // Add 35% of base position at L1
   PYRAMID_ADD_SIZE_PCT_L2: z.string().transform(Number).default('0.50'),  // Add 50% of base position at L2
 
+  /* Dynamic Position Sizer — Kelly Criterion parameters */
+  POSITION_SIZER_MAX_RISK: z.string().transform(Number).default('0.10'),         // Never risk >10% of balance per trade
+  POSITION_SIZER_MIN_RISK: z.string().transform(Number).default('0.01'),         // Never risk <1% of balance per trade
+  POSITION_SIZER_KELLY_FRACTION: z.string().transform(Number).default('0.25'),   // Use 1/4 Kelly to reduce variance
+  POSITION_SIZER_KELLY_NO_HISTORY: z.string().transform(Number).default('0.05'), // Default 5% Kelly when < 10 trades
+  POSITION_SIZER_AVG_WIN_PCT: z.string().transform(Number).default('0.025'),     // Assumed avg win % (before history builds)
+  POSITION_SIZER_AVG_LOSS_PCT: z.string().transform(Number).default('0.015'),    // Assumed avg loss % (before history builds)
+
   /* Position sizing by regime */
   REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),        // 150% — confirmed strong momentum
   REGIME_SIZE_MODERATE: z.string().transform(Number).default('1.0'),      // 100% — moderate momentum
@@ -602,6 +610,12 @@ function getDefaultEnvironment(): Environment {
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,
     STALE_FLAT_TRADE_BAND_PCT: 0.5,
+    POSITION_SIZER_MAX_RISK: 0.10,
+    POSITION_SIZER_MIN_RISK: 0.01,
+    POSITION_SIZER_KELLY_FRACTION: 0.25,
+    POSITION_SIZER_KELLY_NO_HISTORY: 0.05,
+    POSITION_SIZER_AVG_WIN_PCT: 0.025,
+    POSITION_SIZER_AVG_LOSS_PCT: 0.015,
     REGIME_SIZE_STRONG: 1.5,
     REGIME_SIZE_MODERATE: 1.0,
     REGIME_SIZE_WEAK: 0.75,

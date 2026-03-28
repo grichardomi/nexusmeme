@@ -10,6 +10,7 @@
  */
 
 import { logger } from '@/lib/logger';
+import { getEnvironmentConfig } from '@/config/environment';
 
 export interface PositioningResult {
   sizeUSD: number;
@@ -22,21 +23,17 @@ export class DynamicPositionSizer {
   private totalTrades: number = 0;
   private totalWins: number = 0;
   private totalLosses: number = 0;
-  private avgWinPct: number = 0.025; // 2.5% average win
-  private avgLossPct: number = 0.015; // 1.5% average loss
+  private avgWinPct: number;
+  private avgLossPct: number;
 
-  // Safety caps (tuned for balanced growth with capital preservation)
-  private readonly MAX_RISK_PER_TRADE = 0.10; // Never risk >10% of balance
-  private readonly MIN_RISK_PER_TRADE = 0.01; // Never risk <1% of balance
-  private readonly KELLY_FRACTION = 0.25; // Use 1/4 Kelly to reduce variance
   private readonly MIN_AI_CONFIDENCE = 50;
   private readonly MAX_AI_CONFIDENCE = 95;
 
-  // Default Kelly fraction when no trade history exists
-  private readonly DEFAULT_KELLY_NO_HISTORY = 0.05; // 5% default (enables 50% position sizing at 2% stop loss)
-
   constructor(initialBalance: number) {
     this.accountBalance = initialBalance;
+    const env = getEnvironmentConfig();
+    this.avgWinPct = env.POSITION_SIZER_AVG_WIN_PCT;
+    this.avgLossPct = env.POSITION_SIZER_AVG_LOSS_PCT;
     logger.info('DynamicPositionSizer initialized', {
       initialBalance: `$${initialBalance.toFixed(2)}`,
     });
@@ -90,13 +87,9 @@ export class DynamicPositionSizer {
    * Kelly % = (Win% × AvgWin% - Loss% × AvgLoss%) / AvgWin%
    */
   private calculateKellyFraction(): number {
+    const env = getEnvironmentConfig();
     if (this.totalTrades === 0 || this.totalTrades < 10) {
-      // No history or limited history (< 10 trades), use default that enables 50%+ position sizing
-      // With 2% stop loss: 10% Kelly = $10k * 0.10 / 0.02 = $50k position = 500% leverage
-      // With 2% stop loss: 5% Kelly = $10k * 0.05 / 0.02 = $25k position = 250% leverage (too much!)
-      // With 2% stop loss: 2% Kelly = $10k * 0.02 / 0.02 = $10k position = 100% leverage
-      // Solution: for early trades, use 5% but allow confidence to scale it down if low confidence
-      return this.DEFAULT_KELLY_NO_HISTORY; // 5% risk for new/limited history
+      return env.POSITION_SIZER_KELLY_NO_HISTORY;
     }
 
     const winRate = this.getWinRate();
@@ -106,8 +99,8 @@ export class DynamicPositionSizer {
     const kellyPct = (winRate * this.avgWinPct - lossRate * this.avgLossPct) / this.avgWinPct;
 
     // Clamp to valid range
-    const safeFraction = Math.max(0.01, Math.min(0.10, kellyPct));
-    const fractionalKelly = safeFraction * this.KELLY_FRACTION; // Use 1/4 Kelly
+    const safeFraction = Math.max(env.POSITION_SIZER_MIN_RISK, Math.min(env.POSITION_SIZER_MAX_RISK, kellyPct));
+    const fractionalKelly = safeFraction * env.POSITION_SIZER_KELLY_FRACTION;
 
     logger.debug('Kelly calculation', {
       winRate: `${(winRate * 100).toFixed(1)}%`,
@@ -147,7 +140,8 @@ export class DynamicPositionSizer {
     let riskPerTrade = kellyRisk * confidenceMultiplier;
 
     // Safety bounds
-    riskPerTrade = Math.max(this.MIN_RISK_PER_TRADE, Math.min(this.MAX_RISK_PER_TRADE, riskPerTrade));
+    const env = getEnvironmentConfig();
+    riskPerTrade = Math.max(env.POSITION_SIZER_MIN_RISK, Math.min(env.POSITION_SIZER_MAX_RISK, riskPerTrade));
 
     logger.debug('Risk calculation', {
       aiConfidence,
