@@ -137,6 +137,8 @@ class RiskManager {
     const mom4h = momentum4h ?? 0;
     const intrabar = intrabarMomentum ?? 0;
     const score = trendScore ?? 0;
+    const mom1hPct = momentum1h ?? 0;
+    const env = getEnvironmentConfig();
 
     console.log(`\n🏥 HEALTH GATE: trendScore=${score}/3 | higherCloses=${higherCloses} | slope=${(momentumSlope ?? 0).toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%`);
     logger.debug('RiskManager: Stage 1 - Health Gate (direction score)', { trendScore: score, higherCloses, momentumSlope, intrabar, momentum4h: mom4h, momentum1h });
@@ -153,8 +155,6 @@ class RiskManager {
     // 4h floor >= -0.5%: slope+intrabar alone can score 2/3 on a single candle bounce while 4h is
     // still deeply negative (e.g. -1.4%), causing immediate thesis invalidation after entry.
     if (score >= 2) {
-      // momentum1h is already in % (e.g. 0.71 = 0.71%) — no * 100 needed
-      const mom1hPct = momentum1h ?? 0;
       // 4h data lags the current candle by up to 4 hours. When 1h momentum is already
       // above the minimum entry threshold (0.5%), the move is directionally confirmed by
       // recent price action — blocking on a lagging 4h negative is double-counting.
@@ -181,8 +181,7 @@ class RiskManager {
         //  2. Very strong 1h momentum (>= RISK_STRONG_MOMENTUM_OVERRIDE_PCT): move is self-proving
         //  3. Strong 4h (>= 0.8%): multi-hour trend is real, short-term slope dip is noise
         const slope = momentumSlope ?? 0;
-        const env2 = getEnvironmentConfig();
-        const strongMomOverride = env2.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
+        const strongMomOverride = env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
 
         // Regime classification for slope tolerance
         const isStrongRegime = mom1hPct >= 1.0 && mom4h >= 0.8;
@@ -248,13 +247,17 @@ class RiskManager {
       return { pass: true, stage: 'Health Gate' };
     }
 
-    // FALLBACK B: Creeping uptrend — slope clearly improving AND 4h near-neutral (not downtrending)
-    // Only fires when 4h >= -0.5% so we don't enter dead-cat bounces in an ongoing downtrend.
-    // Catches slow sideways-to-up grinds where brief flat candles prevent higherCloses from firing.
+    // FALLBACK B: Creeping uptrend — two variants:
+    // B1: Slope accelerating + 4h near-neutral (original — catches momentum building)
+    // B2: Steady grind — 1h positive + higherCloses + 4h near-neutral (catches slow climbs
+    //     where momentum plateaus but price is still making higher candle closes)
+    //     Quick scalp opportunity: low target, fast in-and-out, must not be in 4h downtrend.
     const slope = momentumSlope ?? 0;
-    if (slope > 0.03 && mom4h >= -0.5 && intrabar >= -0.1) {
-      console.log(`\n✅ HEALTH GATE PASSED (creeping uptrend): slope=${slope.toFixed(3)}% | 4h=${mom4h.toFixed(2)}% | intrabar=${intrabar.toFixed(2)}%`);
-      logger.info('RiskManager: Health gate passed via creeping uptrend', { momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
+    const steadyGrind = mom1hPct >= env.RISK_MIN_MOMENTUM_1H_BINANCE && higherCloses && mom4h >= -0.5 && intrabar >= -0.15;
+    if ((slope > 0.03 && mom4h >= -0.5 && intrabar >= -0.1) || steadyGrind) {
+      const via = steadyGrind && slope <= 0.03 ? 'steady grind' : 'creeping uptrend';
+      console.log(`\n✅ HEALTH GATE PASSED (${via}): 1h=${mom1hPct.toFixed(3)}% | slope=${slope.toFixed(3)}% | 4h=${mom4h.toFixed(2)}% | higherCloses=${higherCloses} | intrabar=${intrabar.toFixed(2)}%`);
+      logger.info(`RiskManager: Health gate passed via ${via}`, { momentum1h: mom1hPct.toFixed(3), momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), higherCloses, intrabar: intrabar.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
     }
 
