@@ -35,6 +35,7 @@ export interface OpenPosition {
   pyramidLevelsActivated: number;
   holdTimeMinutes?: number;
   regime?: string;
+  peakPct?: number;
 }
 
 /**
@@ -148,11 +149,14 @@ export class MomentumFailureDetector {
       return result;
     }
 
-    // Gate 1: Only check if profit exceeds minimum (2%)
-    if (position.profitPct < env.MOMENTUM_FAILURE_MIN_PROFIT_PCT) {
+    // Gate 1: Only check if profit ever exceeded minimum (peak or current)
+    const achievedProfitPct = Math.max(position.profitPct, position.peakPct ?? Number.NEGATIVE_INFINITY);
+    if (achievedProfitPct < env.MOMENTUM_FAILURE_MIN_PROFIT_PCT) {
       logger.debug('Momentum failure check skipped - insufficient profit', {
         pair: position.pair,
         profitPct: position.profitPct,
+        peakPct: position.peakPct,
+        achievedProfitPct,
         minRequired: env.MOMENTUM_FAILURE_MIN_PROFIT_PCT,
       });
       return result;

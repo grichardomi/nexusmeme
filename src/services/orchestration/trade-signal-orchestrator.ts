@@ -339,7 +339,7 @@ class TradeSignalOrchestrator {
     }
 
     this.isRunning = true;
-    logger.info('Starting trade signal orchestrator', { intervalMs });
+    logger.info('🚀 Starting trade signal orchestrator', { intervalMs });
 
     // Initialize position tracker from database (load peak profits from previous session)
     await positionTracker.initializeFromDatabase();
@@ -469,7 +469,7 @@ class TradeSignalOrchestrator {
     for (const unsub of this.tickUnsubs.values()) { try { unsub(); } catch {} }
     this.tickUnsubs.clear();
     this.tickTradeCache.clear();
-    logger.info('Trade signal orchestrator stopped');
+    logger.info('🛑 Trade signal orchestrator stopped');
   }
 
   /**
@@ -727,7 +727,7 @@ class TradeSignalOrchestrator {
               const profitTargetPct = profitTarget * 100; // e.g. 0.05 → 5%
 
               if (netProfitPct >= profitTargetPct) {
-                logger.info('HF profit target hit', { pair: trade.pair, netProfitPct: netProfitPct.toFixed(2), target: profitTargetPct.toFixed(1), regime });
+                logger.info('🎯 HF profit target hit', { pair: trade.pair, netProfitPct: netProfitPct.toFixed(2), target: profitTargetPct.toFixed(1), regime });
                 const profitLoss = (currentPrice - entryPrice) * quantity;
                 try {
                   const closeResult = await closeTrade({
@@ -951,7 +951,7 @@ class TradeSignalOrchestrator {
       try {
         const btcGateResult = await capitalPreservation.checkBtcTrendGate();
         if (!btcGateResult.allowTrading) {
-          logger.info('Capital preservation: BTC trend gate blocking ALL entries this cycle', {
+          logger.info('🛡️ Capital preservation: BTC trend gate blocking ALL entries this cycle', {
             reason: btcGateResult.reason,
             layer: btcGateResult.layer,
           });
@@ -959,7 +959,7 @@ class TradeSignalOrchestrator {
         }
         globalCpMultiplier = btcGateResult.sizeMultiplier;
         if (globalCpMultiplier < 1.0) {
-          logger.info('Capital preservation: BTC trend gate reducing position sizes', {
+          logger.info('🛡️ Capital preservation: BTC trend gate reducing position sizes', {
             multiplier: globalCpMultiplier,
             reason: btcGateResult.reason,
           });
@@ -1183,7 +1183,7 @@ class TradeSignalOrchestrator {
             // PRE-CHECK: Block entry if spread exceeds maximum
             const maxEntrySpreadPct = env.MAX_ENTRY_SPREAD_PCT || 0.003;
             if (spreadPct > maxEntrySpreadPct) {
-              logger.info('Orchestrator: entry blocked - spread too wide', { pair, spreadPct: (spreadPct * 100).toFixed(3), maxSpreadPct: (maxEntrySpreadPct * 100).toFixed(2), bid, ask, reason: 'Wide spread erases profit potential' });
+              logger.info('🚫 Orchestrator: entry blocked - spread too wide', { pair, spreadPct: (spreadPct * 100).toFixed(3), maxSpreadPct: (maxEntrySpreadPct * 100).toFixed(2), bid, ask, reason: 'Wide spread erases profit potential' });
               return { type: 'rejected', signal: { pair, reason: 'spread_too_wide', details: `Spread ${(spreadPct * 100).toFixed(3)}% > ${(maxEntrySpreadPct * 100).toFixed(2)}% max`, stage: 'Pre-Filter' } };
             }
 
@@ -1196,13 +1196,13 @@ class TradeSignalOrchestrator {
             const riskFilter = await riskManager.runFullRiskFilter(pair, currentPrice, indicators, ticker);
 
             if (!riskFilter.pass) {
-              logger.info('Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), momentum4h: indicators.momentum4h?.toFixed(3) });
+              logger.info('🚫 Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), momentum4h: indicators.momentum4h?.toFixed(3) });
               this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: riskFilter.reason ?? null, blockStage: riskFilter.stage ?? null, enteredAt: null };
               this.lastCycleStatus.updatedAt = Date.now();
               return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: riskFilter.reason, stage: riskFilter.stage } };
             }
 
-            logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
+            logger.info('✅ Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
             // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
             // Fee round-trip is ~0.30%. Entering with mom1h < 0.50% has no statistical edge.
@@ -1246,7 +1246,7 @@ class TradeSignalOrchestrator {
 
               const min1h = min1hBase - transitionFloorAdj;
               if (mom1h < min1h && !early4hBypass) {
-                logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h, transitionFloorAdj });
+                logger.info('🚫 Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h, transitionFloorAdj });
                 this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, blockStage: 'Momentum Floor', enteredAt: null };
                 this.lastCycleStatus.updatedAt = Date.now();
                 return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, stage: 'Momentum Floor' } };
@@ -1281,7 +1281,7 @@ class TradeSignalOrchestrator {
 
               if (isCreepingUptrend) {
                 const volRatio = indicators.volumeRatio ?? 1;
-                logger.info('Orchestrator: creeping uptrend detected', { pair, mom1h: mom1hVal.toFixed(3), mom4h: mom4hVal.toFixed(3), volumeRatio: volRatio.toFixed(2), priceToHighRatio: priceToHighRatio.toFixed(4) });
+                logger.info('📈 Orchestrator: creeping uptrend detected', { pair, mom1h: mom1hVal.toFixed(3), mom4h: mom4hVal.toFixed(3), volumeRatio: volRatio.toFixed(2), priceToHighRatio: priceToHighRatio.toFixed(4) });
               }
             }
 
@@ -1348,7 +1348,7 @@ class TradeSignalOrchestrator {
 
               const regimeClass = effectiveRegime.toUpperCase();
               const expectedTarget = `${(riskManager.getProfitTarget(effectiveRegime) * 100).toFixed(1)}%`;
-              logger.info('Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
+              logger.info('📈 Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
               this.lastCycleStatus.pairs[pair] = { regime: effectiveRegime, momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: null, blockStage: null, enteredAt: new Date().toISOString() };
               this.lastCycleStatus.updatedAt = Date.now();
 
@@ -1357,7 +1357,7 @@ class TradeSignalOrchestrator {
             } else if (analysis.signal == null) {
               // null = AI veto (set explicitly in analyzer.ts); undefined = no signal generated
               const reason = analysis.signal === null ? 'ai_veto' : 'no_signal';
-              logger.warn('Orchestrator: signal blocked or absent', { pair, reason, hasRegime: !!analysis.regime, regimeType: analysis.regime?.regime });
+              logger.warn('⛔ Orchestrator: signal blocked or absent', { pair, reason, hasRegime: !!analysis.regime, regimeType: analysis.regime?.regime });
               return { type: 'skipped' };
             } else {
               logger.warn('Orchestrator: signal rejected - unknown reason', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence });
@@ -1392,7 +1392,7 @@ class TradeSignalOrchestrator {
         try {
           const plans = await executionFanOut.fanOutTradeDecision(decision);
           if (plans.length > 0) {
-            logger.info('Orchestrator: execution plans created', {
+            logger.info('📋 Orchestrator: execution plans created', {
               pair: decision.pair,
               side: decision.side,
               plansCount: plans.length,
@@ -1411,7 +1411,7 @@ class TradeSignalOrchestrator {
       if (allPlans.length > 0) {
         try {
           const result = await executionFanOut.executeTradesDirect(allPlans);
-          logger.info('Orchestrator: direct execution complete', {
+          logger.info('✅ Orchestrator: direct execution complete', {
             planCount: allPlans.length,
             executed: result.executed,
             skipped: result.skipped,
@@ -1691,6 +1691,7 @@ class TradeSignalOrchestrator {
           const regime = (cachedRegime && (Date.now() - cachedRegime.timestamp) < this.REGIME_CACHE_TTL_MS)
             ? cachedRegime.regime
             : 'moderate';
+          const peak = positionTracker.getPeakProfit(trade.id);
           const position: OpenPosition = {
             pair: trade.pair,
             entryPrice,
@@ -1699,6 +1700,7 @@ class TradeSignalOrchestrator {
             pyramidLevelsActivated: 0,
             holdTimeMinutes,
             regime,
+            peakPct: peak?.peakPct,
           };
 
           // Update peak profit tracking (same as profit target pass)

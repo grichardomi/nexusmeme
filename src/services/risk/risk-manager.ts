@@ -262,13 +262,17 @@ class RiskManager {
     }
 
     // FALLBACK B: Creeping uptrend — two variants:
-    // B1: Slope accelerating + 4h near-neutral (original — catches momentum building)
+    // B1: Slope accelerating + 4h non-negative (original — catches momentum building)
+    //     Requires mom4h >= 0: a "creeping uptrend" with negative 4h is just a downtrend with
+    //     an accelerating slope — entering it means buying a bounce that hasn't reversed yet.
+    //     Mar 29 post-mortem: B1 was passing with mom4h=-0.373% (gate4hFloor=-0.5%) causing
+    //     repeated entries into a descending range, all exiting as momentum_failure_late losses.
     // B2: Steady grind — 1h positive + higherCloses + 4h near-neutral (catches slow climbs
     //     where momentum plateaus but price is still making higher candle closes)
     //     Quick scalp opportunity: low target, fast in-and-out, must not be in 4h downtrend.
     const slope = momentumSlope ?? 0;
     const steadyGrind = mom1hPct >= env.RISK_MIN_MOMENTUM_1H_BINANCE && higherCloses && mom4h >= gate4hFloor && intrabar >= env.RISK_STEADY_GRIND_INTRABAR_MIN;
-    if ((slope > env.RISK_CREEP_SLOPE_MIN && mom4h >= gate4hFloor && intrabar >= env.RISK_CREEP_INTRABAR_MIN) || steadyGrind) {
+    if ((slope > env.RISK_CREEP_SLOPE_MIN && mom4h >= 0 && intrabar >= env.RISK_CREEP_INTRABAR_MIN) || steadyGrind) {
       const via = steadyGrind && slope <= 0.03 ? 'steady grind' : 'creeping uptrend';
       logger.info(`RiskManager: Health gate passed via ${via}`, { momentum1h: mom1hPct.toFixed(3), momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), higherCloses, intrabar: intrabar.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
