@@ -262,6 +262,14 @@ const envSchema = z.object({
   EROSION_RATCHET_ACTIVATION_PCT: z.string().transform(Number).default('8.0'), // 8% of cost → ratchet arms
   EROSION_RATCHET_THRESHOLD: z.string().transform(Number).default('0.20'),     // 20% erosion when ratchet active (vs 35% standard)
 
+  /* V-Shape Rebound Detection */
+  SHARP_DROP_RECOVERY_ENABLED: z.string().transform(v => v === 'true').default('true'),
+  SHARP_DROP_MIN_PCT: z.string().transform(Number).default('1.5'),             // Min drop magnitude to qualify as V-shape
+  SHARP_DROP_MIN_RECOVERY_RATIO: z.string().transform(Number).default('0.5'), // Must recover >= 50% of drop
+  /* Rebound-specific erosion: tighter than standard — lock gains on first dip */
+  REBOUND_EROSION_DOLLAR_THRESHOLD: z.string().transform(Number).default('0.20'), // Half of standard $0.40
+  REBOUND_EROSION_PCT_THRESHOLD: z.string().transform(Number).default('0.04'),    // 4% vs 8% standard
+
   /* Regime-based Erosion Caps (VERY AGGRESSIVE - lock profits quickly) */
   /* Lower = keep more profit, close faster on pullback */
   EROSION_CAP_CHOPPY: z.string().transform(Number).default('0.05'), // 5% - exit fast in chop (keeps 95% of peak)
@@ -669,6 +677,11 @@ function getDefaultEnvironment(): Environment {
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_RATCHET_ACTIVATION_PCT: 0.8,   // arms at 0.8% peak (every real trade)
     EROSION_RATCHET_THRESHOLD: 0.10,       // 10% erosion - locks 90% of peak
+    SHARP_DROP_RECOVERY_ENABLED: true,
+    SHARP_DROP_MIN_PCT: 1.5,
+    SHARP_DROP_MIN_RECOVERY_RATIO: 0.5,
+    REBOUND_EROSION_DOLLAR_THRESHOLD: 0.20,
+    REBOUND_EROSION_PCT_THRESHOLD: 0.04,
     EROSION_CAP_CHOPPY: 0.05, // 5% - exit fast in chop (keep 95% of peak)
     EROSION_CAP_WEAK: 0.05, // 5% - exit fast in weak trends
     EROSION_CAP_MODERATE: 0.08, // 8% - balanced for moderate trends

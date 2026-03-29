@@ -464,7 +464,8 @@ class PositionTracker {
     pair: string,
     currentProfitPct: number,
     _regime: string,
-    currentPrice?: number
+    currentPrice?: number,
+    isRebound = false
   ): ErosionCheckResult {
     const existing = this.peakProfits.get(tradeId);
 
@@ -519,27 +520,37 @@ class PositionTracker {
       return result; // Peak too small — not yet armed
     }
 
+    // Rebound trades: tighter thresholds — lock gains on first dip, don't let V-shape reverse
+    // Standard trades tolerate more erosion to let trends run; rebound trades are quick in/out.
+    const dollarThreshold = isRebound
+      ? (env.REBOUND_EROSION_DOLLAR_THRESHOLD ?? env.EROSION_DOLLAR_THRESHOLD * 0.5)
+      : env.EROSION_DOLLAR_THRESHOLD;
+    const pctThreshold = isRebound
+      ? (env.REBOUND_EROSION_PCT_THRESHOLD ?? env.EROSION_PEAK_RELATIVE_THRESHOLD * 0.5)
+      : env.EROSION_PEAK_RELATIVE_THRESHOLD;
+
     // PRIMARY: Dollar threshold — stable regardless of peak size, not distorted by tiny peaks
-    const dollarThreshold = env.EROSION_DOLLAR_THRESHOLD; // e.g. $0.40
     const dollarFired = erosionDollars >= dollarThreshold;
 
-    // BACKSTOP: Percentage threshold — catches large peaks where $0.40 is too tight
-    const pctThreshold = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g. 8%
+    // BACKSTOP: Percentage threshold — catches large peaks where dollar is too tight
     const pctFired = erosionPct >= pctThreshold;
 
     if (dollarFired || pctFired) {
       const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
-      logger.info('🔒 TRAILING STOP - locking profit', {
+      logger.info(isRebound ? '🔒 REBOUND TRAILING STOP - locking profit (tight)' : '🔒 TRAILING STOP - locking profit', {
         tradeId,
         pair,
+        isRebound,
         peakProfit: '$' + existing.peakProfit.toFixed(2),
         currentProfit: '$' + currentProfitDollars.toFixed(2),
         erosionDollars: '$' + erosionDollars.toFixed(2),
         erosionPct: (erosionPct * 100).toFixed(1) + '%',
+        dollarThreshold: '$' + dollarThreshold.toFixed(2),
+        pctThreshold: (pctThreshold * 100).toFixed(0) + '%',
         trigger,
       });
       result.shouldExit = true;
-      result.reason = 'erosion_cap_exceeded';
+      result.reason = isRebound ? 'rebound_erosion_cap' : 'erosion_cap_exceeded';
       return result;
     }
 

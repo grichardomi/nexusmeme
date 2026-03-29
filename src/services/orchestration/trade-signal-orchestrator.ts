@@ -500,8 +500,9 @@ class TradeSignalOrchestrator {
         exchange: string;
         stop_loss: string | null;
         config: any;
+        entry_notes: any;
       }>(
-        `SELECT t.id, t.bot_instance_id, t.pair, t.entry_price, t.quantity, t.entry_time, b.user_id, t.fee, b.exchange, t.stop_loss, b.config
+        `SELECT t.id, t.bot_instance_id, t.pair, t.entry_price, t.quantity, t.entry_time, b.user_id, t.fee, b.exchange, t.stop_loss, b.config, t.entry_notes
          FROM trades t
          INNER JOIN bot_instances b ON t.bot_instance_id = b.id
          WHERE t.status = 'open'`
@@ -1172,6 +1173,32 @@ class TradeSignalOrchestrator {
               indicators.trendScore = [higherCloses, slopeImproving, intrabarUp].filter(Boolean).length;
             }
 
+            // SHARP DROP RECOVERY (V-shape detection)
+            // Looks back 4 candles (1h) to find a panic drop followed by a recovery.
+            // Pattern: high → sharp drop → current price recovered >= 50% of drop.
+            // 15m candles: 4 candles = 1h window, catches fast V-shapes within the hour.
+            if (candles.length >= 6) {
+              const c = candles;
+              const n = c.length;
+              // Find highest high and lowest low in the last 4 closed candles
+              const lookback = c.slice(n - 4, n);
+              const windowHigh = Math.max(...lookback.map((x: { high: number }) => x.high));
+              const windowLow = Math.min(...lookback.map((x: { low: number }) => x.low));
+              const dropMagnitude = windowHigh > 0 ? ((windowHigh - windowLow) / windowHigh) * 100 : 0;
+              const minDrop = effectiveEnv.SHARP_DROP_MIN_PCT ?? 1.5; // default 1.5% minimum drop
+              if (dropMagnitude >= minDrop) {
+                const recoveryRatio = windowHigh > windowLow
+                  ? (currentPrice - windowLow) / (windowHigh - windowLow)
+                  : 0;
+                const minRecovery = effectiveEnv.SHARP_DROP_MIN_RECOVERY_RATIO ?? 0.5; // default 50% recovered
+                indicators.sharpDropRecovery = recoveryRatio >= minRecovery && intrabarMomentum > 0;
+                indicators.dropMagnitudePct = dropMagnitude;
+                indicators.recoveryRatioPct = recoveryRatio;
+              } else {
+                indicators.sharpDropRecovery = false;
+              }
+            }
+
             const bid = currentPriceData.bid;
             const ask = currentPriceData.ask;
             let spreadPct = 0.001;
@@ -1317,6 +1344,30 @@ class TradeSignalOrchestrator {
               }
             }
 
+            // V-SHAPE REBOUND ENTRY PATH
+            // Bypasses momentum floor gates when a sharp panic drop has recovered >= 50%.
+            // 4h will always be negative after a sudden drop — that's expected, not a filter.
+            // Requirements: confirmed drop >= SHARP_DROP_MIN_PCT, recovery >= 50%,
+            //               intrabar positive (still rising), higherCloses (2+ candles confirming).
+            // Trades tagged isRebound=true → tighter erosion cap in position-tracker.
+            let isReboundEntry = false;
+            if (
+              effectiveEnv.SHARP_DROP_RECOVERY_ENABLED &&
+              indicators.sharpDropRecovery &&
+              indicators.higherCloses &&
+              intrabarMomentum > 0
+            ) {
+              isReboundEntry = true;
+              logger.info('📈 Orchestrator: V-shape rebound entry detected', {
+                pair,
+                dropMagnitudePct: (indicators.dropMagnitudePct ?? 0).toFixed(2),
+                recoveryRatioPct: (indicators.recoveryRatioPct ?? 0).toFixed(2),
+                mom1h: (indicators.momentum1h ?? 0).toFixed(3),
+                mom4h: (indicators.momentum4h ?? 0).toFixed(3),
+                intrabar: intrabarMomentum.toFixed(3),
+              });
+            }
+
             const analysis = await analyzeMarket({
               pair,
               timeframe: '1h',
@@ -1369,6 +1420,9 @@ class TradeSignalOrchestrator {
                   regime: effectiveRegime,
                   entryPath,
                   volumeRatio: indicators.volumeRatio ?? 0,
+                  isRebound: isReboundEntry,
+                  dropMagnitudePct: indicators.dropMagnitudePct ?? 0,
+                  recoveryRatioPct: indicators.recoveryRatioPct ?? 0,
                 },
               };
 
@@ -2144,13 +2198,16 @@ class TradeSignalOrchestrator {
           // CHECK 1: EROSION CAP (was profitable → protect it)
           // If trade ever had NET profit and erosion exceeds cap → EXIT
           // Use NET profit so erosion only fires on truly green trades
+          // Rebound trades get tighter erosion (lock gains faster on first dip)
           if (!shouldClose) {
+            const isReboundTrade = !!(trade.entry_notes?.isRebound);
             const erosionCheck = positionTracker.checkErosionCap(
               trade.id,
               trade.pair,
               currentProfitPct,  // Use NET profit
               regime,
-              currentPrice       // Required for absolute value comparison
+              currentPrice,      // Required for absolute value comparison
+              isReboundTrade
             );
 
             if (erosionCheck.shouldExit) {

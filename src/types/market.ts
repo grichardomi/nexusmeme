@@ -47,6 +47,9 @@ export interface TradeDecision {
     regime: string;
     entryPath: string;
     volumeRatio?: number;
+    isRebound?: boolean;
+    dropMagnitudePct?: number;
+    recoveryRatioPct?: number;
   };
 }
 

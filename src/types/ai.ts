@@ -20,6 +20,9 @@ export interface TechnicalIndicators {
   trendScore?: number;        // 0-3: count of bullish direction signals (need 2+ to pass)
   higherCloses?: boolean;     // true if last 3 candles each closed above the prior (pure price action)
   momentumSlope?: number;     // 1h ROC now minus 1h ROC 30min ago — positive = recovering
+  sharpDropRecovery?: boolean; // V-shape: dropped >X% in last 30min AND recovered >50% of drop
+  dropMagnitudePct?: number;  // How large the drop was (% from candle high to candle low)
+  recoveryRatioPct?: number;  // How much of the drop has been recovered (0-1, 1 = full recovery)
 }
 
 export interface MarketRegimeAnalysis {
