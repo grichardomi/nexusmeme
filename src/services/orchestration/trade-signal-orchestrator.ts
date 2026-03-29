@@ -726,7 +726,7 @@ class TradeSignalOrchestrator {
               const profitTargetPct = profitTarget * 100; // e.g. 0.05 → 5%
 
               if (netProfitPct >= profitTargetPct) {
-                console.log(`\n🎯 [HF] PROFIT TARGET HIT: ${trade.pair} net +${netProfitPct.toFixed(2)}% >= ${profitTargetPct.toFixed(1)}% (${regime})`);
+                logger.info('HF profit target hit', { pair: trade.pair, netProfitPct: netProfitPct.toFixed(2), target: profitTargetPct.toFixed(1), regime });
                 const profitLoss = (currentPrice - entryPrice) * quantity;
                 try {
                   const closeResult = await closeTrade({
@@ -1092,7 +1092,29 @@ class TradeSignalOrchestrator {
               logger.warn('No market data for pre-entry risk check', { pair });
               return { type: 'skipped' };
             }
-            const currentPrice = currentPriceData.price;
+            // LIVE PRICE OVERRIDE: Always prefer WebSocket price over aggregator in-process cache.
+            // The aggregator's in-process cache has a 10-15s TTL — during a fast dump it
+            // returns a pre-dump price, making momentum look positive when the market is falling.
+            // livePriceStore is fed directly by WS ticks (~100-500ms) — zero TTL lag.
+            // Result: ALL downstream momentum calculations use real market price, not stale cache.
+            let currentPrice = currentPriceData.price;
+            {
+              const liveData = livePriceStore.get(pair);
+              const livePriceCfg = getEnvironmentConfig();
+              if (liveData && (Date.now() - liveData.timestamp) < livePriceCfg.LIVE_PRICE_MAX_AGE_MS) {
+                const divergence = Math.abs(liveData.price - currentPrice) / currentPrice;
+                if (divergence > livePriceCfg.LIVE_PRICE_DIVERGENCE_LOG_PCT) {
+                  logger.info('Orchestrator: live WS price diverges from aggregator cache — using live price', {
+                    pair,
+                    cachedPrice: currentPrice,
+                    livePrice: liveData.price,
+                    divergencePct: (divergence * 100).toFixed(3),
+                    liveAgeMs: Date.now() - liveData.timestamp,
+                  });
+                }
+                currentPrice = liveData.price;
+              }
+            }
 
             // CRITICAL: Real-time intrabar momentum — checks if price is currently falling
             // Uses last CLOSED candle's close (not open) as reference — the OHLC fetcher drops
@@ -1151,12 +1173,11 @@ class TradeSignalOrchestrator {
               spreadPct = (ask - bid) / bid;
             }
 
-            console.log(`\n🔍 [SCAN] ${pair} @ $${currentPrice.toFixed(2)} | TrendScore: ${indicators.trendScore ?? '?'}/3 | HigherCloses: ${indicators.higherCloses} | Slope: ${(indicators.momentumSlope || 0).toFixed(3)}% | Intrabar: ${intrabarMomentum.toFixed(2)}% | 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | Vol: ${(indicators.volumeRatio || 1).toFixed(2)}x | Spread: ${(spreadPct * 100).toFixed(3)}%`);
+            logger.debug('Orchestrator: pair scan', { pair, price: currentPrice, trendScore: indicators.trendScore, higherCloses: indicators.higherCloses, slope: (indicators.momentumSlope || 0).toFixed(3), intrabar: intrabarMomentum.toFixed(2), mom4h: (indicators.momentum4h || 0).toFixed(2), volRatio: (indicators.volumeRatio || 1).toFixed(2), spreadPct: (spreadPct * 100).toFixed(3) });
 
             // PRE-CHECK: Block entry if spread exceeds maximum
             const maxEntrySpreadPct = env.MAX_ENTRY_SPREAD_PCT || 0.003;
             if (spreadPct > maxEntrySpreadPct) {
-              console.log(`\n🚫 SPREAD TOO WIDE: ${pair} - ${(spreadPct * 100).toFixed(3)}% > ${(maxEntrySpreadPct * 100).toFixed(2)}% max`);
               logger.info('Orchestrator: entry blocked - spread too wide', { pair, spreadPct: (spreadPct * 100).toFixed(3), maxSpreadPct: (maxEntrySpreadPct * 100).toFixed(2), bid, ask, reason: 'Wide spread erases profit potential' });
               return { type: 'rejected', signal: { pair, reason: 'spread_too_wide', details: `Spread ${(spreadPct * 100).toFixed(3)}% > ${(maxEntrySpreadPct * 100).toFixed(2)}% max`, stage: 'Pre-Filter' } };
             }
@@ -1170,14 +1191,12 @@ class TradeSignalOrchestrator {
             const riskFilter = await riskManager.runFullRiskFilter(pair, currentPrice, indicators, ticker);
 
             if (!riskFilter.pass) {
-              console.log(`\n🚫 RISK FILTER BLOCKED: ${pair} - ${riskFilter.reason}`);
               logger.info('Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), momentum4h: indicators.momentum4h?.toFixed(3) });
               this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: riskFilter.reason ?? null, blockStage: riskFilter.stage ?? null, enteredAt: null };
               this.lastCycleStatus.updatedAt = Date.now();
               return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: riskFilter.reason, stage: riskFilter.stage } };
             }
 
-            console.log(`\n✅ RISK FILTER PASSED: ${pair} - 4h: ${(indicators.momentum4h || 0).toFixed(2)}% | 1h: ${(indicators.momentum1h || 0).toFixed(2)}%`);
             logger.info('Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
             // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
@@ -1229,7 +1248,6 @@ class TradeSignalOrchestrator {
 
               if (isCreepingUptrend) {
                 const volRatio = indicators.volumeRatio ?? 1;
-                console.log(`\n📈 CREEPING UPTREND: ${pair} - mom1h: ${mom1hVal.toFixed(2)}% mom4h: ${mom4hVal.toFixed(2)}% vol: ${volRatio.toFixed(2)}x price/high: ${(priceToHighRatio * 100).toFixed(1)}%`);
                 logger.info('Orchestrator: creeping uptrend detected', { pair, mom1h: mom1hVal.toFixed(3), mom4h: mom4hVal.toFixed(3), volumeRatio: volRatio.toFixed(2), priceToHighRatio: priceToHighRatio.toFixed(4) });
               }
             }
@@ -1245,12 +1263,10 @@ class TradeSignalOrchestrator {
               regimeContext: regimeAgentState,
             });
 
-            console.log(`\n🔍 DIAGNOSTIC: analyzeMarket returned for ${pair}`, { hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
             logger.info('Orchestrator: analyzeMarket returned', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
 
             const regime = analysis.regime?.regime?.toLowerCase() || 'moderate';
 
-            console.log(`\n📊 REGIME: ${pair} - ${regime.toUpperCase()} | AI confidence: ${analysis.signal?.confidence ?? 'N/A'}% (advisory)`);
             logger.info('Orchestrator: regime detected', { pair, regime, signalConfidence: analysis.signal?.confidence });
 
             // AI confidence is advisory only — entry gated by 4h > 0 AND 1h > min (pure price).
@@ -1298,7 +1314,6 @@ class TradeSignalOrchestrator {
 
               const regimeClass = effectiveRegime.toUpperCase();
               const expectedTarget = `${(riskManager.getProfitTarget(effectiveRegime) * 100).toFixed(1)}%`;
-              console.log(`\n✅ TRADE DECISION CREATED for ${pair}!`, { confidence: analysis.signal.confidence, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
               logger.info('Orchestrator: TRADE DECISION CREATED', { pair, signalStrength: analysis.signal.strength, confidence: analysis.signal.confidence, entryPrice: analysis.signal.entryPrice, stopLoss: analysis.signal.stopLoss, takeProfit: analysis.signal.takeProfit, regime: effectiveRegime, regimeClass, expectedProfitTarget: expectedTarget, mom1h: (indicators.momentum1h ?? 0).toFixed(2), mom4h: (indicators.momentum4h ?? 0).toFixed(2), btcMomentum1h: btcMomentum1h.toFixed(3), cpMultiplier: decision.capitalPreservationMultiplier });
               this.lastCycleStatus.pairs[pair] = { regime: effectiveRegime, momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: null, blockStage: null, enteredAt: new Date().toISOString() };
               this.lastCycleStatus.updatedAt = Date.now();

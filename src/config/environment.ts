@@ -79,6 +79,11 @@ const envSchema = z.object({
   MARKET_DATA_CACHE_TTL_MS: z.string().transform(Number).default('15000'),
   MARKET_DATA_CACHE_STALE_TTL_MS: z.string().transform(Number).default('5000'),
 
+  /* Live Price Freshness Guards */
+  LIVE_PRICE_MAX_AGE_MS: z.string().transform(Number).default('3000'),           // WS price must be < 3s old to override aggregator cache
+  LIVE_PRICE_DIVERGENCE_LOG_PCT: z.string().transform(Number).default('0.001'),  // Log when WS/cache diverge > 0.1%
+  ENTRY_MAX_ADVERSE_SLIPPAGE_PCT: z.string().transform(Number).default('0.003'), // Abort entry if price dropped > 0.3% since signal
+
   /* Bot Configuration */
   BOT_API_PORT_START: z.string().transform(Number).default('20000'),
   BOT_API_PORT_END: z.string().transform(Number).default('39999'),
@@ -494,6 +499,9 @@ function getDefaultEnvironment(): Environment {
     MAX_API_CALLS_PER_MINUTE: 600,
     MARKET_DATA_CACHE_TTL_MS: 15000,
     MARKET_DATA_CACHE_STALE_TTL_MS: 5000,
+    LIVE_PRICE_MAX_AGE_MS: 3000,
+    LIVE_PRICE_DIVERGENCE_LOG_PCT: 0.001,
+    ENTRY_MAX_ADVERSE_SLIPPAGE_PCT: 0.003,
     BOT_API_PORT_START: 20000,
     BOT_API_PORT_END: 39999,
     ENABLE_TRADE_ALERTS: true,

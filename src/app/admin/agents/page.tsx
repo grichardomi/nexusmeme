@@ -111,6 +111,7 @@ interface TradingParamsData {
   overrides: Partial<TradingParams>;
   changelog: ParamChangeEntry[];
   overrideSetAt: Record<string, string>; // ISO timestamp when each override was last set
+  feeRoundtripPct?: number; // derived from BINANCE_TAKER_FEE_DEFAULT * 2
 }
 
 const REGIME_COLORS: Record<string, string> = {
@@ -361,10 +362,10 @@ export default function AgentsDashboardPage() {
   const estimatedCostToday = ((regime?.callsToday ?? 0) * 0.00025).toFixed(4);
   const perf = paramsData?.performance;
   const winRate = perf && perf.totalTrades > 0 ? (perf.wins / perf.totalTrades * 100).toFixed(1) : '—';
-  // Gross P&L is stored in DB; subtract estimated round-trip fee (0.20% Binance maker+taker)
-  const FEE_ROUNDTRIP_PCT = 0.20;
+  // Gross P&L is stored in DB; subtract round-trip fee derived from BINANCE_TAKER_FEE_DEFAULT * 2
+  const feeRoundtripPct = paramsData?.feeRoundtripPct ?? 0.20;
   const expectancy = perf && perf.totalTrades > 0
-    ? ((perf.wins / perf.totalTrades) * perf.avgWinPct - (perf.losses / perf.totalTrades) * Math.abs(perf.avgLossPct) - FEE_ROUNDTRIP_PCT).toFixed(3)
+    ? ((perf.wins / perf.totalTrades) * perf.avgWinPct - (perf.losses / perf.totalTrades) * Math.abs(perf.avgLossPct) - feeRoundtripPct).toFixed(3)
     : null;
   const hasOverrides = paramsData && Object.keys(paramsData.overrides).length > 0;
 
@@ -463,7 +464,7 @@ export default function AgentsDashboardPage() {
             {/* Expectancy */}
             {expectancy !== null && (
               <div className={`rounded-lg px-4 py-3 text-sm font-medium flex items-center justify-between ${parseFloat(expectancy) >= 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'}`}>
-                <span>Net expectancy per trade <span className="font-normal opacity-70">(after ~0.20% fees)</span></span>
+                <span>Net expectancy per trade <span className="font-normal opacity-70">(after ~{feeRoundtripPct.toFixed(2)}% fees)</span></span>
                 <span className="font-mono font-bold">{parseFloat(expectancy) >= 0 ? '+' : ''}{expectancy}%</span>
               </div>
             )}

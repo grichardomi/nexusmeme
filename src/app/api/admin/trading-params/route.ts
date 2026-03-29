@@ -194,10 +194,12 @@ export async function GET() {
       (updatedParams as any)[key] = (envDefaults as any)[key];
       delete overrideSetAt[key];
     }
-    return NextResponse.json({ performance, params: updatedParams, envDefaults, overrides: updatedOverrides, changelog, overrideSetAt });
+    const feeRoundtripPct = getEnvironmentConfig().BINANCE_TAKER_FEE_DEFAULT * 2 * 100; // convert 0.001 → 0.2 (%)
+    return NextResponse.json({ performance, params: updatedParams, envDefaults, overrides: updatedOverrides, changelog, overrideSetAt, feeRoundtripPct });
   }
 
-  return NextResponse.json({ performance, params, envDefaults, overrides, changelog, overrideSetAt });
+  const feeRoundtripPct = getEnvironmentConfig().BINANCE_TAKER_FEE_DEFAULT * 2 * 100;
+  return NextResponse.json({ performance, params, envDefaults, overrides, changelog, overrideSetAt, feeRoundtripPct });
 }
 
 export async function POST(req: Request) {

@@ -32,19 +32,6 @@ const RESPONSE_CACHE_MAX = 500; // cap entries — prevents unbounded memory gro
 const responseCache = new Map<string, CachedResponse>();
 const CACHE_TTL_MS = parseInt(process.env.AI_CACHE_TTL_MS || '300000', 10); // 5 min default
 
-/**
- * Generate cache key using /nexus bucket strategy
- * Buckets: price/100, RSI/5, volume/0.5 → increases cache hits
- */
-function getCacheKey(
-  pair: string,
-  price: number,
-  indicators: TechnicalIndicators
-): string {
-  const priceBucket = Math.floor(price / 100) * 100;
-  const volumeBucket = Math.floor((indicators.volumeRatio || 1) / 0.5);
-  return `${pair}:${priceBucket}:${volumeBucket}`;
-}
 
 function getBoostCacheKey(
   pair: string,
@@ -342,37 +329,9 @@ export async function generateTradeSignalAI(
   regime: MarketRegimeAnalysis,
   sentiment: SentimentAnalysis
 ): Promise<TradeSignalAnalysis> {
-  // /nexus parity: Check cache first (85%+ hit rate!)
-  const cacheKey = getCacheKey(pair, currentPrice, indicators);
-  const cachedResponse = getFromCache(cacheKey);
-
-  if (cachedResponse) {
-    // Parse cached response (complete TradeSignalAnalysis object)
-    try {
-      const parsed = JSON.parse(cachedResponse);
-      return {
-        signal: parsed.signal as TradeSignal,
-        confidence: parsed.confidence,
-        strength: parsed.strength as SignalStrength,
-        entryPrice: parsed.entryPrice,
-        stopLoss: parsed.stopLoss,
-        takeProfit: parsed.takeProfit,
-        riskRewardRatio: parsed.riskRewardRatio,
-        factors: parsed.factors || [],
-        technicalScore: parsed.technicalScore || 50,
-        sentimentScore: parsed.sentimentScore || 50,
-        regimeScore: parsed.regimeScore || 50,
-        analysis: parsed.analysis || '',
-        timestamp: new Date(parsed.timestamp),
-        expiresAt: new Date(parsed.expiresAt),
-      };
-    } catch (e) {
-      logger.warn('Failed to parse cached response', { error: e });
-      // Fall through to fresh API call
-    }
-  }
-
-  // --- Deterministic signal generation (no OpenAI call) ---
+  // --- Deterministic signal generation (no OpenAI call, no cache needed) ---
+  // Pure math — <1ms to compute. A 5-min cache would serve stale confidence scores
+  // when momentum changes mid-window, causing bad entries or missed exits.
   const momentum1h = indicators.momentum1h || 0;
   const momentum4h = indicators.momentum4h || 0;
   const volumeRatio = indicators.volumeRatio || 1;
@@ -527,9 +486,6 @@ export async function generateTradeSignalAI(
     timestamp: new Date(),
     expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
   };
-
-  // Cache the result for future calls
-  setCache(cacheKey, JSON.stringify(result));
 
   logger.info('Deterministic signal generated', {
     pair,

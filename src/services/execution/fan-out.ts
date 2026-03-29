@@ -6,6 +6,7 @@ import DynamicPositionSizer from '@/services/trading/dynamic-position-sizer';
 import { getExchangeAdapter } from '@/services/exchanges/singleton';
 import { decrypt } from '@/lib/crypto';
 import { marketDataAggregator } from '@/services/market-data/aggregator';
+import { livePriceStore } from '@/services/market-data/live-price-store';
 import { getEnvironmentConfig } from '@/config/environment';
 import { getExchangeFeeRates, getCachedTakerFee } from '@/services/billing/fee-rate';
 import { capitalPreservation } from '@/services/risk/capital-preservation';
@@ -149,6 +150,28 @@ class ExecutionFanOut {
         signalPair: decision.pair,
       });
       return null;
+    }
+
+    // PRICE STALENESS GUARD: Abort if market has moved adversely since signal was generated.
+    // Signal price comes from orchestrator (may be 1-5s old by the time fan-out runs).
+    // If live WS price is fresh (< 3s) and has dropped > 0.3% from signal price,
+    // the entry is already underwater before it starts — skip it.
+    {
+      const liveData = livePriceStore.get(decision.pair);
+      const slippageCfg = getEnvironmentConfig();
+      if (liveData && (Date.now() - liveData.timestamp) < slippageCfg.LIVE_PRICE_MAX_AGE_MS && decision.price > 0) {
+        const slippage = (liveData.price - decision.price) / decision.price;
+        if (slippage < -slippageCfg.ENTRY_MAX_ADVERSE_SLIPPAGE_PCT) {
+          logger.warn('Fan-out: aborting trade — price dropped since signal', {
+            botId: bot.id,
+            pair: decision.pair,
+            signalPrice: decision.price,
+            livePrice: liveData.price,
+            slippagePct: (slippage * 100).toFixed(3),
+          });
+          return null;
+        }
+      }
     }
 
     // Calculate position size using DynamicPositionSizer (ported from /nexus)
@@ -632,7 +655,6 @@ class ExecutionFanOut {
     }
 
     if (executed > 0) {
-      console.log(`\n🎯 EXECUTION SUMMARY: ${executed} executed, ${skipped} skipped (of ${plans.length} plans)`);
     }
     logger.info('Direct execution complete', {
       executed,
@@ -668,7 +690,6 @@ class ExecutionFanOut {
     ]);
 
     if (existing && existing.length > 0) {
-      console.log(`\n🚫 DUPLICATE BLOCKED: ${pairBase} position already exists as ${existing[0].pair} (trade: ${existing[0].id})`);
       logger.info('Skipping trade: open position already exists (direct execution)', {
         botId: botInstanceId,
         signalPair: pair,
@@ -798,7 +819,6 @@ class ExecutionFanOut {
           entryFee = executionPrice * amount * feeRate;
         }
 
-        console.log(`\n💰 LIVE TRADE EXECUTED: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)} (fee: $${entryFee.toFixed(4)})`);
         logger.info('Trade executed on LIVE exchange (direct)', {
           orderId,
           pair,
@@ -811,7 +831,6 @@ class ExecutionFanOut {
           tradingMode: 'live',
         });
       } catch (error) {
-        console.log(`\n❌ LIVE TRADE FAILED: ${pair} - ${error instanceof Error ? error.message : 'Unknown error'}`);
         logger.error('Live trade execution failed', error instanceof Error ? error : null, {
           botId: botInstanceId,
           pair,
@@ -826,7 +845,6 @@ class ExecutionFanOut {
       const feeRate = exchangeFeeRates?.taker_fee ?? getCachedTakerFee(exchange);
       entryFee = executionPrice * amount * feeRate;
 
-      console.log(`\n📋 PAPER TRADE: ${side.toUpperCase()} ${amount.toFixed(6)} ${pair} @ $${executionPrice.toFixed(2)} (est fee: $${entryFee.toFixed(4)})`);
       logger.info('Paper trade executed (direct)', {
         orderId,
         pair,
@@ -853,7 +871,6 @@ class ExecutionFanOut {
     );
 
     if (!recordResult || recordResult.length === 0) {
-      console.log(`\n⚠️ IDEMPOTENCY CONFLICT: ${pair} - trade already recorded`);
       logger.warn('Trade already exists (idempotency conflict in direct execution)', {
         botId: botInstanceId,
         pair,
@@ -873,7 +890,6 @@ class ExecutionFanOut {
       return { executed: false, reason: 'idempotency_conflict' };
     }
 
-    console.log(`\n✅ TRADE RECORDED: ${pair} @ $${executionPrice.toFixed(2)} | ID: ${recordResult[0].id} | Mode: ${tradingMode.toUpperCase()}`);
     logger.info('Trade recorded (direct execution)', {
       tradeId: recordResult[0].id,
       orderId,

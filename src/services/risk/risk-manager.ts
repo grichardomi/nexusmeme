@@ -216,8 +216,6 @@ class RiskManager {
         const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
 
         if (slope < dynamicMinSlope && !slopeOverridden) {
-          const overrideNote = `perfectScore=${perfectScore} | veryStrongMom=${veryStrongMomentum}(${mom1hPct.toFixed(2)}%>=${strongMomOverride}%) | strongMultiHour=${strongMultiHour}(4h=${mom4h.toFixed(2)}%)`;
-          console.log(`\n🚫 SLOPE GATE [${isStrongRegime ? 'strong' : isModerateRegime ? 'moderate' : 'weak/choppy'} regime]: slope=${slope.toFixed(3)}% < floor=${dynamicMinSlope} — rally fading | overrides: ${overrideNote}`);
           logger.info('RiskManager: Entry blocked - decelerating momentum (adaptive slope gate)', {
             momentumSlope: slope.toFixed(3),
             dynamicMinSlope,
@@ -236,11 +234,6 @@ class RiskManager {
           };
         }
 
-        const slopeNote = slopeOverridden && slope < dynamicMinSlope
-          ? ` [slope overridden: ${perfectScore ? '3/3 score' : veryStrongMomentum ? `1h=${mom1hPct.toFixed(2)}%>=${strongMomOverride}%` : `4h=${mom4h.toFixed(2)}%>=0.8%`}]`
-          : '';
-        const via = allow4hLag && mom4h < -0.5 ? ` [4h lag allowed: 1h=${mom1hPct.toFixed(2)}%]` : '';
-        console.log(`\n✅ HEALTH GATE PASSED (direction score ${score}/3): higherCloses=${higherCloses} | slope=${slope.toFixed(3)}% | intrabar=${intrabar.toFixed(2)}% | 4h=${mom4h.toFixed(2)}%${via}${slopeNote}`);
         logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: slope.toFixed(3), dynamicMinSlope, slopeOverridden, intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3), allow4hLag });
         return { pass: true, stage: 'Health Gate' };
       }
@@ -248,7 +241,6 @@ class RiskManager {
       const blockReason = isChoppy
         ? `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% ≤ 0 (choppy — 4h lag not allowed)`
         : `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h momentum too weak to override`;
-      console.log(`\n🚫 HEALTH GATE BLOCKED (4h downtrend): score=${score}/3 but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h=${mom1hPct.toFixed(2)}%${isChoppy ? ' [choppy — no 4h lag]' : ''}`);
       logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3), isChoppy });
       return { pass: false, reason: blockReason, stage: 'Health Gate' };
     }
@@ -256,7 +248,6 @@ class RiskManager {
     // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)
     const mom1h = momentum1h ?? 0;
     if (mom4h >= -0.1 && (intrabar > 0 || mom1h >= -0.1)) {
-      console.log(`\n✅ HEALTH GATE PASSED (4h stable): 4h=${mom4h.toFixed(2)}% | intrabar=${intrabar.toFixed(2)}% | 1h=${mom1h.toFixed(2)}%`);
       return { pass: true, stage: 'Health Gate' };
     }
 
@@ -269,12 +260,10 @@ class RiskManager {
     const steadyGrind = mom1hPct >= env.RISK_MIN_MOMENTUM_1H_BINANCE && higherCloses && mom4h >= -0.5 && intrabar >= -0.15;
     if ((slope > 0.03 && mom4h >= -0.5 && intrabar >= -0.1) || steadyGrind) {
       const via = steadyGrind && slope <= 0.03 ? 'steady grind' : 'creeping uptrend';
-      console.log(`\n✅ HEALTH GATE PASSED (${via}): 1h=${mom1hPct.toFixed(3)}% | slope=${slope.toFixed(3)}% | 4h=${mom4h.toFixed(2)}% | higherCloses=${higherCloses} | intrabar=${intrabar.toFixed(2)}%`);
       logger.info(`RiskManager: Health gate passed via ${via}`, { momentum1h: mom1hPct.toFixed(3), momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), higherCloses, intrabar: intrabar.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
     }
 
-    console.log(`\n🚫 HEALTH GATE BLOCKED: score=${score}/3 | 4h=${mom4h.toFixed(2)}% — no upward direction confirmed`);
     logger.info('RiskManager: Entry blocked - direction not confirmed', { trendScore: score, higherCloses, momentumSlope: (momentumSlope ?? 0).toFixed(3), intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3) });
     return { pass: false, reason: `Direction score ${score}/3 (need 2) — higherCloses=${higherCloses}, slope=${(momentumSlope ?? 0).toFixed(2)}%, intrabar=${intrabar.toFixed(2)}%`, stage: 'Health Gate' };
   }
