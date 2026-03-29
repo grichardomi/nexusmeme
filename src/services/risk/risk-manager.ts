@@ -165,6 +165,18 @@ class RiskManager {
       return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < ${crashGuard4h}% (panic/crash protection)`, stage: 'Health Gate' };
     }
 
+    // MINIMUM 4H MOMENTUM GATE: blocks near-zero 4h entries that immediately turn choppy.
+    // Mar 29 post-mortem: entries at mom4h=0.23% classified as 'weak' at entry, regime turned
+    // 'choppy' (mom4h<0) mid-trade, all exited as losses. 4h barely above 0 is not a trend.
+    // Early-recovery exception: if mom4h < floor but mom2h > 0, the last 2h are net-positive —
+    // a real recovery is underway and blocking on lagging 4h would miss the move.
+    const min4h = this.config.minMomentum4h;
+    const earlyRecoveryException = mom4h < min4h && mom2h > 0;
+    if (mom4h < min4h && !earlyRecoveryException) {
+      logger.info('RiskManager: Entry blocked - 4h momentum below minimum', { momentum4h: mom4h.toFixed(3), min4h, momentum2h: mom2h.toFixed(3) });
+      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% < ${min4h}% minimum (near-choppy, no 2h recovery)`, stage: 'Health Gate' };
+    }
+
     const gate4hFloor = env.RISK_HEALTH_GATE_4H_FLOOR_PCT;
 
     // DIRECTION SCORE GATE: need 2/3 signals confirming upward direction
