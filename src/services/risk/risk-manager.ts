@@ -148,20 +148,24 @@ class RiskManager {
    * Crash guard: if 4h ROC < -3% (genuine crash/panic), block regardless of direction signals.
    * This prevents entering during dead-cat bounces in the middle of a crash.
    */
-  checkHealthGate(_adx: number, _adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number, intrabarMomentum?: number, trendScore?: number, higherCloses?: boolean, momentumSlope?: number): RiskFilterResult {
+  checkHealthGate(_adx: number, _adxSlope?: number, momentum1h?: number, _volumeRatio?: number, momentum4h?: number, intrabarMomentum?: number, trendScore?: number, higherCloses?: boolean, momentumSlope?: number, momentum2h?: number): RiskFilterResult {
     const mom4h = momentum4h ?? 0;
+    const mom2h = momentum2h ?? mom4h; // fallback to 4h if 2h not available
     const intrabar = intrabarMomentum ?? 0;
     const score = trendScore ?? 0;
     const mom1hPct = momentum1h ?? 0;
     const env = getEnvironmentConfig();
 
-    logger.debug('RiskManager: Stage 1 - Health Gate (direction score)', { trendScore: score, higherCloses, momentumSlope, intrabar, momentum4h: mom4h, momentum1h });
+    logger.debug('RiskManager: Stage 1 - Health Gate (direction score)', { trendScore: score, higherCloses, momentumSlope, intrabar, momentum4h: mom4h, momentum2h: mom2h, momentum1h });
 
-    // CRASH GUARD: 4h < -3% = genuine crash or panic — dead-cat bounces are traps
-    if (mom4h < -3.0) {
-      logger.info('RiskManager: Entry blocked - crash guard (4h < -3%)', { momentum4h: mom4h.toFixed(3) });
-      return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < -3% (panic/crash protection)`, stage: 'Health Gate' };
+    // CRASH GUARD: 4h below threshold = genuine crash or panic — dead-cat bounces are traps
+    const crashGuard4h = env.RISK_CRASH_GUARD_4H_PCT;
+    if (mom4h < crashGuard4h) {
+      logger.info('RiskManager: Entry blocked - crash guard', { momentum4h: mom4h.toFixed(3), threshold: crashGuard4h });
+      return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < ${crashGuard4h}% (panic/crash protection)`, stage: 'Health Gate' };
     }
+
+    const gate4hFloor = env.RISK_HEALTH_GATE_4H_FLOOR_PCT;
 
     // DIRECTION SCORE GATE: need 2/3 signals confirming upward direction
     // Catches recoveries 1-3 candles after they start, regardless of how deep the prior dump was.
@@ -177,10 +181,15 @@ class RiskManager {
       // entries on noise 1h spikes that immediately reverse.
       const env4h = getEnvironmentConfig();
       const minMom1h = env4h.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.5;
-      const isChoppy = mom4h <= 0;
-      const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= -3.0;
+      // Use 2h momentum to determine if market is truly still declining.
+      // 4h is anchored up to 4h in the past — after a dump, 4h stays negative for 30-60 min
+      // even as price recovers. mom2h (last 8 candles = 2h) reflects the actual recent direction.
+      // If 2h > 0, the last 2 hours are net positive — recovery is real, not a dead-cat bounce.
+      // We still use 4h for crash detection (< -3%) which is not a lag artifact.
+      const isChoppy = mom2h <= 0; // 2h-based: recovery starts counting immediately
+      const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= crashGuard4h;
 
-      if (mom4h >= -0.5 || allow4hLag) {
+      if (mom4h >= gate4hFloor || allow4hLag) {
         // SUSTAINED RALLY GATE (smart, regime-aware)
         // Problem: a negative slope means the 1h rally peaked before entry — one-tick bounce.
         // Example: 14:00 ETH slope=-0.017% with score=2/3 → entered fading move, closed -0.12%
@@ -204,9 +213,9 @@ class RiskManager {
         // and still a fake rally. Relaxation only earned in genuinely strong trends (1h>1%, 4h>0.8%).
         let dynamicMinSlope: number;
         if (isStrongRegime) {
-          dynamicMinSlope = -0.05; // Strong trend: tolerate brief dips (normal pullback in confirmed uptrend)
+          dynamicMinSlope = env.RISK_SLOPE_MIN_STRONG; // Strong trend: tolerate brief dips
         } else {
-          dynamicMinSlope = 0.0;  // Moderate/weak/choppy: must be accelerating — negative slope = fake rally
+          dynamicMinSlope = env.RISK_SLOPE_MIN_DEFAULT; // Moderate/weak/choppy: must be accelerating
         }
 
         // Self-healing overrides: strong independent evidence beats slope concern
@@ -239,15 +248,16 @@ class RiskManager {
       }
 
       const blockReason = isChoppy
-        ? `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% ≤ 0 (choppy — 4h lag not allowed)`
-        : `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < -0.5% and 1h momentum too weak to override`;
-      logger.info('RiskManager: Entry blocked - direction score met but 4h downtrend', { trendScore: score, momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3), isChoppy });
+        ? `Direction score ${score}/3 met but 2h=${mom2h.toFixed(2)}% ≤ 0 (2h still declining — recovery not confirmed)`
+        : `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < ${gate4hFloor}% and 1h momentum too weak to override`;
+      logger.info('RiskManager: Entry blocked - direction score met but 2h/4h downtrend', { trendScore: score, momentum2h: mom2h.toFixed(3), momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3), isChoppy });
       return { pass: false, reason: blockReason, stage: 'Health Gate' };
     }
 
     // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)
     const mom1h = momentum1h ?? 0;
-    if (mom4h >= -0.1 && (intrabar > 0 || mom1h >= -0.1)) {
+    const nearFlat4h = env.RISK_HEALTH_GATE_4H_NEAR_FLAT;
+    if (mom4h >= nearFlat4h && (intrabar > 0 || mom1h >= nearFlat4h)) {
       return { pass: true, stage: 'Health Gate' };
     }
 
@@ -257,8 +267,8 @@ class RiskManager {
     //     where momentum plateaus but price is still making higher candle closes)
     //     Quick scalp opportunity: low target, fast in-and-out, must not be in 4h downtrend.
     const slope = momentumSlope ?? 0;
-    const steadyGrind = mom1hPct >= env.RISK_MIN_MOMENTUM_1H_BINANCE && higherCloses && mom4h >= -0.5 && intrabar >= -0.15;
-    if ((slope > 0.03 && mom4h >= -0.5 && intrabar >= -0.1) || steadyGrind) {
+    const steadyGrind = mom1hPct >= env.RISK_MIN_MOMENTUM_1H_BINANCE && higherCloses && mom4h >= gate4hFloor && intrabar >= env.RISK_STEADY_GRIND_INTRABAR_MIN;
+    if ((slope > env.RISK_CREEP_SLOPE_MIN && mom4h >= gate4hFloor && intrabar >= env.RISK_CREEP_INTRABAR_MIN) || steadyGrind) {
       const via = steadyGrind && slope <= 0.03 ? 'steady grind' : 'creeping uptrend';
       logger.info(`RiskManager: Health gate passed via ${via}`, { momentum1h: mom1hPct.toFixed(3), momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), higherCloses, intrabar: intrabar.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
@@ -621,7 +631,7 @@ class RiskManager {
     const volumeRatio = rawVolume <= 0 ? 1 : rawVolume; // 0 = missing data, not actually zero volume
     const intrabar = indicators.intrabarMomentum ?? 0;
 
-    const stage1 = this.checkHealthGate(0, 0, momentum1h, volumeRatio, momentum4h, intrabar, indicators.trendScore, indicators.higherCloses, indicators.momentumSlope);
+    const stage1 = this.checkHealthGate(0, 0, momentum1h, volumeRatio, momentum4h, intrabar, indicators.trendScore, indicators.higherCloses, indicators.momentumSlope, indicators.momentum2h);
     if (!stage1.pass) {
       return stage1;
     }

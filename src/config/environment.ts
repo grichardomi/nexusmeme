@@ -84,6 +84,22 @@ const envSchema = z.object({
   LIVE_PRICE_DIVERGENCE_LOG_PCT: z.string().transform(Number).default('0.001'),  // Log when WS/cache diverge > 0.1%
   ENTRY_MAX_ADVERSE_SLIPPAGE_PCT: z.string().transform(Number).default('0.003'), // Abort entry if price dropped > 0.3% since signal
 
+  /* Cache TTLs — trading latency knobs */
+  CP_BTC_CACHE_TTL_MS: z.string().transform(Number).default('300000'),           // Capital preservation BTC trend cache (default 5 min; was hardcoded 1h)
+  OHLC_CACHE_TTL_MS_FETCHER: z.string().transform(Number).default('60000'),      // ohlc-fetcher in-memory cache TTL (default 60s; was hardcoded 5 min)
+  OHLC_CACHE_TTL_MS_ORCHESTRATOR: z.string().transform(Number).default('15000'), // Per-pair candle cache inside orchestrator (default 15s; was hardcoded 30s)
+  REGIME_CACHE_TTL_MS: z.string().transform(Number).default('30000'),            // Per-pair regime cache inside orchestrator (default 30s; was hardcoded 60s)
+
+  /* Health Gate Thresholds */
+  RISK_CRASH_GUARD_4H_PCT: z.string().transform(Number).default('-3.0'),         // 4h momentum below this = crash guard blocks entry
+  RISK_HEALTH_GATE_4H_FLOOR_PCT: z.string().transform(Number).default('-0.5'),   // 4h floor when 1h override not triggered
+  RISK_HEALTH_GATE_4H_NEAR_FLAT: z.string().transform(Number).default('-0.1'),   // Fallback A: 4h near-flat allowance
+  RISK_SLOPE_MIN_STRONG: z.string().transform(Number).default('-0.05'),          // Slope floor in strong regime (brief dips tolerated)
+  RISK_SLOPE_MIN_DEFAULT: z.string().transform(Number).default('0.0'),           // Slope floor in moderate/weak/choppy (must be accelerating)
+  RISK_CREEP_SLOPE_MIN: z.string().transform(Number).default('0.03'),            // Creeping uptrend min slope
+  RISK_CREEP_INTRABAR_MIN: z.string().transform(Number).default('-0.1'),         // Creeping uptrend min intrabar
+  RISK_STEADY_GRIND_INTRABAR_MIN: z.string().transform(Number).default('-0.15'), // Steady grind min intrabar
+
   /* Bot Configuration */
   BOT_API_PORT_START: z.string().transform(Number).default('20000'),
   BOT_API_PORT_END: z.string().transform(Number).default('39999'),
@@ -146,8 +162,21 @@ const envSchema = z.object({
   AI_CONFIDENCE_BOOST_ENABLED: z.string().transform(val => val === 'true').default('true'),
   AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: z.string().transform(Number).default('15'), // Max ±15 confidence adjustment
   AI_CONFIDENCE_BOOST_TIMEOUT_MS: z.string().transform(Number).default('5000'), // 5s timeout for AI call
-  AI_CLAUDE_MIN_DETERMINISTIC: z.string().transform(Number).default('60'), // Min deterministic score before calling Claude — skip weak signals
-  AI_CLAUDE_MAX_DETERMINISTIC: z.string().transform(Number).default('83'), // Max score before skipping Claude — above 83, even max -15 can't veto (84-15=69 > 68 min)
+  AI_CLAUDE_MIN_DETERMINISTIC: z.string().transform(Number).default('60'),
+  AI_CLAUDE_MAX_DETERMINISTIC: z.string().transform(Number).default('83'),
+
+  /* Transition Detector Agent — catches choppy→trending inflection 2-4 candles early */
+  AI_TRANSITION_AGENT_ENABLED: z.string().transform(v => v === 'true').default('true'),
+  AI_TRANSITION_AGENT_MODEL: z.string().default('claude-haiku-4-5-20251001'),
+  AI_TRANSITION_AGENT_CACHE_TTL_SECONDS: z.string().transform(Number).default('90'),  // 90s per price bucket — same price = same answer
+  AI_TRANSITION_AGENT_TIMEOUT_MS: z.string().transform(Number).default('5000'),        // 5s hard timeout — falls back to standard math gates
+  AI_TRANSITION_AGENT_MIN_CONFIDENCE: z.string().transform(Number).default('72'),      // Min confidence to lower 1h floor
+  AI_TRANSITION_MAX_FLOOR_ADJ: z.string().transform(Number).default('0.20'),           // Max 0.20% reduction to 1h entry floor (e.g. 0.50% → 0.30%)
+  AI_TRANSITION_PRICE_BUCKET_PCT: z.string().transform(Number).default('0.2'),         // Cache bucket size: round price to nearest 0.2%
+  AI_TRANSITION_2H_FLOOR_PCT: z.string().transform(Number).default('-0.3'),            // Below this 2h momentum = clearly choppy, skip agent
+  AI_TRANSITION_2H_MAX_PCT: z.string().transform(Number).default('0.6'),               // Above this 2h = already trending, skip agent
+  AI_TRANSITION_1H_MIN_PCT: z.string().transform(Number).default('0.20'),              // Min 1h to be worth asking Claude (below this = too weak)
+  AI_TRANSITION_BTC_MIN_1H_PCT: z.string().transform(Number).default('-0.3'),          // BTC must not be dumping hard
 
   /* Pyramiding Rules - Binance */
   BINANCE_BOT_PYRAMIDING_ENABLED: z.string().transform(val => val === 'true').default('true'),
@@ -502,6 +531,18 @@ function getDefaultEnvironment(): Environment {
     LIVE_PRICE_MAX_AGE_MS: 3000,
     LIVE_PRICE_DIVERGENCE_LOG_PCT: 0.001,
     ENTRY_MAX_ADVERSE_SLIPPAGE_PCT: 0.003,
+    CP_BTC_CACHE_TTL_MS: 300000,
+    OHLC_CACHE_TTL_MS_FETCHER: 60000,
+    OHLC_CACHE_TTL_MS_ORCHESTRATOR: 15000,
+    REGIME_CACHE_TTL_MS: 30000,
+    RISK_CRASH_GUARD_4H_PCT: -3.0,
+    RISK_HEALTH_GATE_4H_FLOOR_PCT: -0.5,
+    RISK_HEALTH_GATE_4H_NEAR_FLAT: -0.1,
+    RISK_SLOPE_MIN_STRONG: -0.05,
+    RISK_SLOPE_MIN_DEFAULT: 0.0,
+    RISK_CREEP_SLOPE_MIN: 0.03,
+    RISK_CREEP_INTRABAR_MIN: -0.1,
+    RISK_STEADY_GRIND_INTRABAR_MIN: -0.15,
     BOT_API_PORT_START: 20000,
     BOT_API_PORT_END: 39999,
     ENABLE_TRADE_ALERTS: true,
@@ -539,6 +580,17 @@ function getDefaultEnvironment(): Environment {
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
     AI_CLAUDE_MIN_DETERMINISTIC: 60,
     AI_CLAUDE_MAX_DETERMINISTIC: 83,
+    AI_TRANSITION_AGENT_ENABLED: true,
+    AI_TRANSITION_AGENT_MODEL: 'claude-haiku-4-5-20251001',
+    AI_TRANSITION_AGENT_CACHE_TTL_SECONDS: 90,
+    AI_TRANSITION_AGENT_TIMEOUT_MS: 5000,
+    AI_TRANSITION_AGENT_MIN_CONFIDENCE: 72,
+    AI_TRANSITION_MAX_FLOOR_ADJ: 0.20,
+    AI_TRANSITION_PRICE_BUCKET_PCT: 0.2,
+    AI_TRANSITION_2H_FLOOR_PCT: -0.3,
+    AI_TRANSITION_2H_MAX_PCT: 0.6,
+    AI_TRANSITION_1H_MIN_PCT: 0.20,
+    AI_TRANSITION_BTC_MIN_1H_PCT: -0.3,
     ENCRYPTION_KEY: 'build-phase-encryption-key-1234567890',
     LOG_LEVEL: 'info',
     LOG_FORMAT: 'json',

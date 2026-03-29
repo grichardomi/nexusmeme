@@ -10,6 +10,7 @@ export type SentimentScore = 'very_positive' | 'positive' | 'neutral' | 'negativ
 
 export interface TechnicalIndicators {
   momentum1h?: number;        // Raw % price change over last 1h (4 × 15m candles)
+  momentum2h?: number;        // Raw % price change over last 2h (8 × 15m candles) — faster recovery signal
   momentum4h?: number;        // Raw % price change over last 4h (16 × 15m candles)
   volumeRatio?: number;       // Current candle volume vs 20-candle average
   intrabarMomentum?: number;  // (currentPrice - candleOpen) / candleOpen — real-time direction

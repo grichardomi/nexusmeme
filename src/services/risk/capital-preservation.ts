@@ -29,7 +29,6 @@ interface BtcTrendCache {
 
 class CapitalPreservationService {
   private btcTrendCache: BtcTrendCache | null = null;
-  private readonly BTC_CACHE_TTL_MS = 3600000; // 1 hour
 
   /**
    * Layer 1: BTC Momentum Trend Gate (market-wide)
@@ -49,7 +48,8 @@ class CapitalPreservationService {
       const now = Date.now();
 
       // Use cached data if still fresh
-      if (this.btcTrendCache && (now - this.btcTrendCache.timestamp) < this.BTC_CACHE_TTL_MS) {
+      const cpBtcCacheTtlMs = getEnvironmentConfig().CP_BTC_CACHE_TTL_MS;
+      if (this.btcTrendCache && (now - this.btcTrendCache.timestamp) < cpBtcCacheTtlMs) {
         return this.evaluateBtcTrend(this.btcTrendCache);
       }
 

@@ -8,9 +8,8 @@ import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import type { OHLCCandle } from '@/types/ai';
 
-/** In-memory cache: last successful OHLC per pair+timeframe, max 5 min stale */
+/** In-memory cache: last successful OHLC per pair+timeframe */
 const ohlcCache = new Map<string, { candles: OHLCCandle[]; fetchedAt: number }>();
-const OHLC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes — 1h candles change slowly
 
 /** BTC/USDT → BTCUSDT */
 function mapToBinanceSymbol(pair: string): string {
@@ -125,7 +124,7 @@ export async function fetchOHLC(
     // 5-minute stale data is far better than crashing the entire analysis cycle.
     const cached = ohlcCache.get(cacheKey);
     const staleMs = cached ? Date.now() - cached.fetchedAt : Infinity;
-    if (cached && staleMs < OHLC_CACHE_TTL_MS) {
+    if (cached && staleMs < getEnvironmentConfig().OHLC_CACHE_TTL_MS_FETCHER) {
       logger.warn(`OHLC fetch failed — serving cached data (${Math.round(staleMs / 1000)}s stale)`, { pair, timeframe });
       return cached.candles;
     }

@@ -28,6 +28,7 @@ import { closeTrade } from '@/services/trading/close-trade';
 import { livePriceStore } from '@/services/market-data/live-price-store';
 import { regimeAgent } from '@/services/ai/regime-agent';
 import { tradeMonitorAgent, type OpenTradeContext } from '@/services/ai/trade-monitor-agent';
+import { transitionDetectorAgent } from '@/services/ai/transition-detector-agent';
 import type { RegimeAgentState } from '@/types/ai';
 
 interface BotInstance {
@@ -59,13 +60,13 @@ class TradeSignalOrchestrator {
   // OPTIMIZATION: OHLC cache to avoid refetching same data multiple times per cycle
   // Cache structure: Map<pair:timeframe, { data: OHLCCandle[], timestamp: number }>
   private ohlcCache = new Map<string, { data: any[], timestamp: number }>();
-  private readonly OHLC_CACHE_TTL_MS = 30000; // 30 seconds TTL — prevents stale spike indicators reused across trade cycles
+  private get OHLC_CACHE_TTL_MS() { return getEnvironmentConfig().OHLC_CACHE_TTL_MS_ORCHESTRATOR; }
 
   // REGIME CACHE: Populated by main orchestrator cycle (60s ADX detection)
   // Used by high-frequency peak tracking loop to avoid ADX fetches every second
   // Key: pair, Value: { regime, timestamp }
   private regimeCache = new Map<string, { regime: string; timestamp: number }>();
-  private readonly REGIME_CACHE_TTL_MS = 60000; // 60s — stale after one orchestrator cycle
+  private get REGIME_CACHE_TTL_MS() { return getEnvironmentConfig().REGIME_CACHE_TTL_MS; }
 
   // HOT-PATH REUSE: Pre-allocated maps cleared between cycles (avoid GC pressure in 1s peak loop)
   private readonly _pairsByExchange = new Map<string, Set<string>>();
@@ -1131,6 +1132,10 @@ class TradeSignalOrchestrator {
               const base1h = candles[candles.length - 4].close;
               indicators.momentum1h = ((currentPrice - base1h) / base1h) * 100;
             }
+            if (candles.length >= 8) {
+              const base2h = candles[candles.length - 8].close;
+              indicators.momentum2h = ((currentPrice - base2h) / base2h) * 100;
+            }
             if (candles.length >= 16) {
               const base4h = candles[candles.length - 16].close;
               indicators.momentum4h = ((currentPrice - base4h) / base4h) * 100;
@@ -1206,23 +1211,47 @@ class TradeSignalOrchestrator {
             // 4H BYPASS: When 4h momentum >= RISK_1H_BYPASS_4H_MIN AND intrabar is rising,
             // skip the 1h floor. The 4h confirms direction; waiting for 1h to catch up means
             // entering 30-50% into the move — near the local top, not the start.
+            //
+            // TRANSITION BYPASS: When AI transition detector is confident a choppy→trending
+            // transition is genuine, it can lower the 1h floor by up to AI_TRANSITION_MAX_FLOOR_ADJ.
+            // Only fires in the borderline zone — never in clearly choppy or clearly trending.
             {
               const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-              const min1h = isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H;
+              const min1hBase = isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H;
               const mom1h = indicators.momentum1h ?? 0;
               const mom4h = indicators.momentum4h ?? 0;
               const intrabar = indicators.intrabarMomentum ?? 0;
               const bypass4hMin = effectiveEnv.RISK_1H_BYPASS_4H_MIN;
               const bypassIntrabarMin = effectiveEnv.RISK_1H_BYPASS_INTRABAR_MIN;
               const early4hBypass = mom4h >= bypass4hMin && intrabar >= bypassIntrabarMin;
-              if (mom1h < min1h && !early4hBypass) {
-                logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h });
-                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, blockStage: 'Momentum Floor', enteredAt: null };
-                this.lastCycleStatus.updatedAt = Date.now();
-                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h}% minimum`, stage: 'Momentum Floor' } };
+
+              // TRANSITION DETECTOR: run only in borderline zone to avoid wasted Claude calls
+              let transitionFloorAdj = 0;
+              if (!early4hBypass && mom1h < min1hBase && transitionDetectorAgent.isInTransitionZone(indicators, btcMomentum1h)) {
+                const recentCloses = candles.slice(-8).map((c: { close: number }) => c.close);
+                const transitionState = await transitionDetectorAgent.analyze(pair, currentPrice, indicators, btcMomentum1h, recentCloses);
+                if (transitionState && transitionState.transitionConfidence >= effectiveEnv.AI_TRANSITION_AGENT_MIN_CONFIDENCE && transitionState.riskLevel !== 'high') {
+                  transitionFloorAdj = transitionState.mom1hFloorAdjustment;
+                  logger.info('Orchestrator: transition detector active', {
+                    pair, confidence: transitionState.transitionConfidence, riskLevel: transitionState.riskLevel,
+                    floorAdj: transitionFloorAdj, estimatedHoldMinutes: transitionState.estimatedHoldMinutes,
+                    reasoning: transitionState.reasoning,
+                  });
+                }
               }
-              if (early4hBypass && mom1h < min1h) {
-                logger.info('Orchestrator: 1h floor bypassed — 4h confirmed + intrabar rising', { pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3), bypass4hMin, bypassIntrabarMin });
+
+              const min1h = min1hBase - transitionFloorAdj;
+              if (mom1h < min1h && !early4hBypass) {
+                logger.info('Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h, transitionFloorAdj });
+                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, blockStage: 'Momentum Floor', enteredAt: null };
+                this.lastCycleStatus.updatedAt = Date.now();
+                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, stage: 'Momentum Floor' } };
+              }
+              if (transitionFloorAdj > 0) {
+                logger.info('Orchestrator: 1h floor lowered by transition detector', { pair, original: min1hBase, adjusted: min1h, mom1h: mom1h.toFixed(3) });
+              }
+              if (early4hBypass && mom1h < min1hBase) {
+                logger.info('Orchestrator: 1h floor bypassed — 4h confirmed + intrabar rising', { pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
               }
             }
 

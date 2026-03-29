@@ -1,5 +1,0 @@
-Pair,Entry Time,Exit Time,Entry Price,Exit Price,Quantity,Gross P&L,Fees,Net P&L,Net P&L %,Status,Exit Reason
-"ETH/USDT","3/28/2026, 2:00:26 PM","Open","$2025.55","N/A","0.987300","$0.00","$2.00","$-2.00","-0.10%","open","N/A"
-"BTC/USDT","3/28/2026, 2:00:26 PM","Open","$66880.58","N/A","0.022420","$0.00","$1.50","$-1.50","-0.10%","open","N/A"
-"ETH/USDT","3/28/2026, 1:45:23 PM","3/28/2026, 2:00:24 PM","$2029.58","$2025.55","0.985400","$-3.97","$4.00","$-7.97","-0.40%","closed","momentum_failure_late"
-"BTC/USDT","3/28/2026, 1:45:23 PM","3/28/2026, 2:00:24 PM","$66996.70","$66880.58","0.022380","$-2.60","$3.00","$-5.59","-0.37%","closed","momentum_failure_late"
