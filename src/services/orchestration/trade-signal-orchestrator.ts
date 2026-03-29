@@ -933,7 +933,7 @@ class TradeSignalOrchestrator {
         const maxAdj = envCfg.AI_REGIME_AGENT_MAX_ADJUSTMENT ?? 10;
         const adj = regimeAgentState.entryBarAdjustment;
         const envThreshold = envCfg.RISK_BTC_MIN_VOLUME_RATIO;
-        const floorThreshold = envThreshold * 0.25;
+        const floorThreshold = envThreshold * envCfg.RISK_BTC_VOLUME_FLOOR_SCALE;
         const scale = (maxAdj - adj) / (2 * maxAdj); // 1.0 when most bearish, 0.0 when most bullish
         const dynamicThreshold = floorThreshold + (envThreshold - floorThreshold) * scale;
         riskManager.updateBTCVolumeThreshold(dynamicThreshold);
@@ -1338,9 +1338,9 @@ class TradeSignalOrchestrator {
                 },
               };
 
-              // Reduce ETH position 50% when BTC 1h momentum is negative
+              // Reduce ETH position when BTC 1h momentum is negative
               if (pair.startsWith('ETH') && btcMomentum1h < 0) {
-                decision.capitalPreservationMultiplier = (decision.capitalPreservationMultiplier ?? 1) * 0.5;
+                decision.capitalPreservationMultiplier = (decision.capitalPreservationMultiplier ?? 1) * effectiveEnv.RISK_ETH_BTC_NEG_MULTIPLIER;
                 logger.info('Orchestrator: ETH position halved — BTC 1h momentum negative', { pair, btcMomentum1h: btcMomentum1h.toFixed(3), newMultiplier: decision.capitalPreservationMultiplier });
               }
 
@@ -2559,8 +2559,12 @@ class TradeSignalOrchestrator {
               });
             }
 
-            // Infer confidence from momentum strength: strong = 87%, moderate = 75%
-            const inferredConfidence = mom1hL1 >= 1.0 ? 92 : mom1hL1 >= 0.4 ? 87 : 70;
+            // Infer confidence from momentum strength (env-driven thresholds)
+            const inferredConfidence = mom1hL1 >= env.REGIME_STRONG_1H_PCT
+              ? env.PYRAMID_INFERRED_CONFIDENCE_STRONG
+              : mom1hL1 >= env.REGIME_MODERATE_1H_PCT
+                ? env.PYRAMID_INFERRED_CONFIDENCE_MODERATE
+                : env.PYRAMID_INFERRED_CONFIDENCE_WEAK;
             const l1ConfidenceCheck = riskManager.canAddPyramidLevel(1, inferredConfidence);
             if (!l1ConfidenceCheck.pass) {
               logger.debug('L1 pyramid rejected - insufficient confidence', {
@@ -2646,8 +2650,10 @@ class TradeSignalOrchestrator {
               });
             }
 
-            // L2 requires strong momentum (>= 1.0%) → 92% confidence
-            const inferredConfidenceL2 = mom1hL2 >= 1.0 ? 92 : 70;
+            // L2 requires strong momentum — env-driven confidence thresholds
+            const inferredConfidenceL2 = mom1hL2 >= env.REGIME_STRONG_1H_PCT
+              ? env.PYRAMID_L2_INFERRED_CONFIDENCE_STRONG
+              : env.PYRAMID_L2_INFERRED_CONFIDENCE_WEAK;
             const l2ConfidenceCheck = riskManager.canAddPyramidLevel(2, inferredConfidenceL2);
 
             if (!l2ConfidenceCheck.pass || mom1hL2 <= 0) {

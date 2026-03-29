@@ -202,6 +202,21 @@ const envSchema = z.object({
   RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.25'), // Binance: 0.25% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_1H_BINANCE_BTC: z.string().transform(Number).default('0.20'), // BTC-specific floor: BTC moves in smaller % increments than altcoins
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
+  // Regime boundary thresholds — single source of truth used by getRegime() and detectMarketRegime()
+  REGIME_STRONG_1H_PCT: z.string().transform(Number).default('1.0'),    // 1h momentum for strong regime
+  REGIME_STRONG_4H_PCT: z.string().transform(Number).default('0.8'),    // 4h momentum for strong regime
+  REGIME_MODERATE_1H_PCT: z.string().transform(Number).default('0.4'),  // 1h momentum for moderate regime
+  REGIME_MODERATE_4H_PCT: z.string().transform(Number).default('0.2'),  // 4h momentum for moderate regime
+  REGIME_WEAK_1H_PCT: z.string().transform(Number).default('0.2'),      // 1h momentum floor for weak regime
+  // Risk sizing / multipliers
+  RISK_BTC_VOLUME_FLOOR_SCALE: z.string().transform(Number).default('0.25'),   // Floor = threshold × this (volume gate lower bound)
+  RISK_ETH_BTC_NEG_MULTIPLIER: z.string().transform(Number).default('0.5'),    // ETH position multiplier when BTC 1h negative
+  // Pyramid inferred confidence (used when no live AI signal available)
+  PYRAMID_INFERRED_CONFIDENCE_STRONG: z.string().transform(Number).default('92'),   // mom1h >= REGIME_STRONG_1H_PCT
+  PYRAMID_INFERRED_CONFIDENCE_MODERATE: z.string().transform(Number).default('87'), // mom1h >= REGIME_MODERATE_1H_PCT
+  PYRAMID_INFERRED_CONFIDENCE_WEAK: z.string().transform(Number).default('70'),     // mom1h below moderate threshold
+  PYRAMID_L2_INFERRED_CONFIDENCE_STRONG: z.string().transform(Number).default('92'), // L2: strong momentum
+  PYRAMID_L2_INFERRED_CONFIDENCE_WEAK: z.string().transform(Number).default('70'),   // L2: insufficient momentum
   // 4h bypass: when 4h momentum >= this AND intrabar >= RISK_1H_BYPASS_INTRABAR_MIN, skip the 1h floor
   // Catches early-recovery entries before the lagging 1h candle accumulates enough gain
   RISK_1H_BYPASS_4H_MIN: z.string().transform(Number).default('1.0'),       // 4h must be >= 1.0% to bypass
@@ -617,6 +632,18 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
     RISK_MIN_MOMENTUM_1H_BINANCE_BTC: 0.20, // BTC-specific floor
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
+    REGIME_STRONG_1H_PCT: 1.0,
+    REGIME_STRONG_4H_PCT: 0.8,
+    REGIME_MODERATE_1H_PCT: 0.4,
+    REGIME_MODERATE_4H_PCT: 0.2,
+    REGIME_WEAK_1H_PCT: 0.2,
+    RISK_BTC_VOLUME_FLOOR_SCALE: 0.25,
+    RISK_ETH_BTC_NEG_MULTIPLIER: 0.5,
+    PYRAMID_INFERRED_CONFIDENCE_STRONG: 92,
+    PYRAMID_INFERRED_CONFIDENCE_MODERATE: 87,
+    PYRAMID_INFERRED_CONFIDENCE_WEAK: 70,
+    PYRAMID_L2_INFERRED_CONFIDENCE_STRONG: 92,
+    PYRAMID_L2_INFERRED_CONFIDENCE_WEAK: 70,
     RISK_1H_BYPASS_4H_MIN: 1.0,
     RISK_1H_BYPASS_INTRABAR_MIN: 0.05,
     RISK_STRONG_MOMENTUM_OVERRIDE_PCT: 2.5, // bypass volume floor & health-gate 4h check when 1h move >= this %

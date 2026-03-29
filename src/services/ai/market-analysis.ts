@@ -80,11 +80,11 @@ export function detectMarketRegime(
   let regime: MarketRegime;
   if (momentum4h <= 0 && !earlyRecovery) {
     regime = 'choppy';
-  } else if (momentum1h >= 1.0 && momentum4h >= 0.8) {
+  } else if (momentum1h >= env.REGIME_STRONG_1H_PCT && momentum4h >= env.REGIME_STRONG_4H_PCT) {
     regime = 'strong';
-  } else if (momentum1h >= 0.4 && momentum4h >= 0.2) {
+  } else if (momentum1h >= env.REGIME_MODERATE_1H_PCT && momentum4h >= env.REGIME_MODERATE_4H_PCT) {
     regime = 'moderate';
-  } else if (momentum1h >= 0.2 || earlyRecovery) {
+  } else if (momentum1h >= env.REGIME_WEAK_1H_PCT || earlyRecovery) {
     regime = 'weak';
   } else {
     regime = 'transitioning';

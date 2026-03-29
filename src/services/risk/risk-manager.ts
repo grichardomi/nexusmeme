@@ -206,8 +206,8 @@ class RiskManager {
         const strongMomOverride = env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
 
         // Regime classification for slope tolerance
-        const isStrongRegime = mom1hPct >= 1.0 && mom4h >= 0.8;
-        const isModerateRegime = mom1hPct >= 0.4 && mom4h >= 0.2;
+        const isStrongRegime = mom1hPct >= env.REGIME_STRONG_1H_PCT && mom4h >= env.REGIME_STRONG_4H_PCT;
+        const isModerateRegime = mom1hPct >= env.REGIME_MODERATE_1H_PCT && mom4h >= env.REGIME_MODERATE_4H_PCT;
         // Dynamic slope floor by regime: tight in weak/moderate/choppy, relaxed only in confirmed strong trends
         // Moderate is NOT relaxed — the 14:00 ETH case was moderate regime with slope=-0.017%
         // and still a fake rally. Relaxation only earned in genuinely strong trends (1h>1%, 4h>0.8%).
@@ -221,7 +221,7 @@ class RiskManager {
         // Self-healing overrides: strong independent evidence beats slope concern
         const perfectScore = score >= 3;
         const veryStrongMomentum = mom1hPct >= strongMomOverride;
-        const strongMultiHour = mom4h >= 0.8;
+        const strongMultiHour = mom4h >= env.REGIME_STRONG_4H_PCT;
         const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
 
         if (slope < dynamicMinSlope && !slopeOverridden) {
@@ -539,9 +539,9 @@ class RiskManager {
     // and position sizing reflects the recovering (not declining) nature of the move.
     const earlyRecovery = mom4h <= 0 && mom2h > 0 && mom1h >= minMom1h;
     if (mom4h <= 0 && !earlyRecovery) return 'choppy';
-    if (mom1h >= 1.0 && mom4h >= 0.8) return 'strong';
-    if (mom1h >= 0.4 && mom4h >= 0.2) return 'moderate';
-    if (mom1h >= 0.2 || earlyRecovery) return 'weak';
+    if (mom1h >= env.REGIME_STRONG_1H_PCT && mom4h >= env.REGIME_STRONG_4H_PCT) return 'strong';
+    if (mom1h >= env.REGIME_MODERATE_1H_PCT && mom4h >= env.REGIME_MODERATE_4H_PCT) return 'moderate';
+    if (mom1h >= env.REGIME_WEAK_1H_PCT || earlyRecovery) return 'weak';
     return 'transitioning'; // 4h > 0 but 1h flat — trend forming slowly
   }
 
