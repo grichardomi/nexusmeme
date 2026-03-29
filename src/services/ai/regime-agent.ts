@@ -16,6 +16,7 @@
 import { logger } from '@/lib/logger';
 import { getEnvironmentConfig } from '@/config/environment';
 import { getCached, setCached } from '@/lib/redis';
+import { callClaude } from '@/services/ai/inference';
 import type { TechnicalIndicators, RegimeAgentState } from '@/types/ai';
 
 const CACHE_KEY = 'agent:regime_v1';
@@ -134,13 +135,11 @@ class RegimeAgent {
       return this.lastState;
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    if (!process.env.ANTHROPIC_API_KEY) {
       logger.debug('RegimeAgent: ANTHROPIC_API_KEY not set, skipping');
       return null;
     }
 
-    const timeoutMs = env.AI_REGIME_AGENT_TIMEOUT_MS ?? 8000;
     const model = env.AI_REGIME_AGENT_MODEL || 'claude-haiku-4-5-20251001';
     const maxAdj = env.AI_REGIME_AGENT_MAX_ADJUSTMENT ?? 10;
 
@@ -179,35 +178,7 @@ transitionDirection must be exactly: "strengthening" | "weakening" | "none"`;
     try {
       const startMs = Date.now();
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-      let response: Response;
-      try {
-        response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          signal: controller.signal,
-          headers: {
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 150,
-            messages: [{ role: 'user', content: prompt }],
-          }),
-        });
-      } finally {
-        clearTimeout(timer);
-      }
-
-      if (!response.ok) {
-        throw new Error(`Claude API ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const text: string = data.content?.[0]?.text || '';
+      const text = await callClaude(prompt, 150);
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
 

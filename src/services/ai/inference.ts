@@ -168,7 +168,7 @@ async function callOpenAI(
  * Call Claude API (Haiku) for market analysis
  * Primary LLM provider — cost-effective at ~$0.30/month for buy-signal-only calls
  */
-async function callClaude(prompt: string, maxTokens = 300): Promise<string> {
+export async function callClaude(prompt: string, maxTokens = 300): Promise<string> {
   const ANTHROPIC_API_KEY = aiConfig.anthropicApiKey;
   const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001';
 
