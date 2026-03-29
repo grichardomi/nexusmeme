@@ -113,6 +113,8 @@ export interface AIAnalysisRequest {
   isCreepingUptrend?: boolean; // Slow sustained directional grind — tells Claude to look for consistency not explosiveness
   // Optional: Pre-computed regime agent state — enriches Claude's confidence boost prompt
   regimeContext?: RegimeAgentState | null;
+  // Optional: pair-specific 1h momentum floor (e.g. BTC uses lower floor than ETH)
+  minMomentum1h?: number;
 }
 
 export interface AIAnalysisResult {

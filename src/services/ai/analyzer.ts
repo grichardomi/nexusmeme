@@ -270,7 +270,8 @@ export async function analyzeMarket(
         currentPrice,
         indicators,
         regime,
-        sentiment
+        sentiment,
+        request.minMomentum1h
       );
 
       logger.info('Trade signal generated (deterministic)', {

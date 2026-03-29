@@ -1215,12 +1215,13 @@ class TradeSignalOrchestrator {
             // TRANSITION BYPASS: When AI transition detector is confident a choppy→trending
             // transition is genuine, it can lower the 1h floor by up to AI_TRANSITION_MAX_FLOOR_ADJ.
             // Only fires in the borderline zone — never in clearly choppy or clearly trending.
+            const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
+            const isBtc = pair.startsWith('BTC/');
+            const pairMin1hBase = isBinance
+              ? (isBtc ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE_BTC : effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE)
+              : effectiveEnv.RISK_MIN_MOMENTUM_1H;
             {
-              const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-              const isBtc = pair.startsWith('BTC/');
-              const min1hBase = isBinance
-                ? (isBtc ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE_BTC : effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE)
-                : effectiveEnv.RISK_MIN_MOMENTUM_1H;
+              const min1hBase = pairMin1hBase;
               const mom1h = indicators.momentum1h ?? 0;
               const mom4h = indicators.momentum4h ?? 0;
               const intrabar = indicators.intrabarMomentum ?? 0;
@@ -1293,6 +1294,7 @@ class TradeSignalOrchestrator {
               indicators,
               isCreepingUptrend,
               regimeContext: regimeAgentState,
+              minMomentum1h: pairMin1hBase, // pair-specific floor (BTC uses lower threshold than ETH)
             });
 
             logger.info('Orchestrator: analyzeMarket returned', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });

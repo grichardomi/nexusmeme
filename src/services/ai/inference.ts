@@ -327,7 +327,8 @@ export async function generateTradeSignalAI(
   currentPrice: number,
   indicators: TechnicalIndicators,
   regime: MarketRegimeAnalysis,
-  sentiment: SentimentAnalysis
+  sentiment: SentimentAnalysis,
+  pairMinMomentum1h?: number // pair-specific floor, e.g. BTC uses lower threshold than ETH
 ): Promise<TradeSignalAnalysis> {
   // --- Deterministic signal generation (no OpenAI call, no cache needed) ---
   // Pure math — <1ms to compute. A 5-min cache would serve stale confidence scores
@@ -335,8 +336,9 @@ export async function generateTradeSignalAI(
   const momentum1h = indicators.momentum1h || 0;
   const momentum4h = indicators.momentum4h || 0;
   const volumeRatio = indicators.volumeRatio || 1;
-  // Signal decision: Use same thresholds as risk filter's health gate
-  const minMomentum1h = getEnv('RISK_MIN_MOMENTUM_1H_BINANCE') ?? 0.2;
+  // Signal decision: Use pair-specific floor when provided (e.g. BTC 0.20% vs ETH 0.50%)
+  // Falls back to RISK_MIN_MOMENTUM_1H_BINANCE if not passed
+  const minMomentum1h = pairMinMomentum1h ?? getEnv('RISK_MIN_MOMENTUM_1H_BINANCE') ?? 0.2;
   const minMomentum4h = getEnv('RISK_MIN_MOMENTUM_4H') ?? 0.15;
   const volumeBreakoutRatio = getEnv('RISK_VOLUME_BREAKOUT_RATIO') ?? 1.3;
 
