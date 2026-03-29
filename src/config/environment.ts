@@ -208,6 +208,7 @@ const envSchema = z.object({
   REGIME_MODERATE_1H_PCT: z.string().transform(Number).default('0.4'),  // 1h momentum for moderate regime
   REGIME_MODERATE_4H_PCT: z.string().transform(Number).default('0.2'),  // 4h momentum for moderate regime
   REGIME_WEAK_1H_PCT: z.string().transform(Number).default('0.2'),      // 1h momentum floor for weak regime
+  REQUIRE_HIGHER_CLOSES_MODERATE: z.string().transform(v => v === 'true').default('true'), // Require 3 consecutive higher closes for moderate/strong entries
   // Risk sizing / multipliers
   RISK_BTC_VOLUME_FLOOR_SCALE: z.string().transform(Number).default('0.25'),   // Floor = threshold × this (volume gate lower bound)
   RISK_ETH_BTC_NEG_MULTIPLIER: z.string().transform(Number).default('0.5'),    // ETH position multiplier when BTC 1h negative
@@ -637,6 +638,7 @@ function getDefaultEnvironment(): Environment {
     REGIME_MODERATE_1H_PCT: 0.4,
     REGIME_MODERATE_4H_PCT: 0.2,
     REGIME_WEAK_1H_PCT: 0.2,
+    REQUIRE_HIGHER_CLOSES_MODERATE: true,
     RISK_BTC_VOLUME_FLOOR_SCALE: 0.25,
     RISK_ETH_BTC_NEG_MULTIPLIER: 0.5,
     PYRAMID_INFERRED_CONFIDENCE_STRONG: 92,

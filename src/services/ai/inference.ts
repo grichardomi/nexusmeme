@@ -224,8 +224,19 @@ async function callClaude(prompt: string, maxTokens = 300): Promise<string> {
 
     const data = await response.json();
     const text = data.content?.[0]?.text || '';
+    const inputTokens: number = data.usage?.input_tokens ?? 0;
+    const outputTokens: number = data.usage?.output_tokens ?? 0;
+    // Haiku pricing: $0.80/MTok input, $4.00/MTok output
+    const estimatedCostUsd = (inputTokens * 0.0000008) + (outputTokens * 0.000004);
 
-    logger.info('✅ Claude API call completed', { model: CLAUDE_MODEL, durationMs, chars: text.length });
+    logger.info('✅ Claude API call completed', {
+      model: CLAUDE_MODEL,
+      durationMs,
+      chars: text.length,
+      inputTokens,
+      outputTokens,
+      estimatedCostUsd: estimatedCostUsd.toFixed(6),
+    });
     return text;
   } catch (error) {
     const durationMs = Date.now() - startTime;

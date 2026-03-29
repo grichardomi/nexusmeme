@@ -912,15 +912,16 @@ class TradeSignalOrchestrator {
         logger.warn('Failed to fetch BTC momentum for risk manager', error instanceof Error ? error : undefined);
       }
 
-      // REGIME AGENT: BTC bellwether pre-assessment (async, caches per TTL)
-      // analyze() returns cached state immediately if TTL not expired (no Claude call).
-      // On cache miss: calls Claude Haiku, writes to kv_cache + in-memory.
-      // Returns null on timeout/failure → no entryBarAdjustment applied (safe default).
+      // REGIME AGENT: Read last known state only — no Claude call here.
+      // getState() returns in-memory or kv_cache state without ever calling Claude.
+      // The actual analyze() (which may call Claude) is deferred to AFTER the risk filter
+      // passes, so Claude is only called when a pair is genuinely about to enter.
+      // This state is used solely for the agentic volume threshold adjustment below.
       let regimeAgentState: RegimeAgentState | null = null;
       try {
-        regimeAgentState = await regimeAgent.analyze(btcIndicatorsForAgents);
+        regimeAgentState = await regimeAgent.getState();
       } catch {
-        // non-critical — entry scorer proceeds without regime context
+        // non-critical — volume threshold proceeds with env default
       }
 
       // AGENTIC VOLUME THRESHOLD: Scale RISK_BTC_MIN_VOLUME_RATIO based on regime agent assessment.
@@ -1204,6 +1205,15 @@ class TradeSignalOrchestrator {
 
             logger.info('✅ Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
+            // REGIME AGENT: refresh now — only called when a pair has passed all deterministic
+            // gates and entry is genuinely likely. Claude is only invoked when cache is stale
+            // (6-min TTL); subsequent pairs this cycle always hit the in-memory cache.
+            try {
+              regimeAgentState = await regimeAgent.analyze(btcIndicatorsForAgents);
+            } catch {
+              // non-critical — proceeds with last known state
+            }
+
             // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
             // Fee round-trip is ~0.30%. Entering with mom1h < 0.50% has no statistical edge.
             // RISK_MIN_MOMENTUM_1H_BINANCE applies to Binance; RISK_MIN_MOMENTUM_1H for others.
@@ -1256,6 +1266,28 @@ class TradeSignalOrchestrator {
               }
               if (early4hBypass && mom1h < min1hBase) {
                 logger.info('Orchestrator: 1h floor bypassed — 4h confirmed + intrabar rising', { pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
+              }
+            }
+
+            // HIGHER CLOSES GATE: In moderate/strong regime, require 3 consecutive higher candle
+            // closes before entry. This ensures we enter at the START of structural momentum,
+            // not at a snapshot peak that's already fading.
+            // Mar 29 post-mortem: both 2:30 PM trades had higherCloses=false and peaked at 0.00%
+            // — price moved against entry immediately. Structural confirmation prevents this.
+            // Skipped for weak/transition regime (handled by tighter stale/floor gates there).
+            {
+              const isModerateOrStrong = (indicators.momentum1h ?? 0) >= effectiveEnv.REGIME_MODERATE_1H_PCT
+                && (indicators.momentum4h ?? 0) >= effectiveEnv.REGIME_MODERATE_4H_PCT;
+              if (effectiveEnv.REQUIRE_HIGHER_CLOSES_MODERATE && isModerateOrStrong && !indicators.higherCloses) {
+                logger.info('🚫 Orchestrator: entry blocked — moderate/strong regime requires higherCloses confirmation', {
+                  pair,
+                  mom1h: (indicators.momentum1h ?? 0).toFixed(3),
+                  mom4h: (indicators.momentum4h ?? 0).toFixed(3),
+                  higherCloses: indicators.higherCloses,
+                });
+                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: 'moderate/strong entry requires higherCloses confirmation', blockStage: 'Higher Closes Gate', enteredAt: null };
+                this.lastCycleStatus.updatedAt = Date.now();
+                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: 'moderate/strong entry requires higherCloses', stage: 'Higher Closes Gate' } };
               }
             }
 
