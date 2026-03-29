@@ -1551,8 +1551,9 @@ class TradeSignalOrchestrator {
     const env = getEnvironmentConfig();
 
     // Determine if regime is trending or choppy
-    // Trending = moderate/strong (ADX >= 25), Choppy = choppy/weak/transitioning (ADX < 25)
-    const isTrending = regime === 'moderate' || regime === 'strong';
+    // Trending = strong/moderate/weak/transitioning (positive momentum — use looser thresholds)
+    // Choppy = only true 'choppy' regime (mom4h <= 0 — use tight thresholds)
+    const isTrending = regime !== 'choppy';
 
     // Select thresholds based on regime
     const thresholds = isTrending ? {
@@ -2171,7 +2172,7 @@ class TradeSignalOrchestrator {
             else {
               const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes, regime) * 100;
 
-              if (grossProfitPct < earlyLossThreshold) {
+              if (currentProfitPct < earlyLossThreshold) {
                 shouldClose = true;
                 exitReason = peakPct > 0 ? 'underwater_small_peak_timeout' : 'underwater_never_profited';
                 const isTrending = regime === 'moderate' || regime === 'strong';

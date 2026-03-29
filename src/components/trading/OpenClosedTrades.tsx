@@ -662,11 +662,11 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
                   )}
                   <span
                     className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-200 cursor-help text-[9px] font-bold leading-none"
-                    title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ 0.4%. Currently ${health.peakProfitPct > 0 ? `peak is ${health.peakProfitPct.toFixed(2)}%` : 'no peak yet'}.`}
+                    title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ ${(health.erosionArmThreshold ?? 0.15).toFixed(2)}%. Currently ${health.peakProfitPct > 0 ? `peak is ${health.peakProfitPct.toFixed(2)}%` : 'no peak yet'}.`}
                   >?</span>
                 </span>
                 <span className="font-semibold text-slate-900 dark:text-white">
-                  {health.peakProfitPct < (health.erosionArmThreshold ?? 0.4)
+                  {health.peakProfitPct < (health.erosionArmThreshold ?? 0.15)
                     ? 'Unarmed'
                     : health.erosionDollars > 0
                       ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
@@ -678,7 +678,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
                 <div
                   className="h-full transition-all"
                   style={{
-                    width: `${health.peakProfitPct < (health.erosionArmThreshold ?? 0.4) ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
+                    width: `${health.peakProfitPct < (health.erosionArmThreshold ?? 0.15) ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
                     background: health.erosionRatioPct === 0 ? 'transparent'
                       : health.erosionRatioPct > 70 ? 'linear-gradient(90deg, #eab308 0%, #ef4444 100%)'
                       : 'linear-gradient(90deg, #22c55e 0%, #eab308 100%)',

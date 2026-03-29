@@ -17,7 +17,7 @@ import { logger } from '@/lib/logger';
 import { getCached, setCached } from '@/lib/redis';
 
 const LEADER_KEY = 'price_stream:leader';
-const LEADER_HEARTBEAT_TTL = 30; // seconds
+const LEADER_HEARTBEAT_TTL = 5; // seconds — short TTL so stale entries clear within 5s on restart
 const LEADER_CHECK_INTERVAL = 10000; // 10 seconds
 
 interface LeaderInfo {
@@ -130,7 +130,7 @@ export class PriceLeaderElection {
         logger.error('Failed to send leader heartbeat', error instanceof Error ? error : null);
         this.isLeader = false;
       }
-    }, LEADER_HEARTBEAT_TTL * 300); // Refresh at 30% TTL
+    }, LEADER_HEARTBEAT_TTL * 200); // Refresh at 50% TTL (every ~2.5s with 5s TTL)
   }
 
   /**
