@@ -1217,7 +1217,10 @@ class TradeSignalOrchestrator {
             // Only fires in the borderline zone — never in clearly choppy or clearly trending.
             {
               const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-              const min1hBase = isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H;
+              const isBtc = pair.startsWith('BTC/');
+              const min1hBase = isBinance
+                ? (isBtc ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE_BTC : effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE)
+                : effectiveEnv.RISK_MIN_MOMENTUM_1H;
               const mom1h = indicators.momentum1h ?? 0;
               const mom4h = indicators.momentum4h ?? 0;
               const intrabar = indicators.intrabarMomentum ?? 0;
@@ -1987,7 +1990,8 @@ class TradeSignalOrchestrator {
             const regimeIndicators = await this.fetchAndCalculateIndicators(trade.pair, '15m', 100, trade.exchange || 'binance');
             liveMomentum1h = regimeIndicators?.momentum1h ?? 0;
             const liveMomentum4h = regimeIndicators?.momentum4h ?? 0;
-            regime = riskManager.getRegime(liveMomentum1h, liveMomentum4h);
+            const liveMomentum2h = regimeIndicators?.momentum2h;
+            regime = riskManager.getRegime(liveMomentum1h, liveMomentum4h, liveMomentum2h);
           } catch {
             // fallback to stored config regime if live fetch fails
             regime = botConfig?.regime || 'moderate';

@@ -526,14 +526,22 @@ class RiskManager {
    *   Transitioning: 4h > 0   AND 1h near flat (< 0.2%)
    *   Choppy:       4h <= 0 or both flat
    */
-  getRegime(momentum1h: number, momentum4h: number): string {
+  getRegime(momentum1h: number, momentum4h: number, momentum2h?: number): string {
     const mom1h = momentum1h ?? 0;
     const mom4h = momentum4h ?? 0;
+    const mom2h = momentum2h ?? mom4h; // fallback to 4h if 2h not available
+    const env = getEnvironmentConfig();
+    const minMom1h = env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.5;
 
-    if (mom4h <= 0) return 'choppy';
+    // When 4h is negative but 2h has recovered AND 1h is above the entry floor,
+    // the trade passed the health gate via allow4hLag — the market is in early recovery.
+    // Classify as 'weak' (not choppy) so stale exit gives 25min instead of 15min,
+    // and position sizing reflects the recovering (not declining) nature of the move.
+    const earlyRecovery = mom4h <= 0 && mom2h > 0 && mom1h >= minMom1h;
+    if (mom4h <= 0 && !earlyRecovery) return 'choppy';
     if (mom1h >= 1.0 && mom4h >= 0.8) return 'strong';
     if (mom1h >= 0.4 && mom4h >= 0.2) return 'moderate';
-    if (mom1h >= 0.2) return 'weak';
+    if (mom1h >= 0.2 || earlyRecovery) return 'weak';
     return 'transitioning'; // 4h > 0 but 1h flat — trend forming slowly
   }
 
@@ -650,7 +658,7 @@ class RiskManager {
 
     // STAGE 5: Cost Floor (/nexus parity - validate BEFORE AI to save API calls)
     // Use momentum-based profit target percentage (not dollar amount)
-    const regime = this.getRegime(momentum1h, momentum4h);
+    const regime = this.getRegime(momentum1h, momentum4h, indicators.momentum2h);
     const profitTargetPct = this.getProfitTarget(regime);
     const liveSpread = ticker.spread ?? (ticker.ask && ticker.bid && ticker.bid > 0 ? (ticker.ask - ticker.bid) / ticker.bid : 0);
     const stage5 = this.checkCostFloor(pair, price, price, profitTargetPct, this.config.exchange, liveSpread);

@@ -120,12 +120,15 @@ export class MomentumFailureDetector {
     // Capital tied up in a dead trade = opportunity cost. Exit and redeploy.
     // Hold time scales with regime — strong/moderate markets get more room to develop.
     const staleHoldMinutes = (() => {
-      const r = position.regime ?? regimeHint ?? '';
-      if (r === 'strong') return env.MOMENTUM_FAILURE_STALE_MINUTES_STRONG;
-      if (r === 'moderate') return env.MOMENTUM_FAILURE_STALE_MINUTES_MODERATE;
+      if (regime === 'strong') return env.MOMENTUM_FAILURE_STALE_MINUTES_STRONG;
+      if (regime === 'moderate') return env.MOMENTUM_FAILURE_STALE_MINUTES_MODERATE;
       return env.MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY;
     })();
-    const staleMinLossPct = env.MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT * 100; // convert to percent
+    // Fee-aware loss threshold: weak/early-recovery trades start 0.10% underwater (entry fee)
+    // Use a looser threshold for weak regime to avoid ejecting on fee noise alone.
+    const staleMinLossPct = (regime === 'weak' || regime === 'transitioning'
+      ? env.MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT_WEAK
+      : env.MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT) * 100; // convert to percent
     if (position.profitPct <= staleMinLossPct && holdMins >= staleHoldMinutes) {
       result.shouldExit = true;
       result.signalCount = 2;

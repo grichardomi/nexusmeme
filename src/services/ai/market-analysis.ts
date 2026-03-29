@@ -69,17 +69,22 @@ export function detectMarketRegime(
 ): MarketRegimeAnalysis {
   const momentum1h = indicators.momentum1h ?? 0;
   const momentum4h = indicators.momentum4h ?? 0;
+  const momentum2h = indicators.momentum2h ?? momentum4h;
   const env = getEnvironmentConfig();
+  const minMom1h = env.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.5;
 
-  // Momentum-based regime (mirrors RiskManager.getRegime)
+  // Momentum-based regime (mirrors RiskManager.getRegime — keep in sync)
+  // Early recovery: 4h still negative but 2h has turned positive and 1h above entry floor.
+  // Classify as 'weak' not 'choppy' — position gets more time to develop past fee drag.
+  const earlyRecovery = momentum4h <= 0 && momentum2h > 0 && momentum1h >= minMom1h;
   let regime: MarketRegime;
-  if (momentum4h <= 0) {
+  if (momentum4h <= 0 && !earlyRecovery) {
     regime = 'choppy';
   } else if (momentum1h >= 1.0 && momentum4h >= 0.8) {
     regime = 'strong';
   } else if (momentum1h >= 0.4 && momentum4h >= 0.2) {
     regime = 'moderate';
-  } else if (momentum1h >= 0.2) {
+  } else if (momentum1h >= 0.2 || earlyRecovery) {
     regime = 'weak';
   } else {
     regime = 'transitioning';

@@ -459,7 +459,7 @@ class TradeWorkerService {
     const mom1h = indicators.momentum1h ?? 0;
     const mom4h = indicators.momentum4h ?? 0;
     // Momentum-based regime classification (no ADX)
-    const regimeType = riskManager.getRegime(mom1h, mom4h) as import('@/types/market').RegimeType;
+    const regimeType = riskManager.getRegime(mom1h, mom4h, indicators.momentum2h) as import('@/types/market').RegimeType;
     const decision: TradeDecision = {
       pair,
       side: 'buy',

@@ -200,6 +200,7 @@ const envSchema = z.object({
   RISK_RSI_OVERBOUGHT_TRENDING: z.string().transform(Number).default('92'), // RSI can stay elevated in sustained trends
   RISK_MIN_MOMENTUM_1H: z.string().transform(Number).default('1.0'), // Legacy default — superseded by RISK_MIN_MOMENTUM_1H_BINANCE
   RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.25'), // Binance: 0.25% (2× 0.10% round-trip fee)
+  RISK_MIN_MOMENTUM_1H_BINANCE_BTC: z.string().transform(Number).default('0.20'), // BTC-specific floor: BTC moves in smaller % increments than altcoins
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.5'), // 0.5% minimum (percent form)
   // 4h bypass: when 4h momentum >= this AND intrabar >= RISK_1H_BYPASS_INTRABAR_MIN, skip the 1h floor
   // Catches early-recovery entries before the lagging 1h candle accumulates enough gain
@@ -389,8 +390,9 @@ const envSchema = z.object({
   /* Prevents ejecting trades that are only slightly underwater from fee noise */
   MOMENTUM_FAILURE_STALE_MINUTES_STRONG: z.string().transform(Number).default('30'),   // Strong regime: 30min — trending markets need room
   MOMENTUM_FAILURE_STALE_MINUTES_MODERATE: z.string().transform(Number).default('25'), // Moderate regime: 25min
-  MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: z.string().transform(Number).default('15'),   // Choppy/weak: 15min — exit fast
+  MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: z.string().transform(Number).default('20'),   // Choppy/weak: 20min — was 15, but fees eat 0.10% instantly
   MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (not just fee noise)
+  MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT_WEAK: z.string().transform(Number).default('-0.005'), // Weak/early-recovery: -0.5% — fees are 0.2% round-trip, need more room
   MOMENTUM_FAILURE_MIN_PROFIT_PCT: z.string().transform(Number).default('2'),          // Gate: only check if profit > 2%
   MOMENTUM_FAILURE_REQUIRED_SIGNALS: z.string().transform(Number).default('2'),        // Require 2 of 3 signals to exit
   MOMENTUM_FAILURE_1H_THRESHOLD: z.string().transform(Number).default('-0.5'),         // 1h momentum failure level
@@ -613,6 +615,7 @@ function getDefaultEnvironment(): Environment {
     RISK_RSI_OVERBOUGHT_TRENDING: 92,
     RISK_MIN_MOMENTUM_1H: 1.0, // Legacy default
     RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
+    RISK_MIN_MOMENTUM_1H_BINANCE_BTC: 0.20, // BTC-specific floor
     RISK_MIN_MOMENTUM_4H: 0.5, // 0.5% minimum (percent form)
     RISK_1H_BYPASS_4H_MIN: 1.0,
     RISK_1H_BYPASS_INTRABAR_MIN: 0.05,
@@ -722,8 +725,9 @@ function getDefaultEnvironment(): Environment {
     STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
     MOMENTUM_FAILURE_STALE_MINUTES_STRONG: 30,
     MOMENTUM_FAILURE_STALE_MINUTES_MODERATE: 25,
-    MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: 15,
+    MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: 20,
     MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT: -0.003,
+    MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT_WEAK: -0.005,
     MOMENTUM_FAILURE_MIN_PROFIT_PCT: 2,
     MOMENTUM_FAILURE_REQUIRED_SIGNALS: 2,
     MOMENTUM_FAILURE_1H_THRESHOLD: -0.5,
