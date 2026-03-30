@@ -26,10 +26,9 @@ import { reconcileBinanceFills } from '@/services/exchanges/binance-fill-reconci
 import type { TradeDecision } from '@/types/market';
 import { closeTrade } from '@/services/trading/close-trade';
 import { livePriceStore } from '@/services/market-data/live-price-store';
-import { regimeAgent } from '@/services/ai/regime-agent';
+// regimeAgent removed — replaced by deterministic Trend Exhaustion rule
 import { tradeMonitorAgent, type OpenTradeContext } from '@/services/ai/trade-monitor-agent';
 import { transitionDetectorAgent } from '@/services/ai/transition-detector-agent';
-import type { RegimeAgentState } from '@/types/ai';
 
 interface BotInstance {
   id: string;
@@ -918,36 +917,27 @@ class TradeSignalOrchestrator {
         logger.warn('Failed to fetch BTC momentum for risk manager', error instanceof Error ? error : undefined);
       }
 
-      // REGIME AGENT: Read last known state only — no Claude call here.
-      // getState() returns in-memory or kv_cache state without ever calling Claude.
-      // The actual analyze() (which may call Claude) is deferred to AFTER the risk filter
-      // passes, so Claude is only called when a pair is genuinely about to enter.
-      // This state is used solely for the agentic volume threshold adjustment below.
-      let regimeAgentState: RegimeAgentState | null = null;
-      try {
-        regimeAgentState = await regimeAgent.getState();
-      } catch {
-        // non-critical — volume threshold proceeds with env default
-      }
-
-      // AGENTIC VOLUME THRESHOLD: Scale RISK_BTC_MIN_VOLUME_RATIO based on regime agent assessment.
-      // When agent is bearish (adj=-10): use full configured threshold (no relaxation).
-      // When agent is bullish (adj=+10): use 25% of threshold (floor).
-      // This prevents the hard volume block from missing opportunities in genuine moves
-      // while keeping full protection when the agent flags fake rally risk.
-      if (regimeAgentState !== null) {
+      // DETERMINISTIC VOLUME THRESHOLD: tighten BTC volume requirement when 4h is mature/declining.
+      // Replaces regime agent Claude call — same logic encoded as pure math.
+      // When 4h strong (mature move) + 1h fading: use full env threshold (stricter).
+      // Otherwise: use floor threshold (more permissive, captures early moves).
+      {
         const envCfg = getEnvironmentConfig();
-        const maxAdj = envCfg.AI_REGIME_AGENT_MAX_ADJUSTMENT ?? 10;
-        const adj = regimeAgentState.entryBarAdjustment;
+        const mom4h = btcIndicatorsForAgents.momentum4h ?? 0;
+        const mom1h = btcIndicatorsForAgents.momentum1h ?? 0;
+        const volRatio = btcIndicatorsForAgents.volumeRatio ?? 1;
+        const isMatureFading = mom4h >= envCfg.TREND_EXHAUSTION_4H_MIN_PCT
+          && mom1h < envCfg.TREND_EXHAUSTION_1H_MAX_PCT
+          && volRatio < envCfg.TREND_EXHAUSTION_VOLUME_MAX;
         const envThreshold = envCfg.RISK_BTC_MIN_VOLUME_RATIO;
         const floorThreshold = envThreshold * envCfg.RISK_BTC_VOLUME_FLOOR_SCALE;
-        const scale = (maxAdj - adj) / (2 * maxAdj); // 1.0 when most bearish, 0.0 when most bullish
-        const dynamicThreshold = floorThreshold + (envThreshold - floorThreshold) * scale;
-        riskManager.updateBTCVolumeThreshold(dynamicThreshold);
-        logger.debug('Orchestrator: agentic volume threshold set', {
-          agentAdj: adj,
-          envThreshold,
-          dynamicThreshold: dynamicThreshold.toFixed(3),
+        riskManager.updateBTCVolumeThreshold(isMatureFading ? envThreshold : floorThreshold);
+        logger.debug('Orchestrator: deterministic volume threshold set', {
+          isMatureFading,
+          mom4h: mom4h.toFixed(3),
+          mom1h: mom1h.toFixed(3),
+          volRatio: volRatio.toFixed(3),
+          threshold: (isMatureFading ? envThreshold : floorThreshold).toFixed(3),
         });
       }
 
@@ -1312,15 +1302,7 @@ class TradeSignalOrchestrator {
               }
             }
 
-            // REGIME AGENT: refresh only after all deterministic gates pass (risk filter + momentum
-            // floor). Claude is only invoked when cache is stale (6-min TTL); subsequent pairs this
-            // cycle always hit the in-memory cache. Placed here to avoid wasting API calls on pairs
-            // blocked by the momentum floor check above.
-            try {
-              regimeAgentState = await regimeAgent.analyze(btcIndicatorsForAgents);
-            } catch {
-              // non-critical — proceeds with last known state
-            }
+            // Regime agent removed — replaced by deterministic Trend Exhaustion rule above.
 
             // higherCloses gate REMOVED — functioned as a de-facto cooldown (forced 2-3h wait
             // for hourly candle confirmation), violating CLAUDE.md "no cooldowns/delays" rule.
@@ -1405,7 +1387,7 @@ class TradeSignalOrchestrator {
               indicators,
               isCreepingUptrend,
               isReboundEntry,
-              regimeContext: regimeAgentState,
+              regimeContext: null, // regime agent removed — deterministic veto in analyzer.ts
               minMomentum1h: pairMin1hBase,
             });
 
@@ -1619,8 +1601,9 @@ class TradeSignalOrchestrator {
   }
 
   /**
-   * Run trade monitor agent — advisory only, fire-and-forget.
+   * Run trade monitor agent — exits CONCERN trades immediately.
    * Fetches open trades, passes to agent with BTC indicators for health assessment.
+   * Any pair returned as CONCERN triggers an immediate close via the trade close API.
    */
   private async runTradeMonitorAgent(btcIndicators: import('@/types/ai').TechnicalIndicators): Promise<void> {
     const env = getEnvironmentConfig();
@@ -1628,13 +1611,16 @@ class TradeSignalOrchestrator {
 
     try {
       const openTradesRaw = await query<{
+        id: string;
         pair: string;
         entry_price: string;
         entry_time: string;
         regime: string | null;
+        bot_instance_id: string;
       }>(
-        `SELECT t.pair, t.entry_price, t.entry_time,
-                t.entry_notes->>'regime' AS regime
+        `SELECT t.id, t.pair, t.entry_price, t.entry_time,
+                t.entry_notes->>'regime' AS regime,
+                t.bot_instance_id
          FROM trades t
          JOIN bot_instances b ON b.id = t.bot_instance_id
          WHERE t.exit_time IS NULL AND b.status = 'running'
@@ -1659,7 +1645,34 @@ class TradeSignalOrchestrator {
         };
       });
 
-      await tradeMonitorAgent.analyze(trades, btcIndicators);
+      const concernPairs = await tradeMonitorAgent.analyze(trades, btcIndicators);
+
+      if (concernPairs.length > 0) {
+        // Exit CONCERN trades — AI detected conditions degrading (BTC reversing + trade not profitable)
+        for (const concernPair of concernPairs) {
+          const row = openTradesRaw.find(r => r.pair === concernPair);
+          if (!row) continue;
+          const livePrice = livePriceStore.getPrice(concernPair);
+          if (!livePrice) continue;
+          logger.warn('🚨 TradeMonitor: exiting CONCERN trade', {
+            pair: concernPair,
+            tradeId: row.id,
+            exitPrice: livePrice,
+            reason: 'ai_monitor_concern',
+          });
+          // Fire-and-forget close — same pattern as tick-level erosion exits
+          fetch(`${env.NEXT_PUBLIC_APP_URL}/api/bots/trades/close`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tradeId: row.id,
+              exitPrice: livePrice,
+              reason: 'ai_monitor_concern',
+              botInstanceId: row.bot_instance_id,
+            }),
+          }).catch(err => logger.error('TradeMonitor: close request failed', err));
+        }
+      }
     } catch {
       // non-critical
     }
@@ -2681,19 +2694,30 @@ class TradeSignalOrchestrator {
             continue;
           }
 
-          // REGIME AGENT GATE: pyramiding is only for strong trends.
-          // Consult in-memory regime state (zero latency). Skip pyramid unless regime is confirmed strong.
-          // If no agent state yet, fall through to momentum-based check (safe default).
-          const regimeStateForPyramid = await regimeAgent.getState();
-          if (regimeStateForPyramid !== null && regimeStateForPyramid.btcRegime !== 'strong') {
-            logger.info('Pyramid skipped — regime not strong', {
-              pair: trade.pair,
-              btcRegime: regimeStateForPyramid.btcRegime,
-              entryBarAdjustment: regimeStateForPyramid.entryBarAdjustment,
-              reasoning: regimeStateForPyramid.reasoning,
-              currentProfitPct: currentProfitPct.toFixed(2),
-            });
-            continue;
+          // PYRAMID REGIME GATE: only pyramid in strong BTC momentum.
+          // Fetch fresh BTC indicators here (pyramid method is also called from interval, outside main cycle).
+          // Strong = mom1h >= 1.0% AND mom4h >= 0.8% (mirrors REGIME_STRONG thresholds).
+          {
+            let btcMom1hPyramid = 0;
+            let btcMom4hPyramid = 0;
+            try {
+              const btcPyramidIndicators = await this.fetchAndCalculateIndicators('BTC/USDT', '15m', 100, trade.exchange || 'binance');
+              btcMom1hPyramid = btcPyramidIndicators.momentum1h ?? 0;
+              btcMom4hPyramid = btcPyramidIndicators.momentum4h ?? 0;
+            } catch { /* skip pyramid if BTC fetch fails */ }
+            const envCfg = getEnvironmentConfig();
+            const isStrongBtc = btcMom1hPyramid >= envCfg.REGIME_STRONG_1H_PCT && btcMom4hPyramid >= envCfg.REGIME_STRONG_4H_PCT;
+            if (!isStrongBtc) {
+              logger.info('Pyramid skipped — BTC not in strong regime', {
+                pair: trade.pair,
+                btcMom1h: btcMom1hPyramid.toFixed(3),
+                btcMom4h: btcMom4hPyramid.toFixed(3),
+                requiredMom1h: envCfg.REGIME_STRONG_1H_PCT,
+                requiredMom4h: envCfg.REGIME_STRONG_4H_PCT,
+                currentProfitPct: currentProfitPct.toFixed(2),
+              });
+              continue;
+            }
           }
 
           // CHECK L1: Add at L1 trigger % profit

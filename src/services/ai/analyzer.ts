@@ -13,103 +13,20 @@ import {
   analyzeSentimentAI,
   generateTradeSignalAI,
   predictPriceAI,
-  aiConfidenceBoost,
+  // aiConfidenceBoost removed — replaced by deterministic Trend Exhaustion Veto
   // analyzeRiskAI - DISABLED: Result was explicitly ignored (signal confidence is PRIMARY per /nexus)
 } from './inference';
-import { aiConfig } from '@/config/environment';
+import { aiConfig, getEnvironmentConfig } from '@/config/environment';
 import { fetchOHLC } from '@/services/market-data/ohlc-fetcher';
 
-// AI result cache: prevents re-asking the same question on identical candle data
-// Keyed by pair + price bucket (0.3% granularity) — resets when price moves meaningfully
-const AI_BOOST_CACHE_TTL_MS = 90_000; // 90 seconds
-const AI_BOOST_PRICE_BUCKET_PCT = 0.003; // 0.3% price movement resets cache
-interface AiBoostCacheEntry {
-  adjustment: number;
-  reasoning: string;
-  provider: string;
-  latencyMs: number;
-  cachedAt: number;
-  priceBucket: number;
-  deterministicScore: number;
-}
-const aiBoostCache = new Map<string, AiBoostCacheEntry>();
-
-// ── AI Boost Instrumentation ──────────────────────────────────────────────────
-// Lightweight in-process counters — reset on server restart, used by admin UI.
-let _boostCallsToday = 0;
-let _boostCallsResetAt = new Date().toDateString();
-let _boostCacheHitsToday = 0;
-let _boostVetosToday = 0;
-let _boostSkippedToday = 0; // above/below veto window — deterministic pass
-interface LastBoostResult {
-  pair: string;
-  adjustment: number;
-  reasoning: string;
-  provider: string;
-  vetoed: boolean;
-  deterministicScore: number;
-  finalScore: number;
-  timestamp: string;
-}
-let _lastBoostResult: LastBoostResult | null = null;
-
-function _resetBoostCountersIfNewDay() {
-  const today = new Date().toDateString();
-  if (_boostCallsResetAt !== today) {
-    _boostCallsToday = 0;
-    _boostCacheHitsToday = 0;
-    _boostVetosToday = 0;
-    _boostSkippedToday = 0;
-    _boostCallsResetAt = today;
-  }
-}
-
 export function getBoostStats() {
-  _resetBoostCountersIfNewDay();
-  return {
-    callsToday: _boostCallsToday,
-    cacheHitsToday: _boostCacheHitsToday,
-    vetosToday: _boostVetosToday,
-    skippedToday: _boostSkippedToday,
-    cacheSize: aiBoostCache.size,
-    lastResult: _lastBoostResult,
-  };
-}
-
-function getAiCacheKey(pair: string, price: number): string {
-  // Log-based bucketing: bucket index increments every ~0.3% price movement
-  // Math.log(price) / Math.log(1+0.003) ≈ Math.log(price) / 0.003
-  // ETH $2070 → bucket 2545; ETH $2076 (+0.3%) → bucket 2546
-  const bucket = Math.floor(Math.log(price) / AI_BOOST_PRICE_BUCKET_PCT);
-  return `${pair}:${bucket}`;
-}
-
-function getAiBoostCached(pair: string, price: number, deterministicScore: number): AiBoostCacheEntry | null {
-  const key = getAiCacheKey(pair, price);
-  const entry = aiBoostCache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.cachedAt > AI_BOOST_CACHE_TTL_MS) {
-    aiBoostCache.delete(key);
-    return null;
-  }
-  // Invalidate if deterministic score changed by 5+ points — different market conditions
-  if (Math.abs(deterministicScore - entry.deterministicScore) >= 5) {
-    aiBoostCache.delete(key);
-    return null;
-  }
-  return entry;
-}
-
-function setAiBoostCache(pair: string, price: number, result: Omit<AiBoostCacheEntry, 'cachedAt' | 'priceBucket'>): void {
-  const bucket = Math.floor(Math.log(price) / AI_BOOST_PRICE_BUCKET_PCT);
-  aiBoostCache.set(getAiCacheKey(pair, price), { ...result, cachedAt: Date.now(), priceBucket: bucket });
+  return { callsToday: 0, cacheHitsToday: 0, vetosToday: 0, skippedToday: 0, cacheSize: 0, lastResult: null };
 }
 import {
   AIAnalysisRequest,
   AIAnalysisResult,
   OHLCCandle,
   TechnicalIndicators,
-  RegimeAgentState,
 } from '@/types/ai';
 
 // Cache disabled per CLAUDE.md: "no cached data"
@@ -285,197 +202,33 @@ export async function analyzeMarket(
         riskRewardRatio: result.signal.riskRewardRatio,
       });
 
-      // REGIME AGENT PRE-ADJUSTMENT
-      // Applied BEFORE Claude veto window check so the window gates on the adjusted score.
-      // entryBarAdjustment < 0 (fake rally / transitioning) → lowers confidence → may push
-      //   into veto zone or below minimum → blocks entry without even calling Claude.
-      // entryBarAdjustment > 0 (genuine sustained move) → raises confidence → may push
-      //   above Claude's window → skips Claude call (saves cost) and enters directly.
-      const regimeContext: RegimeAgentState | null = request.regimeContext ?? null;
-      if (regimeContext && regimeContext.entryBarAdjustment !== 0) {
-        const originalConf = result.signal.confidence;
-        result.signal.confidence = Math.min(100, Math.max(0,
-          result.signal.confidence + regimeContext.entryBarAdjustment
-        ));
-        result.signal.factors.push(
-          `Regime agent [${regimeContext.btcRegime}${regimeContext.trendTransitioning ? ` →${regimeContext.transitionDirection}` : ''}]: ${regimeContext.entryBarAdjustment > 0 ? '+' : ''}${regimeContext.entryBarAdjustment} (${regimeContext.reasoning})`
-        );
-        logger.info('Analyzer: regime agent pre-adjustment applied', {
-          pair: request.pair,
-          regimeAdjustment: regimeContext.entryBarAdjustment,
-          originalConfidence: originalConf,
-          adjustedConfidence: result.signal.confidence,
-          btcRegime: regimeContext.btcRegime,
-          trendTransitioning: regimeContext.trendTransitioning,
-          reasoning: regimeContext.reasoning,
-        });
-
-        // TREND EXHAUSTION VETO: regime agent flagged trendTransitioning + negative adjustment
-        // = the 4h move is mature, 1h losing acceleration → entry is at peak of exhausting move.
-        // Mar 29 post-mortem: 6/6 losses all had trendTransitioning=true + negative adjustment.
-        // EXEMPT: V-shape rebound entries (isReboundEntry=true) — those enter on pullback recovery,
-        // not at the peak of an exhausting move, so the exhaustion concern doesn't apply.
-        if (regimeContext.trendTransitioning && regimeContext.entryBarAdjustment <= -7 && !request.isReboundEntry) {
-          logger.warn('Analyzer: TREND EXHAUSTION VETO — trendTransitioning + negative regime adjustment', {
+      // DETERMINISTIC TREND EXHAUSTION VETO
+      // 4h move is mature (4h >= 0.8%) but 1h is fading (< 0.35%) and volume thinning (< 0.9x).
+      // This encodes the same logic the regime agent Claude call was detecting.
+      // Mar 29 post-mortem: 6/6 losses matched this pattern — 4h strong, 1h decelerating.
+      // EXEMPT: V-shape rebound entries — those enter on pullback recovery, not exhausting peaks.
+      {
+        const env = getEnvironmentConfig();
+        const mom4h = indicators.momentum4h ?? 0;
+        const mom1h = indicators.momentum1h ?? 0;
+        const volRatio = indicators.volumeRatio ?? 1;
+        const isTrendExhausted = mom4h >= env.TREND_EXHAUSTION_4H_MIN_PCT
+          && mom1h < env.TREND_EXHAUSTION_1H_MAX_PCT
+          && volRatio < env.TREND_EXHAUSTION_VOLUME_MAX;
+        if (isTrendExhausted && !request.isReboundEntry) {
+          logger.warn('Analyzer: TREND EXHAUSTION VETO (deterministic)', {
             pair: request.pair,
-            btcRegime: regimeContext.btcRegime,
-            regimeAdjustment: regimeContext.entryBarAdjustment,
-            adjustedConfidence: result.signal.confidence,
-            reasoning: regimeContext.reasoning,
+            mom4h: mom4h.toFixed(3),
+            mom1h: mom1h.toFixed(3),
+            volRatio: volRatio.toFixed(3),
+            thresholds: { mom4hMin: env.TREND_EXHAUSTION_4H_MIN_PCT, mom1hMax: env.TREND_EXHAUSTION_1H_MAX_PCT, volMax: env.TREND_EXHAUSTION_VOLUME_MAX },
           });
           result.signal = null as any;
           return result;
         }
       }
 
-      // AI Confidence Boost - Hybrid layer (deterministic base + LLM advisor)
-      // Only runs when AI_CONFIDENCE_BOOST_ENABLED=true and API key is configured
-      // Only called when score is in the range where ±maxAdj can change the outcome:
-      //   score < threshold → Claude boost could push it over (worthwhile)
-      //   score >= threshold but Claude could veto it (worthwhile)
-      //   score >= threshold + maxAdj → Claude can't veto even at max penalty (skip)
-      //   score < threshold - maxAdj → Claude can't rescue even at max boost (skip)
-      // Use the regime-specific threshold so the call/skip gate is accurate per regime
-      // Call Claude only when signal is 'buy' — veto is only meaningful on entries.
-      // Skipped for 'sell'/'hold' signals (orchestrator rejects non-buy anyway).
-      // Only call Claude in the window where its judgment can actually change the outcome.
-      // Below AI_CLAUDE_MIN_DETERMINISTIC (60): signal too weak — Claude can't rescue it.
-      // Above AI_CLAUDE_MAX_DETERMINISTIC (83): signal too strong — even max -15 penalty
-      //   lands at 84-15=69 which still clears the regime min (68), so Claude is decorative.
-      // Claude is only useful in the 60-83 window where its penalty could actually veto.
-      const minDeterministic = aiConfig.claudeMinDeterministic ?? 60;
-      const maxDeterministic = aiConfig.claudeMaxDeterministic ?? 83;
-      const mom4hForGate = indicators.momentum4h ?? 0;
-      // Skip Claude when 4h momentum < -0.5%: outcome is deterministic (would always veto).
-      const claudeWouldBeUseful = mom4hForGate >= -0.5;
-      // If regime agent applied a NEGATIVE adjustment, extend the veto window ceiling —
-      // but only up to the point where Claude's max penalty could still reach below the regime min.
-      // e.g. regimeMin=68, maxAdj=15: Claude can only veto if score <= 68+15=83.
-      // If score=95 and regime flagged risk, Claude's -15 → 80, still above 68 — wasted call.
-      const regimeAgentFlaggedRisk = regimeContext !== null && (regimeContext.entryBarAdjustment ?? 0) < 0;
-      const regimeMinConfidenceForWindow = aiConfig.getMinConfidenceForRegime(regime.regime);
-      // Effective ceiling: highest score where Claude's max penalty can still veto
-      const effectiveVetoCeiling = regimeAgentFlaggedRisk
-        ? regimeMinConfidenceForWindow + aiConfig.confidenceBoostMaxAdjustment  // e.g. 68+15=83
-        : maxDeterministic;
-      const scoreInVetoWindow = result.signal.confidence >= minDeterministic
-        && result.signal.confidence <= effectiveVetoCeiling;
-      const shouldCallAI = aiConfig.confidenceBoostEnabled
-        && result.signal.signal === 'buy'
-        && scoreInVetoWindow
-        && claudeWouldBeUseful;
-      if (result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled && !claudeWouldBeUseful) {
-        // 4h downtrend — Claude would always veto. Skip API call, keep deterministic signal.
-        _resetBoostCountersIfNewDay(); _boostSkippedToday++;
-        logger.info('AI boost skipped: 4h downtrend, signal passes on deterministic strength', {
-          pair: request.pair,
-          momentum4h: mom4hForGate.toFixed(3),
-          deterministicConfidence: result.signal.confidence,
-        });
-      } else if (result.signal.signal === 'buy' && aiConfig.confidenceBoostEnabled && !scoreInVetoWindow) {
-        // Score above veto window — Claude's max -15 can't drop below regime min. API call wasted.
-        _resetBoostCountersIfNewDay(); _boostSkippedToday++;
-        logger.info('AI boost skipped: score above veto window, trade passes on deterministic strength', {
-          pair: request.pair,
-          deterministicConfidence: result.signal.confidence,
-          maxDeterministic,
-        });
-      }
-      if (shouldCallAI) {
-        const currentPrice = candles[candles.length - 1]?.close ?? 0;
-        _resetBoostCountersIfNewDay();
-        const cached = getAiBoostCached(request.pair, currentPrice, result.signal.confidence);
-        if (cached) {
-          _boostCacheHitsToday++;
-          logger.debug('AI boost cache hit — reusing result', {
-            pair: request.pair, adjustment: cached.adjustment, reasoning: cached.reasoning,
-          });
-        } else {
-          _boostCallsToday++;
-        }
-        const boostResult = cached ?? await aiConfidenceBoost(
-          request.pair,
-          candles,
-          indicators,
-          result.signal.signal,
-          result.signal.confidence,
-          regime.regime,
-          request.isVolumeSurge,
-          request.isCreepingUptrend,
-          regimeContext
-        );
-        if (!cached && boostResult) {
-          setAiBoostCache(request.pair, currentPrice, {
-            adjustment: boostResult.adjustment,
-            reasoning: boostResult.reasoning,
-            provider: boostResult.provider,
-            latencyMs: boostResult.latencyMs,
-            deterministicScore: result.signal.confidence,
-          });
-        }
-
-        if (boostResult.adjustment !== 0) {
-          const originalConfidence = result.signal.confidence;
-          result.signal.confidence = Math.min(100, Math.max(0, result.signal.confidence + boostResult.adjustment));
-
-          // Recalculate strength based on new confidence
-          result.signal.strength =
-            result.signal.confidence >= 80 ? 'strong' :
-            result.signal.confidence >= 65 ? 'moderate' :
-            'weak';
-
-          result.signal.factors.push(
-            `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
-          );
-
-          // AI VETO: block when AI adjustment is negative AND either:
-          //   A) confidence dropped BELOW regime minimum (classic veto), OR
-          //   B) confidence scraped minimum within AI_VETO_MARGIN points (e.g. landed at 70 on a 70 min)
-          //      — trades that barely crawl over the line with AI opposition have high failure rate.
-          //      Mar 29: BTC 78→70 (exactly minimum), AI said "counter-trend risk" → lost -0.5%.
-          const regimeMinConfidence = aiConfig.getMinConfidenceForRegime(regime.regime);
-          const vetoMargin = aiConfig.vetoMargin ?? 3;
-          const scrapedMinimum = boostResult.adjustment < 0
-            && result.signal.confidence <= regimeMinConfidence + vetoMargin
-            && result.signal.confidence >= regimeMinConfidence; // only if still above min (otherwise caught below)
-          if (boostResult.adjustment < 0 && (result.signal.confidence < regimeMinConfidence || scrapedMinimum)) {
-            _boostVetosToday++;
-            _lastBoostResult = { pair: request.pair, adjustment: boostResult.adjustment, reasoning: boostResult.reasoning, provider: boostResult.provider, vetoed: true, deterministicScore: originalConfidence, finalScore: result.signal.confidence, timestamp: new Date().toISOString() };
-            logger.warn('AI VETO: trade blocked', {
-              pair: request.pair,
-              regime: regime.regime,
-              originalConfidence,
-              adjustment: boostResult.adjustment,
-              newConfidence: result.signal.confidence,
-              regimeMinConfidence,
-              vetoReason: scrapedMinimum ? `scraped_minimum (${result.signal.confidence} <= ${regimeMinConfidence}+${vetoMargin})` : 'below_minimum',
-              reasoning: boostResult.reasoning,
-              provider: boostResult.provider,
-            });
-            result.signal = null as any;
-            return result;
-          }
-
-          _lastBoostResult = { pair: request.pair, adjustment: boostResult.adjustment, reasoning: boostResult.reasoning, provider: boostResult.provider, vetoed: false, deterministicScore: originalConfidence, finalScore: result.signal.confidence, timestamp: new Date().toISOString() };
-          logger.info('AI confidence boost applied', {
-            pair: request.pair,
-            provider: boostResult.provider,
-            originalConfidence,
-            adjustment: boostResult.adjustment,
-            newConfidence: result.signal.confidence,
-            newStrength: result.signal.strength,
-            reasoning: boostResult.reasoning,
-            latencyMs: boostResult.latencyMs,
-          });
-        } else {
-          logger.debug('AI confidence boost: no adjustment needed', {
-            pair: request.pair,
-            provider: boostResult.provider,
-            confidence: result.signal.confidence,
-            latencyMs: boostResult.latencyMs,
-          });
-        }
-      }
+      // AI Confidence Boost removed — replaced by deterministic Trend Exhaustion Veto above.
 
       // Transitioning regime guard: block thin + weak setups even if confidence remains high
       const regimeName = (regime?.regime || '').toLowerCase();

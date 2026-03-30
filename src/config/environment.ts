@@ -195,6 +195,11 @@ const envSchema = z.object({
   /* Risk Management Guardrails */
   RISK_BTC_DUMP_THRESHOLD: z.string().transform(Number).default('-0.015'),
   RISK_BTC_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.4'), // Block ALL pairs when BTC volume < this (market-wide illiquidity)
+  // Deterministic Trend Exhaustion: replaces regime agent Claude call
+  // Block entry when 4h move is mature but 1h is fading + volume thinning
+  TREND_EXHAUSTION_4H_MIN_PCT: z.string().transform(Number).default('0.8'),  // 4h must be >= this (strong 4h = mature move)
+  TREND_EXHAUSTION_1H_MAX_PCT: z.string().transform(Number).default('0.35'), // 1h must be < this (fading 1h = deceleration)
+  TREND_EXHAUSTION_VOLUME_MAX: z.string().transform(Number).default('0.9'),  // volumeRatio must be < this (thinning = conviction leaving)
   RISK_VOLUME_SPIKE_MAX: z.string().transform(Number).default('4.5'),
   RISK_SPREAD_MAX_PERCENT: z.string().transform(Number).default('0.005'),
   RISK_PRICE_TOP_THRESHOLD: z.string().transform(Number).default('0.995'),
@@ -638,6 +643,9 @@ function getDefaultEnvironment(): Environment {
     BINANCE_BOT_PYRAMID_EROSION_CAP_TREND: 0.008,
     RISK_BTC_DUMP_THRESHOLD: -0.015,
     RISK_BTC_MIN_VOLUME_RATIO: 0.4,
+    TREND_EXHAUSTION_4H_MIN_PCT: 0.8,
+    TREND_EXHAUSTION_1H_MAX_PCT: 0.35,
+    TREND_EXHAUSTION_VOLUME_MAX: 0.9,
     RISK_VOLUME_SPIKE_MAX: 4.5,
     RISK_SPREAD_MAX_PERCENT: 0.005,
     RISK_PRICE_TOP_THRESHOLD: 0.995,
