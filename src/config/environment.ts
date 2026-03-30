@@ -202,6 +202,7 @@ const envSchema = z.object({
   RISK_MIN_MOMENTUM_1H_BINANCE: z.string().transform(Number).default('0.25'), // Binance: 0.25% (2× 0.10% round-trip fee)
   RISK_MIN_MOMENTUM_1H_BINANCE_BTC: z.string().transform(Number).default('0.20'), // BTC-specific floor: BTC moves in smaller % increments than altcoins
   RISK_MIN_MOMENTUM_4H: z.string().transform(Number).default('0.3'), // 0.3% minimum — blocks near-zero 4h that turns choppy mid-trade
+  RISK_EARLY_RECOVERY_4H_MAX: z.string().transform(Number).default('-0.5'), // earlyRecovery exception only fires when mom4h < this (genuine dump, not borderline)
   // Regime boundary thresholds — single source of truth used by getRegime() and detectMarketRegime()
   REGIME_STRONG_1H_PCT: z.string().transform(Number).default('1.0'),    // 1h momentum for strong regime
   REGIME_STRONG_4H_PCT: z.string().transform(Number).default('0.8'),    // 4h momentum for strong regime
@@ -641,6 +642,7 @@ function getDefaultEnvironment(): Environment {
     RISK_MIN_MOMENTUM_1H_BINANCE: 0.2, // Binance: lower fee = lower threshold
     RISK_MIN_MOMENTUM_1H_BINANCE_BTC: 0.20, // BTC-specific floor
     RISK_MIN_MOMENTUM_4H: 0.3, // 0.3% minimum — blocks near-zero 4h that turns choppy mid-trade
+    RISK_EARLY_RECOVERY_4H_MAX: -0.5, // earlyRecovery exception only fires when mom4h < this
     REGIME_STRONG_1H_PCT: 1.0,
     REGIME_STRONG_4H_PCT: 0.8,
     REGIME_MODERATE_1H_PCT: 0.4,

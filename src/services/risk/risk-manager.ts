@@ -168,12 +168,16 @@ class RiskManager {
     // MINIMUM 4H MOMENTUM GATE: blocks near-zero 4h entries that immediately turn choppy.
     // Mar 29 post-mortem: entries at mom4h=0.23% classified as 'weak' at entry, regime turned
     // 'choppy' (mom4h<0) mid-trade, all exited as losses. 4h barely above 0 is not a trend.
-    // Early-recovery exception: if mom4h < floor but mom2h > 0, the last 2h are net-positive —
-    // a real recovery is underway and blocking on lagging 4h would miss the move.
+    // Early-recovery exception: ONLY when mom4h < 0 (genuine dump) AND mom2h > 0 (bouncing).
+    // Borderline positive 4h (0 to min4h) gets blocked — that's weak/choppy, not a recovery.
     const min4h = this.config.minMomentum4h;
-    const earlyRecoveryException = mom4h < min4h && mom2h > 0;
+    // Exception ONLY for genuine post-dump recovery: 4h deeply negative AND 2h bounced positive.
+    // Mar 29 post-mortem: -0.295% fired the exception (barely < 0) — not a real dump, just chop.
+    // RISK_EARLY_RECOVERY_4H_MAX default -0.5%: must be < -0.5% to qualify as a real recovery.
+    const earlyRecovery4hMax = env.RISK_EARLY_RECOVERY_4H_MAX ?? -0.5;
+    const earlyRecoveryException = mom4h < earlyRecovery4hMax && mom2h > 0;
     if (mom4h < min4h && !earlyRecoveryException) {
-      logger.info('RiskManager: Entry blocked - 4h momentum below minimum', { momentum4h: mom4h.toFixed(3), min4h, momentum2h: mom2h.toFixed(3) });
+      logger.info('RiskManager: Entry blocked - 4h momentum below minimum', { momentum4h: mom4h.toFixed(3), min4h, momentum2h: mom2h.toFixed(3), earlyRecoveryException });
       return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% < ${min4h}% minimum (near-choppy, no 2h recovery)`, stage: 'Health Gate' };
     }
 
