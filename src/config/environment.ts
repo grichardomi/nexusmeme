@@ -82,6 +82,7 @@ const envSchema = z.object({
   /* Live Price Freshness Guards */
   LIVE_PRICE_MAX_AGE_MS: z.string().transform(Number).default('3000'),           // WS price must be < 3s old to override aggregator cache
   LIVE_PRICE_DIVERGENCE_LOG_PCT: z.string().transform(Number).default('0.001'),  // Log when WS/cache diverge > 0.1%
+  LIVE_PRICE_SPIKE_BLOCK_PCT: z.string().transform(Number).default('0.003'),     // Block signal if WS/cache diverge > 0.3% — spike inflates momentum1h
   ENTRY_MAX_ADVERSE_SLIPPAGE_PCT: z.string().transform(Number).default('0.003'), // Abort entry if price dropped > 0.3% since signal
 
   /* Cache TTLs — trading latency knobs */
@@ -559,6 +560,7 @@ function getDefaultEnvironment(): Environment {
     MARKET_DATA_CACHE_STALE_TTL_MS: 5000,
     LIVE_PRICE_MAX_AGE_MS: 3000,
     LIVE_PRICE_DIVERGENCE_LOG_PCT: 0.001,
+    LIVE_PRICE_SPIKE_BLOCK_PCT: 0.003,
     ENTRY_MAX_ADVERSE_SLIPPAGE_PCT: 0.003,
     CP_BTC_CACHE_TTL_MS: 300000,
     OHLC_CACHE_TTL_MS_FETCHER: 60000,

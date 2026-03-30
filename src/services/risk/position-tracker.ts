@@ -376,14 +376,14 @@ class PositionTracker {
   ): Promise<void> {
     const existing = this.peakProfits.get(tradeId);
     if (!existing) {
-      // CRITICAL: Position must be initialized via recordPeak FIRST with full data
-      // DO NOT call recordPeak here with missing parameters (causes degraded mode)
-      logger.error('❌ updatePeakIfHigher called on untracked position', null, {
+      // Self-heal: recordPeak() was never called for this trade (restart race, missed init, etc.)
+      // recordPeak() will do a DB lookup for entryPrice/quantity to avoid degraded mode.
+      logger.warn('⚠️ updatePeakIfHigher: untracked position — self-healing via recordPeak()', {
         tradeId,
         currentProfitPct: currentProfitPct.toFixed(4),
-        note: 'Caller must call recordPeak() first with full position data (entryPrice, quantity, etc.)',
       });
-      return;
+      await this.recordPeak(tradeId, currentProfitPct, undefined, undefined, undefined, currentPrice, estimatedTotalFees);
+      return; // next call will find the position and update normally
     }
 
     // Calculate current profit in dollars if we have position data

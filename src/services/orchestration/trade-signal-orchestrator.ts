@@ -107,6 +107,11 @@ class TradeSignalOrchestrator {
   // Unsubscribe functions keyed by pair (one active trade per pair)
   private tickUnsubs = new Map<string, () => void>();
 
+  // SIGNAL CONFIRMATION GATE: pair → timestamp when signal first qualified (ms)
+  // A signal must survive two independent 8s orchestrator cycles before capital is committed.
+  // Prevents flash/spike signals that look valid for a single reading then revert.
+  private signalConfirmationCache = new Map<string, number>();
+
 
   /**
    * Register a WS-tick erosion callback for a trade.
@@ -1115,6 +1120,22 @@ class TradeSignalOrchestrator {
                     liveAgeMs: Date.now() - liveData.timestamp,
                   });
                 }
+                // SPIKE GUARD: if WS price is significantly above the aggregator (sustained average),
+                // momentum1h would be recalculated using the spiked price → inflated signal.
+                // The spike hasn't been validated as sustained — skip this cycle and wait for
+                // the aggregator to catch up (confirming the move is real, not a flash spike).
+                if (divergence > livePriceCfg.LIVE_PRICE_SPIKE_BLOCK_PCT) {
+                  logger.info('🚫 Orchestrator: entry blocked — live price spike vs aggregator cache', {
+                    pair,
+                    cachedPrice: currentPrice,
+                    livePrice: liveData.price,
+                    divergencePct: (divergence * 100).toFixed(3),
+                    threshold: (livePriceCfg.LIVE_PRICE_SPIKE_BLOCK_PCT * 100).toFixed(2) + '%',
+                    note: 'momentum1h would be spike-inflated — waiting for aggregator to confirm',
+                  });
+                  this.signalConfirmationCache.delete(pair); // reset — spike means prior reading was inflated
+                  return { type: 'skipped' };
+                }
                 currentPrice = liveData.price;
               }
             }
@@ -1227,19 +1248,11 @@ class TradeSignalOrchestrator {
               logger.info('🚫 Orchestrator: entry blocked by 5-stage risk filter', { pair, reason: riskFilter.reason, stage: riskFilter.stage, momentum1h: indicators.momentum1h?.toFixed(3), momentum4h: indicators.momentum4h?.toFixed(3) });
               this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: riskFilter.reason ?? null, blockStage: riskFilter.stage ?? null, enteredAt: null };
               this.lastCycleStatus.updatedAt = Date.now();
+              this.signalConfirmationCache.delete(pair); // reset — pair no longer qualifies
               return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: riskFilter.reason, stage: riskFilter.stage } };
             }
 
             logger.info('✅ Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
-
-            // REGIME AGENT: refresh now — only called when a pair has passed all deterministic
-            // gates and entry is genuinely likely. Claude is only invoked when cache is stale
-            // (6-min TTL); subsequent pairs this cycle always hit the in-memory cache.
-            try {
-              regimeAgentState = await regimeAgent.analyze(btcIndicatorsForAgents);
-            } catch {
-              // non-critical — proceeds with last known state
-            }
 
             // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
             // Fee round-trip is ~0.30%. Entering with mom1h < 0.50% has no statistical edge.
@@ -1286,6 +1299,7 @@ class TradeSignalOrchestrator {
                 logger.info('🚫 Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h, transitionFloorAdj });
                 this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, blockStage: 'Momentum Floor', enteredAt: null };
                 this.lastCycleStatus.updatedAt = Date.now();
+                this.signalConfirmationCache.delete(pair); // reset — pair no longer qualifies
                 return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, stage: 'Momentum Floor' } };
               }
               if (transitionFloorAdj > 0) {
@@ -1294,6 +1308,16 @@ class TradeSignalOrchestrator {
               if (early4hBypass && mom1h < min1hBase) {
                 logger.info('Orchestrator: 1h floor bypassed — 4h confirmed + intrabar rising', { pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
               }
+            }
+
+            // REGIME AGENT: refresh only after all deterministic gates pass (risk filter + momentum
+            // floor). Claude is only invoked when cache is stale (6-min TTL); subsequent pairs this
+            // cycle always hit the in-memory cache. Placed here to avoid wasting API calls on pairs
+            // blocked by the momentum floor check above.
+            try {
+              regimeAgentState = await regimeAgent.analyze(btcIndicatorsForAgents);
+            } catch {
+              // non-critical — proceeds with last known state
             }
 
             // higherCloses gate REMOVED — functioned as a de-facto cooldown (forced 2-3h wait
@@ -1315,6 +1339,7 @@ class TradeSignalOrchestrator {
                 });
                 this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `intrabar ${intrabar.toFixed(3)}% < ${minIntrabar}% minimum`, blockStage: 'Intrabar Gate', enteredAt: null };
                 this.lastCycleStatus.updatedAt = Date.now();
+                this.signalConfirmationCache.delete(pair); // reset — pair no longer qualifies
                 return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `intrabar ${intrabar.toFixed(3)}% < ${minIntrabar}%`, stage: 'Intrabar Gate' } };
               }
             }
@@ -1433,6 +1458,36 @@ class TradeSignalOrchestrator {
                 decision.capitalPreservationMultiplier = (decision.capitalPreservationMultiplier ?? 1) * effectiveEnv.RISK_ETH_BTC_NEG_MULTIPLIER;
                 logger.info('Orchestrator: ETH position halved — BTC 1h momentum negative', { pair, btcMomentum1h: btcMomentum1h.toFixed(3), newMultiplier: decision.capitalPreservationMultiplier });
               }
+
+              // SIGNAL CONFIRMATION GATE: require signal to survive 2 consecutive cycles (~16s).
+              // If this is the first time we see a valid signal for this pair, record the timestamp
+              // and skip — wait for the next cycle to confirm the signal is sustained (not a spike).
+              const nowMs = Date.now();
+              const firstSeenMs = this.signalConfirmationCache.get(pair);
+              const intervalMs = 8000; // orchestrator main cycle; must survive 2 cycles before entry
+              if (!firstSeenMs) {
+                // First valid signal — record and wait one more cycle
+                this.signalConfirmationCache.set(pair, nowMs);
+                logger.info('⏳ Orchestrator: signal pending confirmation (1st cycle)', {
+                  pair,
+                  mom1h: (indicators.momentum1h ?? 0).toFixed(2),
+                  mom4h: (indicators.momentum4h ?? 0).toFixed(2),
+                  regime: effectiveRegime,
+                  note: 'will enter next cycle if signal still valid',
+                });
+                return { type: 'skipped' };
+              }
+              if ((nowMs - firstSeenMs) < intervalMs * 1.2) {
+                // Signal appeared but hasn't persisted long enough — still waiting
+                logger.info('⏳ Orchestrator: signal confirming (2nd cycle not yet elapsed)', {
+                  pair,
+                  ageMs: nowMs - firstSeenMs,
+                  requiredMs: Math.round(intervalMs * 1.2),
+                });
+                return { type: 'skipped' };
+              }
+              // Signal confirmed across 2+ cycles — consume and proceed to entry
+              this.signalConfirmationCache.delete(pair);
 
               const regimeClass = effectiveRegime.toUpperCase();
               const expectedTarget = `${(riskManager.getProfitTarget(effectiveRegime) * 100).toFixed(1)}%`;
