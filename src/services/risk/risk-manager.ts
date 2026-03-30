@@ -203,7 +203,11 @@ class RiskManager {
       // If 2h > 0, the last 2 hours are net positive — recovery is real, not a dead-cat bounce.
       // We still use 4h for crash detection (< -3%) which is not a lag artifact.
       const isChoppy = mom2h <= 0; // 2h-based: recovery starts counting immediately
-      const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= crashGuard4h;
+      // allow4hLag DISABLED when earlyRecoveryException already let the trade past the 4h gate.
+      // Two overrides stacking (earlyRecovery + allow4hLag) produces counter-trend entries.
+      // earlyRecovery = 4h genuinely negative but 2h bouncing — that's already a concession.
+      // Don't also bypass the direction score 4h floor on top of it.
+      const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= crashGuard4h && !earlyRecoveryException;
 
       if (mom4h >= gate4hFloor || allow4hLag) {
         // SUSTAINED RALLY GATE (smart, regime-aware)
