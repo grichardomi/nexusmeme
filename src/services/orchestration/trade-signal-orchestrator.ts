@@ -1253,9 +1253,9 @@ class TradeSignalOrchestrator {
             // transition is genuine, it can lower the 1h floor by up to AI_TRANSITION_MAX_FLOOR_ADJ.
             // Only fires in the borderline zone — never in clearly choppy or clearly trending.
             const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-            const isBtc = pair.startsWith('BTC/');
+            // Universal 1h floor — same rule for BTC, ETH, XRP, BNB, any pair
             const pairMin1hBase = isBinance
-              ? (isBtc ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE_BTC : effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE)
+              ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE
               : effectiveEnv.RISK_MIN_MOMENTUM_1H;
             {
               const min1hBase = pairMin1hBase;
@@ -1296,28 +1296,26 @@ class TradeSignalOrchestrator {
               }
             }
 
-            // HIGHER CLOSES GATE: In moderate/strong regime, require 3 consecutive higher candle
-            // closes before entry. This ensures we enter at the START of structural momentum,
-            // not at a snapshot peak that's already fading.
-            // Mar 29 post-mortem: both 2:30 PM trades had higherCloses=false and peaked at 0.00%
-            // — price moved against entry immediately. Structural confirmation prevents this.
-            // Skipped for weak/transition regime (handled by tighter stale/floor gates there).
-            // BYPASS: when mom4h >= HIGHER_CLOSES_4H_BYPASS_PCT (default 2.0%), strong 4h momentum
-            // IS structural confirmation — waiting for hourly close causes 40+ min missed opportunity.
+            // higherCloses gate REMOVED — functioned as a de-facto cooldown (forced 2-3h wait
+            // for hourly candle confirmation), violating CLAUDE.md "no cooldowns/delays" rule.
+            // Entry quality is handled by: momentum thresholds, AI veto, trend exhaustion veto.
+
+            // INTRABAR MOMENTUM GATE: block entry when price is currently declining tick-by-tick.
+            // This is a market condition check (is price moving up RIGHT NOW?), not a cooldown.
+            // Prevents re-entering immediately after an erosion cap exit while price is still falling.
             {
-              const isModerateOrStrong = (indicators.momentum1h ?? 0) >= effectiveEnv.REGIME_MODERATE_1H_PCT
-                && (indicators.momentum4h ?? 0) >= effectiveEnv.REGIME_MODERATE_4H_PCT;
-              const strong4hBypass = (indicators.momentum4h ?? 0) >= (effectiveEnv.HIGHER_CLOSES_4H_BYPASS_PCT ?? 2.0);
-              if (effectiveEnv.REQUIRE_HIGHER_CLOSES_MODERATE && isModerateOrStrong && !indicators.higherCloses && !strong4hBypass) {
-                logger.info('🚫 Orchestrator: entry blocked — moderate/strong regime requires higherCloses confirmation', {
-                  pair,
-                  mom1h: (indicators.momentum1h ?? 0).toFixed(3),
-                  mom4h: (indicators.momentum4h ?? 0).toFixed(3),
-                  higherCloses: indicators.higherCloses,
+              const intrabar = indicators.intrabarMomentum ?? 0;
+              const isTrending = (indicators.momentum1h ?? 0) >= effectiveEnv.REGIME_MODERATE_1H_PCT;
+              const minIntrabar = isTrending
+                ? (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? 0)
+                : (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY ?? 0);
+              if (intrabar < minIntrabar) {
+                logger.info('🚫 Orchestrator: entry blocked — intrabar momentum below minimum', {
+                  pair, intrabar: intrabar.toFixed(3), minIntrabar, isTrending,
                 });
-                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: 'moderate/strong entry requires higherCloses confirmation', blockStage: 'Higher Closes Gate', enteredAt: null };
+                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `intrabar ${intrabar.toFixed(3)}% < ${minIntrabar}% minimum`, blockStage: 'Intrabar Gate', enteredAt: null };
                 this.lastCycleStatus.updatedAt = Date.now();
-                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: 'moderate/strong entry requires higherCloses', stage: 'Higher Closes Gate' } };
+                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `intrabar ${intrabar.toFixed(3)}% < ${minIntrabar}%`, stage: 'Intrabar Gate' } };
               }
             }
 
@@ -1381,7 +1379,7 @@ class TradeSignalOrchestrator {
               isCreepingUptrend,
               isReboundEntry,
               regimeContext: regimeAgentState,
-              minMomentum1h: pairMin1hBase, // pair-specific floor (BTC uses lower threshold than ETH)
+              minMomentum1h: pairMin1hBase,
             });
 
             logger.info('Orchestrator: analyzeMarket returned', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
