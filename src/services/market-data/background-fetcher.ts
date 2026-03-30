@@ -39,6 +39,7 @@ class BackgroundMarketDataFetcher {
   private cachedPairsByExchange: Map<string, string[]> | null = null;
   private pairCacheTs = 0;
   private readonly PAIR_CACHE_TTL_MS = 30_000;
+  private lastBinanceRestFetchMs = 0; // tracks last REST sync even when WS is connected
   private stats: BackgroundFetcherStats = {
     lastFetchTime: null,
     lastFetchDurationMs: null,
@@ -186,14 +187,20 @@ class BackgroundMarketDataFetcher {
       let totalPairs = 0;
       let totalRetrieved = 0;
       for (const [exchange, pairs] of pairsByExchange.entries()) {
-        // Skip Binance REST fetch when WebSocket is connected and serving prices
+        // Skip Binance REST fetch when WebSocket is connected and serving prices,
+        // BUT still do a REST sync every 30s to keep aggregator cache from going stale.
+        // The spike guard compares live WS price vs aggregator cache — if aggregator
+        // never updates, any real price move triggers a false spike block indefinitely.
         if (exchange === 'binance') {
           const wsClient = getBinanceWebSocketClient();
-          if (wsClient.getState() === WebSocketState.CONNECTED) {
+          const lastRest = this.lastBinanceRestFetchMs ?? 0;
+          const restSyncIntervalMs = 30_000;
+          if (wsClient.getState() === WebSocketState.CONNECTED && (Date.now() - lastRest) < restSyncIntervalMs) {
             totalPairs += pairs.length;
             totalRetrieved += pairs.length; // WS serves all pairs live
             continue;
           }
+          this.lastBinanceRestFetchMs = Date.now();
         }
         const data = await marketDataAggregator.fetchFresh(pairs, exchange);
         totalPairs += pairs.length;
