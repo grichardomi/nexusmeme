@@ -1266,9 +1266,11 @@ class TradeSignalOrchestrator {
             // transition is genuine, it can lower the 1h floor by up to AI_TRANSITION_MAX_FLOOR_ADJ.
             // Only fires in the borderline zone — never in clearly choppy or clearly trending.
             const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-            // Universal 1h floor — same rule for BTC, ETH, XRP, BNB, any pair
+            // Pair-specific 1h floor: BTC gets a higher bar (less volatile %, more noise at 0.50%)
+            // BTC at $68k: 0.50% = $340 noise move. Needs 0.80%+ to confirm real momentum.
+            const isBtcPair = pair.startsWith('BTC');
             const pairMin1hBase = isBinance
-              ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE
+              ? (isBtcPair ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE_BTC : effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE)
               : effectiveEnv.RISK_MIN_MOMENTUM_1H;
             {
               const min1hBase = pairMin1hBase;
