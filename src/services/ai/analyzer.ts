@@ -313,8 +313,9 @@ export async function analyzeMarket(
         // TREND EXHAUSTION VETO: regime agent flagged trendTransitioning + negative adjustment
         // = the 4h move is mature, 1h losing acceleration → entry is at peak of exhausting move.
         // Mar 29 post-mortem: 6/6 losses all had trendTransitioning=true + negative adjustment.
-        // Block these entries entirely — no point holding through exhaustion for a 2% target.
-        if (regimeContext.trendTransitioning && regimeContext.entryBarAdjustment < 0) {
+        // EXEMPT: V-shape rebound entries (isReboundEntry=true) — those enter on pullback recovery,
+        // not at the peak of an exhausting move, so the exhaustion concern doesn't apply.
+        if (regimeContext.trendTransitioning && regimeContext.entryBarAdjustment <= -7 && !request.isReboundEntry) {
           logger.warn('Analyzer: TREND EXHAUSTION VETO — trendTransitioning + negative regime adjustment', {
             pair: request.pair,
             btcRegime: regimeContext.btcRegime,

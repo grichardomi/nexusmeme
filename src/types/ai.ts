@@ -114,6 +114,7 @@ export interface AIAnalysisRequest {
   indicators?: TechnicalIndicators;
   isVolumeSurge?: boolean; // Extraordinary volume breakout — tells Claude not to penalize overbought RSI
   isCreepingUptrend?: boolean; // Slow sustained directional grind — tells Claude to look for consistency not explosiveness
+  isReboundEntry?: boolean; // V-shape recovery entry — exempt from trend exhaustion veto (entering on dip, not peak)
   // Optional: Pre-computed regime agent state — enriches Claude's confidence boost prompt
   regimeContext?: RegimeAgentState | null;
   // Optional: pair-specific 1h momentum floor (e.g. BTC uses lower floor than ETH)

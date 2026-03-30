@@ -1379,6 +1379,7 @@ class TradeSignalOrchestrator {
               currentPrice,
               indicators,
               isCreepingUptrend,
+              isReboundEntry,
               regimeContext: regimeAgentState,
               minMomentum1h: pairMin1hBase, // pair-specific floor (BTC uses lower threshold than ETH)
             });
