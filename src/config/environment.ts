@@ -163,7 +163,8 @@ const envSchema = z.object({
   AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: z.string().transform(Number).default('15'), // Max ±15 confidence adjustment
   AI_CONFIDENCE_BOOST_TIMEOUT_MS: z.string().transform(Number).default('5000'), // 5s timeout for AI call
   AI_CLAUDE_MIN_DETERMINISTIC: z.string().transform(Number).default('60'),
-  AI_CLAUDE_MAX_DETERMINISTIC: z.string().transform(Number).default('83'),
+  AI_CLAUDE_MAX_DETERMINISTIC: z.string().transform(Number).default('95'), // raised from 83: scores 84-95 still get AI review
+  AI_VETO_MARGIN: z.string().transform(Number).default('3'), // if AI adjustment negative AND newConfidence <= regimeMin+margin → veto (prevents scraping minimum)
 
   /* Transition Detector Agent — catches choppy→trending inflection 2-4 candles early */
   AI_TRANSITION_AGENT_ENABLED: z.string().transform(v => v === 'true').default('true'),
@@ -606,7 +607,8 @@ function getDefaultEnvironment(): Environment {
     AI_CONFIDENCE_BOOST_MAX_ADJUSTMENT: 15,
     AI_CONFIDENCE_BOOST_TIMEOUT_MS: 5000,
     AI_CLAUDE_MIN_DETERMINISTIC: 60,
-    AI_CLAUDE_MAX_DETERMINISTIC: 83,
+    AI_CLAUDE_MAX_DETERMINISTIC: 95,
+    AI_VETO_MARGIN: 3,
     AI_TRANSITION_AGENT_ENABLED: true,
     AI_TRANSITION_AGENT_MODEL: 'claude-haiku-4-5-20251001',
     AI_TRANSITION_AGENT_CACHE_TTL_SECONDS: 90,
@@ -1153,6 +1155,9 @@ export const aiConfig = {
   },
   get claudeMaxDeterministic() {
     return getEnv('AI_CLAUDE_MAX_DETERMINISTIC') as number;
+  },
+  get vetoMargin() {
+    return getEnv('AI_VETO_MARGIN') as number;
   },
   get aiVetoThreshold() {
     return getEnv('AI_VETO_THRESHOLD') as number;

@@ -411,12 +411,17 @@ export async function analyzeMarket(
             `AI boost: ${boostResult.adjustment > 0 ? '+' : ''}${boostResult.adjustment} (${boostResult.reasoning})`
           );
 
-          // AI VETO: veto only if adjusted confidence drops BELOW the regime minimum threshold.
-          // A small negative adjustment (-8) on a strong signal (100→92) should NOT block —
-          // 92 is well above the 68 moderate minimum. Only veto when Claude's penalty actually
-          // drags confidence below what the regime requires (e.g. -15 on a 68 = 53 → veto).
+          // AI VETO: block when AI adjustment is negative AND either:
+          //   A) confidence dropped BELOW regime minimum (classic veto), OR
+          //   B) confidence scraped minimum within AI_VETO_MARGIN points (e.g. landed at 70 on a 70 min)
+          //      — trades that barely crawl over the line with AI opposition have high failure rate.
+          //      Mar 29: BTC 78→70 (exactly minimum), AI said "counter-trend risk" → lost -0.5%.
           const regimeMinConfidence = aiConfig.getMinConfidenceForRegime(regime.regime);
-          if (boostResult.adjustment < 0 && result.signal.confidence < regimeMinConfidence) {
+          const vetoMargin = aiConfig.vetoMargin ?? 3;
+          const scrapedMinimum = boostResult.adjustment < 0
+            && result.signal.confidence <= regimeMinConfidence + vetoMargin
+            && result.signal.confidence >= regimeMinConfidence; // only if still above min (otherwise caught below)
+          if (boostResult.adjustment < 0 && (result.signal.confidence < regimeMinConfidence || scrapedMinimum)) {
             _boostVetosToday++;
             _lastBoostResult = { pair: request.pair, adjustment: boostResult.adjustment, reasoning: boostResult.reasoning, provider: boostResult.provider, vetoed: true, deterministicScore: originalConfidence, finalScore: result.signal.confidence, timestamp: new Date().toISOString() };
             logger.warn('AI VETO: trade blocked', {
@@ -426,6 +431,7 @@ export async function analyzeMarket(
               adjustment: boostResult.adjustment,
               newConfidence: result.signal.confidence,
               regimeMinConfidence,
+              vetoReason: scrapedMinimum ? `scraped_minimum (${result.signal.confidence} <= ${regimeMinConfidence}+${vetoMargin})` : 'below_minimum',
               reasoning: boostResult.reasoning,
               provider: boostResult.provider,
             });
