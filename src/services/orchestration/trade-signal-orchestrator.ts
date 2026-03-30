@@ -1302,10 +1302,13 @@ class TradeSignalOrchestrator {
             // Mar 29 post-mortem: both 2:30 PM trades had higherCloses=false and peaked at 0.00%
             // — price moved against entry immediately. Structural confirmation prevents this.
             // Skipped for weak/transition regime (handled by tighter stale/floor gates there).
+            // BYPASS: when mom4h >= HIGHER_CLOSES_4H_BYPASS_PCT (default 2.0%), strong 4h momentum
+            // IS structural confirmation — waiting for hourly close causes 40+ min missed opportunity.
             {
               const isModerateOrStrong = (indicators.momentum1h ?? 0) >= effectiveEnv.REGIME_MODERATE_1H_PCT
                 && (indicators.momentum4h ?? 0) >= effectiveEnv.REGIME_MODERATE_4H_PCT;
-              if (effectiveEnv.REQUIRE_HIGHER_CLOSES_MODERATE && isModerateOrStrong && !indicators.higherCloses) {
+              const strong4hBypass = (indicators.momentum4h ?? 0) >= (effectiveEnv.HIGHER_CLOSES_4H_BYPASS_PCT ?? 2.0);
+              if (effectiveEnv.REQUIRE_HIGHER_CLOSES_MODERATE && isModerateOrStrong && !indicators.higherCloses && !strong4hBypass) {
                 logger.info('🚫 Orchestrator: entry blocked — moderate/strong regime requires higherCloses confirmation', {
                   pair,
                   mom1h: (indicators.momentum1h ?? 0).toFixed(3),
@@ -2263,7 +2266,7 @@ class TradeSignalOrchestrator {
             else {
               const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes, regime) * 100;
 
-              if (currentProfitPct < earlyLossThreshold) {
+              if (grossProfitPct < earlyLossThreshold) {
                 shouldClose = true;
                 exitReason = peakPct > 0 ? 'underwater_small_peak_timeout' : 'underwater_never_profited';
                 const isTrending = regime === 'moderate' || regime === 'strong';

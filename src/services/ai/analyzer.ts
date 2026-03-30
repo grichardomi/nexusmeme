@@ -309,6 +309,22 @@ export async function analyzeMarket(
           trendTransitioning: regimeContext.trendTransitioning,
           reasoning: regimeContext.reasoning,
         });
+
+        // TREND EXHAUSTION VETO: regime agent flagged trendTransitioning + negative adjustment
+        // = the 4h move is mature, 1h losing acceleration → entry is at peak of exhausting move.
+        // Mar 29 post-mortem: 6/6 losses all had trendTransitioning=true + negative adjustment.
+        // Block these entries entirely — no point holding through exhaustion for a 2% target.
+        if (regimeContext.trendTransitioning && regimeContext.entryBarAdjustment < 0) {
+          logger.warn('Analyzer: TREND EXHAUSTION VETO — trendTransitioning + negative regime adjustment', {
+            pair: request.pair,
+            btcRegime: regimeContext.btcRegime,
+            regimeAdjustment: regimeContext.entryBarAdjustment,
+            adjustedConfidence: result.signal.confidence,
+            reasoning: regimeContext.reasoning,
+          });
+          result.signal = null as any;
+          return result;
+        }
       }
 
       // AI Confidence Boost - Hybrid layer (deterministic base + LLM advisor)
