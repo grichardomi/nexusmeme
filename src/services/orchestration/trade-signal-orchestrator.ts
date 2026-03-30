@@ -1262,9 +1262,9 @@ class TradeSignalOrchestrator {
               const mom1h = indicators.momentum1h ?? 0;
               const mom4h = indicators.momentum4h ?? 0;
               const intrabar = indicators.intrabarMomentum ?? 0;
-              const bypass4hMin = effectiveEnv.RISK_1H_BYPASS_4H_MIN;
-              const bypassIntrabarMin = effectiveEnv.RISK_1H_BYPASS_INTRABAR_MIN;
-              const early4hBypass = mom4h >= bypass4hMin && intrabar >= bypassIntrabarMin;
+              // 1h floor bypass REMOVED — was letting in weak-1h trades (BTC m1h=0.35%) whenever
+              // 4h was strong. All 3 night losses used this path. 1h floor is universal.
+              const early4hBypass = false;
 
               // TRANSITION DETECTOR: run only in borderline zone to avoid wasted Claude calls
               let transitionFloorAdj = 0;
