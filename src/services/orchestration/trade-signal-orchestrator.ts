@@ -1344,8 +1344,11 @@ class TradeSignalOrchestrator {
               // Block only if price has pulled back more than PULLBACK_THRESHOLD from recent high
               const noPullback = env.CREEPING_UPTREND_PULLBACK_THRESHOLD <= 0
                 || priceToHighRatio >= env.CREEPING_UPTREND_PULLBACK_THRESHOLD;
+              // Block if price is already AT the recent high — move is over, not starting
+              const notAtTop = env.CREEPING_UPTREND_PRICE_TOP_THRESHOLD <= 0
+                || priceToHighRatio <= env.CREEPING_UPTREND_PRICE_TOP_THRESHOLD;
 
-              isCreepingUptrend = mom1hOk && mom4hOk && noPullback;
+              isCreepingUptrend = mom1hOk && mom4hOk && noPullback && notAtTop;
 
               if (isCreepingUptrend) {
                 const volRatio = indicators.volumeRatio ?? 1;
@@ -1447,7 +1450,7 @@ class TradeSignalOrchestrator {
               // and skip — wait for the next cycle to confirm the signal is sustained (not a spike).
               const nowMs = Date.now();
               const firstSeenMs = this.signalConfirmationCache.get(pair);
-              const intervalMs = 8000; // orchestrator main cycle; must survive 2 cycles before entry
+              const intervalMs = 24000; // orchestrator main cycle; must survive 3 cycles (~24s) before entry
               if (!firstSeenMs) {
                 // First valid signal — record and wait one more cycle
                 this.signalConfirmationCache.set(pair, nowMs);
