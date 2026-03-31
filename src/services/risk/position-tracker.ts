@@ -516,10 +516,6 @@ class PositionTracker {
     result.peakProfit = existing.peakProfit;
     result.currentProfit = currentProfitDollars;
 
-    if (peakPctOfCost < minPeakPct) {
-      return result; // Peak too small — not yet armed
-    }
-
     // Rebound trades: tighter thresholds — lock gains on first dip, don't let V-shape reverse
     // Standard trades tolerate more erosion to let trends run; rebound trades are quick in/out.
     const dollarThreshold = isRebound
@@ -529,11 +525,11 @@ class PositionTracker {
       ? (env.REBOUND_EROSION_PCT_THRESHOLD ?? env.EROSION_PEAK_RELATIVE_THRESHOLD * 0.5)
       : env.EROSION_PEAK_RELATIVE_THRESHOLD;
 
-    // PRIMARY: Dollar threshold — stable regardless of peak size, not distorted by tiny peaks
+    // PRIMARY: Dollar threshold — fires regardless of peak % size (protects small-peak trades giving back real $)
     const dollarFired = erosionDollars >= dollarThreshold;
 
-    // BACKSTOP: Percentage threshold — catches large peaks where dollar is too tight
-    const pctFired = erosionPct >= pctThreshold;
+    // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
+    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold;
 
     if (dollarFired || pctFired) {
       const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
@@ -1040,18 +1036,27 @@ class PositionTracker {
     // ============================================================
     // SCENARIO A: PROFITABLE COLLAPSE (/nexus lines 456-488)
     // ============================================================
-    // Trade peaked at ≥ 0.5% profit, now negative → EXIT IMMEDIATELY
-    // Reads from env so both orchestrator and position-tracker stay in sync
-    const profitCollapseMinPeakPct = env.PROFIT_COLLAPSE_MIN_PEAK_PCT * 100; // e.g. 0.005 → 0.5%
+    // Trade peaked and is now negative → EXIT IMMEDIATELY (no time gate)
+    // Two independent arming conditions — either suffices:
+    //   1. Percentage: peak ≥ PROFIT_COLLAPSE_MIN_PEAK_PCT% of position cost
+    //   2. Dollar:     peak ≥ UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS in absolute profit
+    // Dollar check catches small-% but real-money peaks (e.g. $2 peak on a $2k position = 0.1%)
+    const profitCollapseMinPeakPct = env.PROFIT_COLLAPSE_MIN_PEAK_PCT * 100; // e.g. 0.0015 → 0.15%
+    const peakProfitDollars = existing?.peakProfit ?? 0;
+    const minPeakDollars = env.UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS;
 
-    if (peakProfitPct >= profitCollapseMinPeakPct && currentProfitPct < 0) {
-      logger.info('🚨 PROFITABLE COLLAPSE - had ≥1% profit, now underwater → EXIT IMMEDIATELY', {
+    const collapseArmedByPct = peakProfitPct >= profitCollapseMinPeakPct;
+    const collapseArmedByDollars = peakProfitDollars >= minPeakDollars;
+
+    if ((collapseArmedByPct || collapseArmedByDollars) && currentProfitPct < 0) {
+      logger.info('🚨 PROFITABLE COLLAPSE - had real profit, now underwater → EXIT IMMEDIATELY', {
         tradeId,
         pair,
-        peakProfitPct: peakProfitPct.toFixed(2) + '%',
-        currentProfitPct: currentProfitPct.toFixed(2) + '%',
+        peakProfitPct: peakProfitPct.toFixed(4) + '%',
+        peakProfitDollars: '$' + peakProfitDollars.toFixed(2),
+        currentProfitPct: currentProfitPct.toFixed(4) + '%',
         ageMinutes: ageMinutes.toFixed(1),
-        rule: '/nexus profitable collapse - no time gate, immediate exit',
+        armedBy: collapseArmedByDollars ? `$${peakProfitDollars.toFixed(2)} >= $${minPeakDollars} (dollar)` : `${peakProfitPct.toFixed(4)}% >= ${profitCollapseMinPeakPct}% (pct)`,
       });
       result.shouldExit = true;
       result.reason = 'underwater_profitable_collapse';
