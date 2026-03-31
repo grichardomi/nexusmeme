@@ -422,6 +422,10 @@ const envSchema = z.object({
   STALE_UNDERWATER_MINUTES: z.string().transform(Number).default('30'), // Exit after 30 min underwater with zero peak
   STALE_UNDERWATER_MIN_LOSS_PCT: z.string().transform(Number).default('-0.003'), // Only exit if loss > -0.3% (avoids spread noise)
 
+  /* Stale Peak Exit — lock small gain when peak stalls in weak/transitioning regime */
+  STALE_PEAK_MINUTES: z.string().transform(Number).default('3'),        // Minutes without peak growth before exit
+  STALE_PEAK_MIN_PROFIT_PCT: z.string().transform(Number).default('0.05'), // Min profit % to lock (above fee round-trip)
+
   /* Momentum Failure Stale Exit - regime-aware hold times + minimum loss threshold */
   /* Prevents ejecting trades that are only slightly underwater from fee noise */
   MOMENTUM_FAILURE_STALE_MINUTES_STRONG: z.string().transform(Number).default('30'),   // Strong regime: 30min — trending markets need room
@@ -787,6 +791,8 @@ function getDefaultEnvironment(): Environment {
     EARLY_LOSS_DAILY: -0.003,
     STALE_UNDERWATER_MINUTES: 30,
     STALE_UNDERWATER_MIN_LOSS_PCT: -0.003,
+    STALE_PEAK_MINUTES: 3,
+    STALE_PEAK_MIN_PROFIT_PCT: 0.05,
     MOMENTUM_FAILURE_STALE_MINUTES_STRONG: 30,
     MOMENTUM_FAILURE_STALE_MINUTES_MODERATE: 25,
     MOMENTUM_FAILURE_STALE_MINUTES_CHOPPY: 20,

@@ -88,6 +88,7 @@ class PositionTracker {
     quantity: number;          // Position size for dollar calculations
     entryTime?: number;
     estimatedTotalFees: number; // DOLLARS: estimated round-trip fees (entry + exit)
+    peakUpdatedAt: number;     // ms timestamp when peak was last updated
   }>();
   private isInitialized = false;
 
@@ -237,6 +238,7 @@ class PositionTracker {
             quantity: hasValidData ? quantity : 0,
             entryTime: this.parseEntryTime(trade.entry_time),
             estimatedTotalFees: 0, // Will be populated on next update from orchestrator
+            peakUpdatedAt: Date.now(),
           });
 
           if (!hasValidData) {
@@ -423,6 +425,7 @@ class PositionTracker {
       existing.peakPct = currentProfitPct;
       existing.peak = currentProfitPct;
       existing.peakProfit = currentProfitDollars;
+      existing.peakUpdatedAt = Date.now();
 
       // Queue update for batch flush (LATENCY OPTIMIZATION)
       this.queuePeakUpdate(tradeId, currentProfitPct);
@@ -436,8 +439,7 @@ class PositionTracker {
         improvement: '+$' + (currentProfitDollars - oldPeakProfit).toFixed(2),
       });
     } else if (currentProfitDollars > 0) {
-      // Log when peak is NOT updated (for debugging)
-      logger.info('📊 Peak not updated (current ≤ peak)', {
+      logger.debug('📊 Peak not updated (current ≤ peak)', {
         tradeId,
         currentProfitPct: currentProfitPct.toFixed(4) + '%',
         existingPeakPct: existing.peakPct.toFixed(4) + '%',
@@ -1121,7 +1123,7 @@ class PositionTracker {
   /**
    * Get peak profit data for a specific trade
    */
-  getPeakProfit(tradeId: string): { peak: number; peakPct: number; entryTime?: number } | undefined {
+  getPeakProfit(tradeId: string): { peak: number; peakPct: number; entryTime?: number; peakUpdatedAt?: number } | undefined {
     return this.peakProfits.get(tradeId);
   }
 }

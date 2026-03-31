@@ -1275,15 +1275,6 @@ class TradeSignalOrchestrator {
             })();
             // Log regime context so it's visible in logs (not a gate, just informational)
             {
-              const mom1h = indicators.momentum1h ?? 0;
-              const mom4h = indicators.momentum4h ?? 0;
-              const pairMin1hBase = isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H;
-              if (mom1h < pairMin1hBase) {
-                logger.info('ℹ️ Orchestrator: 1h momentum below old floor (entry proceeds — lagging indicator, regime context only)', {
-                  pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), oldFloor: pairMin1hBase,
-                  note: '1h used for regime classification only, not entry gate',
-                });
-              }
             }
 
             // Regime agent removed — replaced by deterministic Trend Exhaustion rule above.
@@ -2500,6 +2491,33 @@ class TradeSignalOrchestrator {
                     flatBand: flatBand.toFixed(2) + '%',
                   });
                 }
+              }
+            }
+          }
+
+          // CHECK 2.9: STALE PEAK — peak not growing in weak/transitioning regime → lock the gain
+          // Fires when: peak stalled X minutes + profit above fee round-trip + weak/transitioning regime
+          // Prevents: entry catches a real move, move stalls, profit slowly erodes to a loss
+          if (!shouldClose && currentProfitPct > 0) {
+            const stalePeakMinutes = env.STALE_PEAK_MINUTES;
+            const stalePeakMinProfit = env.STALE_PEAK_MIN_PROFIT_PCT;
+            const isWeakRegime = ['weak', 'transitioning', 'choppy'].includes(regime.toLowerCase());
+            if (isWeakRegime) {
+              const peakData = positionTracker.getPeakProfit(trade.id);
+              const peakUpdatedAt = peakData?.peakUpdatedAt ?? 0;
+              const minutesSincePeakGrew = peakUpdatedAt > 0 ? (Date.now() - peakUpdatedAt) / 60000 : tradeAgeMinutes;
+              if (minutesSincePeakGrew >= stalePeakMinutes && currentProfitPct >= stalePeakMinProfit) {
+                shouldClose = true;
+                exitReason = 'stale_peak_lock';
+                logger.info('🔒 STALE PEAK LOCK — peak stalled, locking gain in weak regime', {
+                  tradeId: trade.id,
+                  pair: trade.pair,
+                  regime,
+                  currentProfitPct: currentProfitPct.toFixed(3) + '%',
+                  peakPct: (peakData?.peakPct ?? 0).toFixed(3) + '%',
+                  minutesSincePeakGrew: minutesSincePeakGrew.toFixed(1),
+                  stalePeakMinutes,
+                });
               }
             }
           }
