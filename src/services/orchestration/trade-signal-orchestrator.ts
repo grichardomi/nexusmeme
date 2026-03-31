@@ -1319,9 +1319,11 @@ class TradeSignalOrchestrator {
               const minIntrabar = isTrending
                 ? (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? 0)
                 : (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY ?? 0);
-              // Strong trend bypass: if 1h momentum is well above the bypass threshold, allow a mild intrabar dip
+              // Strong trend bypass: if 1h momentum is well above the bypass threshold, allow entry even if
+              // intrabar is below the trending minimum — but intrabar must be non-negative.
+              // Never enter a candle already declining (intrabar < 0), even in a strong trend.
               const bypassThreshold = effectiveEnv.RISK_INTRABAR_BYPASS_1H_MIN ?? 1.5;
-              const strongTrendBypass = mom1h >= bypassThreshold && intrabar >= -0.30;
+              const strongTrendBypass = mom1h >= bypassThreshold && intrabar >= 0.0;
               if (intrabar < minIntrabar && !strongTrendBypass) {
                 logger.info('🚫 Orchestrator: entry blocked — intrabar momentum below minimum', {
                   pair, intrabar: intrabar.toFixed(3), minIntrabar, isTrending,

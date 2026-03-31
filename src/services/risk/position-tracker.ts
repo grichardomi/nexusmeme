@@ -537,12 +537,6 @@ class PositionTracker {
     // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
     const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold;
 
-    // Don't exit if current gross profit won't cover the exit fee — locking a net loss is not profit protection
-    const estimatedExitFee = existing.estimatedTotalFees > 0 ? existing.estimatedTotalFees / 2 : totalCost * 0.001;
-    if (currentProfitDollars <= estimatedExitFee) {
-      return result;
-    }
-
     if (dollarFired || pctFired) {
       const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
       logger.info(isRebound ? '🔒 REBOUND TRAILING STOP - locking profit (tight)' : '🔒 TRAILING STOP - locking profit', {
