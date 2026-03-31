@@ -348,6 +348,7 @@ class PositionTracker {
       quantity: safeQuantity,
       entryTime: entryTime || Date.now(),
       estimatedTotalFees: estimatedTotalFees || 0,
+      peakUpdatedAt: Date.now(),
     });
 
     // Queue update for batch flush (LATENCY OPTIMIZATION)
