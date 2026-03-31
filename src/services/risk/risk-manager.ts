@@ -239,7 +239,9 @@ class RiskManager {
         }
 
         // Self-healing overrides: strong independent evidence beats slope concern
-        const perfectScore = score >= 3;
+        // perfectScore only overrides slope — NOT the 4h gate. A 3/3 direction score
+        // in a 4h downtrend is a short-term bounce, not a trend. Require 4h > 0 for perfect score.
+        const perfectScore = score >= 3 && mom4h >= 0;
         const veryStrongMomentum = mom1hPct >= strongMomOverride;
         const strongMultiHour = mom4h >= env.REGIME_STRONG_4H_PCT;
         const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
