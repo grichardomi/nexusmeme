@@ -165,138 +165,67 @@ class RiskManager {
       return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < ${crashGuard4h}% (panic/crash protection)`, stage: 'Health Gate' };
     }
 
-    // MINIMUM 4H MOMENTUM GATE: blocks near-zero 4h entries that immediately turn choppy.
-    // Mar 29 post-mortem: entries at mom4h=0.23% classified as 'weak' at entry, regime turned
-    // 'choppy' (mom4h<0) mid-trade, all exited as losses. 4h barely above 0 is not a trend.
-    // Early-recovery exception: ONLY when mom4h < 0 (genuine dump) AND mom2h > 0 (bouncing).
-    // Borderline positive 4h (0 to min4h) gets blocked — that's weak/choppy, not a recovery.
-    const min4h = this.config.minMomentum4h;
-    // Exception ONLY for genuine post-dump recovery: 4h deeply negative AND 2h bounced positive.
-    // Mar 29 post-mortem: -0.295% fired the exception (barely < 0) — not a real dump, just chop.
-    // RISK_EARLY_RECOVERY_4H_MAX default -0.5%: must be < -0.5% to qualify as a real recovery.
+    // DIRECTION SCORE GATE: need 2/3 leading signals confirming upward direction.
+    // These are all leading indicators — they measure what is happening now, not what happened.
+    //   1. higherCloses  — recent candles closing above prior (structure confirmation)
+    //   2. momentumSlope — 1h momentum accelerating (not decelerating into entry)
+    //   3. intrabar > 0  — price rising within the current candle right now
+    //
+    // 4h minimum gate REMOVED — 4h is a lagging indicator. "mom4h < 0.30%" was causing the bot
+    // to wait until the move was 30-60 min old before entering. Regime classification (weak/
+    // moderate/strong/choppy) still uses 4h and 1h as context to set target and position size.
+    //
+    // Genuine crash protection kept (crash guard above). Everything else is direction score + slope.
+    //
+    // 2h recovery: still used to allow entries when 4h is negative but 2h has turned positive
+    // (genuine recovery). Without it, entries would be blocked for 2-4h after any dip.
     const earlyRecovery4hMax = env.RISK_EARLY_RECOVERY_4H_MAX ?? -0.5;
     const earlyRecoveryException = mom4h < earlyRecovery4hMax && mom2h > 0;
-    if (mom4h < min4h && !earlyRecoveryException) {
-      logger.info('RiskManager: Entry blocked - 4h momentum below minimum', { momentum4h: mom4h.toFixed(3), min4h, momentum2h: mom2h.toFixed(3), earlyRecoveryException });
-      return { pass: false, reason: `4h momentum ${mom4h.toFixed(2)}% < ${min4h}% minimum (near-choppy, no 2h recovery)`, stage: 'Health Gate' };
-    }
 
-    const gate4hFloor = env.RISK_HEALTH_GATE_4H_FLOOR_PCT;
-
-    // DIRECTION SCORE GATE: need 2/3 signals confirming upward direction
-    // Catches recoveries 1-3 candles after they start, regardless of how deep the prior dump was.
-    // 4h floor >= -0.5%: slope+intrabar alone can score 2/3 on a single candle bounce while 4h is
-    // still deeply negative (e.g. -1.4%), causing immediate thesis invalidation after entry.
     if (score >= 2) {
-      // 4h data lags the current candle by up to 4 hours. When 1h momentum is already
-      // above the minimum entry threshold (0.5%), the move is directionally confirmed by
-      // recent price action — blocking on a lagging 4h negative is double-counting.
-      // We still block on genuine crash (mom4h < -3%) regardless of 1h strength.
-      // EXCEPTION: choppy regime (mom4h <= 0) — 4h lag NOT allowed. In choppy markets
-      // the negative 4h IS the signal, not a lag artifact. Allowing it causes counter-trend
-      // entries on noise 1h spikes that immediately reverse.
-      const env4h = getEnvironmentConfig();
-      const minMom1h = env4h.RISK_MIN_MOMENTUM_1H_BINANCE ?? 0.5;
-      // Use 2h momentum to determine if market is truly still declining.
-      // 4h is anchored up to 4h in the past — after a dump, 4h stays negative for 30-60 min
-      // even as price recovers. mom2h (last 8 candles = 2h) reflects the actual recent direction.
-      // If 2h > 0, the last 2 hours are net positive — recovery is real, not a dead-cat bounce.
-      // We still use 4h for crash detection (< -3%) which is not a lag artifact.
-      const isChoppy = mom2h <= 0; // 2h-based: recovery starts counting immediately
-      // allow4hLag DISABLED when earlyRecoveryException already let the trade past the 4h gate.
-      // Two overrides stacking (earlyRecovery + allow4hLag) produces counter-trend entries.
-      // earlyRecovery = 4h genuinely negative but 2h bouncing — that's already a concession.
-      // Don't also bypass the direction score 4h floor on top of it.
-      const allow4hLag = !isChoppy && mom1hPct >= minMom1h && mom4h >= crashGuard4h && !earlyRecoveryException;
-
-      if (mom4h >= gate4hFloor || allow4hLag) {
-        // SUSTAINED RALLY GATE (smart, regime-aware)
-        // Problem: a negative slope means the 1h rally peaked before entry — one-tick bounce.
-        // Example: 14:00 ETH slope=-0.017% with score=2/3 → entered fading move, closed -0.12%
-        //
-        // But a blunt "slope >= 0" blocks valid entries in strong trends where brief dips are noise.
-        // Solution: dynamic slope floor that tightens in weak/choppy (high fake-rally risk)
-        // and relaxes in strong regime (confirmed trend, brief dips are pullbacks not reversals).
-        //
-        // Self-healing overrides:
-        //  1. Perfect score (3/3): all three direction signals confirm → slope irrelevant
-        //  2. Very strong 1h momentum (>= RISK_STRONG_MOMENTUM_OVERRIDE_PCT): move is self-proving
-        //  3. Strong 4h (>= 0.8%): multi-hour trend is real, short-term slope dip is noise
-        const slope = momentumSlope ?? 0;
-        const strongMomOverride = env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5;
-
-        // Regime classification for slope tolerance
-        const isStrongRegime = mom1hPct >= env.REGIME_STRONG_1H_PCT && mom4h >= env.REGIME_STRONG_4H_PCT;
-        const isModerateRegime = mom1hPct >= env.REGIME_MODERATE_1H_PCT && mom4h >= env.REGIME_MODERATE_4H_PCT;
-        // Dynamic slope floor by regime: tight in weak/moderate/choppy, relaxed only in confirmed strong trends
-        // Moderate is NOT relaxed — the 14:00 ETH case was moderate regime with slope=-0.017%
-        // and still a fake rally. Relaxation only earned in genuinely strong trends (1h>1%, 4h>0.8%).
-        let dynamicMinSlope: number;
-        if (isStrongRegime) {
-          dynamicMinSlope = env.RISK_SLOPE_MIN_STRONG; // Strong trend: tolerate brief dips
-        } else {
-          dynamicMinSlope = env.RISK_SLOPE_MIN_DEFAULT; // Moderate/weak/choppy: must be accelerating
-        }
-
-        // Self-healing overrides: strong independent evidence beats slope concern
-        // perfectScore only overrides slope — NOT the 4h gate. A 3/3 direction score
-        // in a 4h downtrend is a short-term bounce, not a trend. Require 4h > 0 for perfect score.
-        const perfectScore = score >= 3 && mom4h >= 0;
-        const veryStrongMomentum = mom1hPct >= strongMomOverride;
-        const strongMultiHour = mom4h >= env.REGIME_STRONG_4H_PCT;
-        const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
-
-        if (slope < dynamicMinSlope && !slopeOverridden) {
-          logger.info('RiskManager: Entry blocked - decelerating momentum (adaptive slope gate)', {
-            momentumSlope: slope.toFixed(3),
-            dynamicMinSlope,
-            regime: isStrongRegime ? 'strong' : isModerateRegime ? 'moderate' : 'weak/choppy',
-            trendScore: score,
-            momentum1h: mom1hPct.toFixed(3),
-            momentum4h: mom4h.toFixed(3),
-            perfectScore,
-            veryStrongMomentum,
-            strongMultiHour,
-          });
-          return {
-            pass: false,
-            reason: `Decelerating rally [${isStrongRegime ? 'strong' : isModerateRegime ? 'moderate' : 'weak/choppy'} regime]: slope ${slope.toFixed(3)}% < floor ${dynamicMinSlope} (no self-heal override)`,
-            stage: 'Health Gate',
-          };
-        }
-
-        logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: slope.toFixed(3), dynamicMinSlope, slopeOverridden, intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3), allow4hLag });
-        return { pass: true, stage: 'Health Gate' };
+      // 2h check: if 2h is still declining (mom2h <= 0), a 2/3 direction score is probably
+      // a dead-cat bounce within a continuing downtrend. Require 2h > 0 OR 4h already positive.
+      const isChoppy = mom2h <= 0 && mom4h <= 0;
+      if (isChoppy && !earlyRecoveryException) {
+        logger.info('RiskManager: Entry blocked - direction score met but both 2h and 4h declining', { trendScore: score, momentum2h: mom2h.toFixed(3), momentum4h: mom4h.toFixed(3) });
+        return { pass: false, reason: `Direction score ${score}/3 but 2h=${mom2h.toFixed(2)}% and 4h=${mom4h.toFixed(2)}% both declining — not a recovery`, stage: 'Health Gate' };
       }
 
-      const blockReason = isChoppy
-        ? `Direction score ${score}/3 met but 2h=${mom2h.toFixed(2)}% ≤ 0 (2h still declining — recovery not confirmed)`
-        : `Direction score ${score}/3 met but 4h=${mom4h.toFixed(2)}% < ${gate4hFloor}% and 1h momentum too weak to override`;
-      logger.info('RiskManager: Entry blocked - direction score met but 2h/4h downtrend', { trendScore: score, momentum2h: mom2h.toFixed(3), momentum4h: mom4h.toFixed(3), momentum1h: mom1hPct.toFixed(3), isChoppy });
-      return { pass: false, reason: blockReason, stage: 'Health Gate' };
-    }
+      // SLOPE GATE: decelerating momentum entering = likely already peaked.
+      // Dynamic floor: relaxed in strong 4h trends (brief dips are pullbacks), tight elsewhere.
+      const slope = momentumSlope ?? 0;
+      const isStrongTrend = mom4h >= env.REGIME_STRONG_4H_PCT; // 4h >= 0.8% = established trend
+      const dynamicMinSlope = isStrongTrend ? env.RISK_SLOPE_MIN_STRONG : env.RISK_SLOPE_MIN_DEFAULT;
+      // Override slope gate when momentum or structure is overwhelmingly positive
+      const perfectScore = score >= 3 && mom4h >= 0;
+      const veryStrongMomentum = mom1hPct >= (env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5);
+      const strongMultiHour = mom4h >= env.REGIME_STRONG_4H_PCT;
+      const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
 
-    // FALLBACK A: 4h stable with any confirmation (intrabar positive OR 1h recovering near zero)
-    const mom1h = momentum1h ?? 0;
-    const nearFlat4h = env.RISK_HEALTH_GATE_4H_NEAR_FLAT;
-    if (mom4h >= nearFlat4h && (intrabar > 0 || mom1h >= nearFlat4h)) {
+      if (slope < dynamicMinSlope && !slopeOverridden) {
+        logger.info('RiskManager: Entry blocked - decelerating momentum', {
+          momentumSlope: slope.toFixed(3), dynamicMinSlope, isStrongTrend,
+          momentum1h: mom1hPct.toFixed(3), momentum4h: mom4h.toFixed(3), slopeOverridden,
+        });
+        return { pass: false, reason: `Decelerating momentum: slope ${slope.toFixed(3)}% < ${dynamicMinSlope} floor`, stage: 'Health Gate' };
+      }
+
+      logger.info('RiskManager: Health gate passed via direction score', { trendScore: score, higherCloses, momentumSlope: slope.toFixed(3), dynamicMinSlope, slopeOverridden, intrabar: intrabar.toFixed(3), momentum4h: mom4h.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
     }
 
-    // FALLBACK B: Creeping uptrend — two variants:
-    // B1: Slope accelerating + 4h non-negative (original — catches momentum building)
-    //     Requires mom4h >= 0: a "creeping uptrend" with negative 4h is just a downtrend with
-    //     an accelerating slope — entering it means buying a bounce that hasn't reversed yet.
-    //     Mar 29 post-mortem: B1 was passing with mom4h=-0.373% (gate4hFloor=-0.5%) causing
-    //     repeated entries into a descending range, all exiting as momentum_failure_late losses.
-    // B2: Steady grind — 1h positive + higherCloses + 4h near-neutral (catches slow climbs
-    //     where momentum plateaus but price is still making higher candle closes)
-    //     Quick scalp opportunity: low target, fast in-and-out, must not be in 4h downtrend.
+    // FALLBACK: 4h stable + any real-time confirmation (intrabar > 0 = price rising now)
+    const nearFlat4h = env.RISK_HEALTH_GATE_4H_NEAR_FLAT;
+    if (mom4h >= nearFlat4h && intrabar > 0) {
+      logger.info('RiskManager: Health gate passed via 4h stable + positive intrabar', { momentum4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
+      return { pass: true, stage: 'Health Gate' };
+    }
+
+    // FALLBACK: Creeping uptrend — slope accelerating + 4h non-negative + intrabar rising
+    // (catches slow momentum builds before direction score reaches 2/3)
     const slope = momentumSlope ?? 0;
-    const steadyGrind = mom1hPct >= env.RISK_MIN_MOMENTUM_1H_BINANCE && higherCloses && mom4h >= gate4hFloor && intrabar >= env.RISK_STEADY_GRIND_INTRABAR_MIN;
-    if ((slope > env.RISK_CREEP_SLOPE_MIN && mom4h >= 0 && intrabar >= env.RISK_CREEP_INTRABAR_MIN) || steadyGrind) {
-      const via = steadyGrind && slope <= 0.03 ? 'steady grind' : 'creeping uptrend';
-      logger.info(`RiskManager: Health gate passed via ${via}`, { momentum1h: mom1hPct.toFixed(3), momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), higherCloses, intrabar: intrabar.toFixed(3) });
+    if (slope > env.RISK_CREEP_SLOPE_MIN && mom4h >= 0 && intrabar >= env.RISK_CREEP_INTRABAR_MIN) {
+      logger.info('RiskManager: Health gate passed via creeping uptrend', { momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
       return { pass: true, stage: 'Health Gate' };
     }
 
@@ -429,7 +358,7 @@ class RiskManager {
 
   /**
    * STAGE 3: Entry Quality Gate
-   * Health Gate already confirmed 4h > 0 and 1h > min.
+   * Health Gate confirmed direction score (2/3 leading signals) and slope.
    * This stage only checks BTC dump protection (drop protection handles volume panics).
    * Price-top check removed: if 4h and 1h are both positive, we're in an uptrend — trends trade near highs.
    */

@@ -28,7 +28,7 @@ import { closeTrade } from '@/services/trading/close-trade';
 import { livePriceStore } from '@/services/market-data/live-price-store';
 // regimeAgent removed — replaced by deterministic Trend Exhaustion rule
 import { tradeMonitorAgent, type OpenTradeContext } from '@/services/ai/trade-monitor-agent';
-import { transitionDetectorAgent } from '@/services/ai/transition-detector-agent';
+// transitionDetectorAgent removed — 1h floor eliminated, lagging indicator no longer gates entry
 
 interface BotInstance {
   id: string;
@@ -1231,7 +1231,8 @@ class TradeSignalOrchestrator {
             // when price pulled back slightly from the candle open (same value cycle after cycle).
             // trendScore already includes intrabar > 0 as one of three signals — redundant here.
 
-            // Run 5-stage risk filter (Health Gate now requires 4h > 0 AND 1h > min)
+            // Run 5-stage risk filter. Health Gate uses leading signals only (direction score 2/3,
+            // slope, intrabar). 1h and 4h floors removed — they're lagging; used for regime context only.
             const ticker = { bid, ask, spread: spreadPct };
             const riskFilter = await riskManager.runFullRiskFilter(pair, currentPrice, indicators, ticker);
 
@@ -1245,59 +1246,43 @@ class TradeSignalOrchestrator {
 
             logger.info('✅ Orchestrator: risk filter passed', { pair, momentum4h: indicators.momentum4h?.toFixed(3), momentum1h: indicators.momentum1h?.toFixed(3) });
 
-            // MINIMUM 1H MOMENTUM FLOOR — enforced on ALL entry paths (standard + creeping).
-            // Fee round-trip is ~0.30%. Entering with mom1h < 0.50% has no statistical edge.
-            // RISK_MIN_MOMENTUM_1H_BINANCE applies to Binance; RISK_MIN_MOMENTUM_1H for others.
+            // 1H MOMENTUM FLOOR REMOVED — 1h is a lagging indicator.
+            // It measures what happened in the past hour. Using it as an entry gate causes
+            // the bot to enter AFTER the move is already 40-60% complete (near the local top).
             //
-            // 4H BYPASS: When 4h momentum >= RISK_1H_BYPASS_4H_MIN AND intrabar is rising,
-            // skip the 1h floor. The 4h confirms direction; waiting for 1h to catch up means
-            // entering 30-50% into the move — near the local top, not the start.
+            // 1h and 4h are now CONTEXT ONLY: they determine regime classification
+            // (weak/moderate/strong) which sets position size and profit target.
             //
-            // TRANSITION BYPASS: When AI transition detector is confident a choppy→trending
-            // transition is genuine, it can lower the 1h floor by up to AI_TRANSITION_MAX_FLOOR_ADJ.
-            // Only fires in the borderline zone — never in clearly choppy or clearly trending.
+            // ENTRY is gated by LEADING signals (already handled above by health gate):
+            //   - intrabar > 0     → price rising RIGHT NOW
+            //   - slope > 0        → momentum accelerating
+            //   - higherCloses     → recent candles confirming direction
+            //   - volumeRatio      → buyers present
+            //
+            // HARD BLOCKS remain (crash guard, BTC dump, spread) — these are real-time conditions
+            // not lagging indicators.
+            //
+            // Transition detector agent is not used — it was wired to adjust the 1h floor
+            // which no longer exists. Intrabar gate is the real-time entry gate.
             const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-            // Single unified 1h floor for all pairs — percentage momentum is normalized by definition
-            const pairMin1hBase = isBinance
-              ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE
-              : effectiveEnv.RISK_MIN_MOMENTUM_1H;
-            {
-              const min1hBase = pairMin1hBase;
-              const mom1h = indicators.momentum1h ?? 0;
+            // isStrong4hBypass no longer needed for 1h floor — keep for confirmation window only
+            const isStrong4hBypass = (() => {
               const mom4h = indicators.momentum4h ?? 0;
               const intrabar = indicators.intrabarMomentum ?? 0;
-              // 1h floor bypass REMOVED — was letting in weak-1h trades (BTC m1h=0.35%) whenever
-              // 4h was strong. All 3 night losses used this path. 1h floor is universal.
-              const early4hBypass = false;
-
-              // TRANSITION DETECTOR: run only in borderline zone to avoid wasted Claude calls
-              let transitionFloorAdj = 0;
-              if (!early4hBypass && mom1h < min1hBase && transitionDetectorAgent.isInTransitionZone(indicators, btcMomentum1h)) {
-                const recentCloses = candles.slice(-8).map((c: { close: number }) => c.close);
-                const transitionState = await transitionDetectorAgent.analyze(pair, currentPrice, indicators, btcMomentum1h, recentCloses);
-                if (transitionState && transitionState.transitionConfidence >= effectiveEnv.AI_TRANSITION_AGENT_MIN_CONFIDENCE && transitionState.riskLevel !== 'high') {
-                  transitionFloorAdj = transitionState.mom1hFloorAdjustment;
-                  logger.info('Orchestrator: transition detector active', {
-                    pair, confidence: transitionState.transitionConfidence, riskLevel: transitionState.riskLevel,
-                    floorAdj: transitionFloorAdj, estimatedHoldMinutes: transitionState.estimatedHoldMinutes,
-                    reasoning: transitionState.reasoning,
-                  });
-                }
-              }
-
-              const min1h = min1hBase - transitionFloorAdj;
-              if (mom1h < min1h && !early4hBypass) {
-                logger.info('🚫 Orchestrator: entry blocked — 1h momentum below minimum', { pair, mom1h: mom1h.toFixed(3), min1h, transitionFloorAdj });
-                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, blockStage: 'Momentum Floor', enteredAt: null };
-                this.lastCycleStatus.updatedAt = Date.now();
-                this.signalConfirmationCache.delete(pair); // reset — pair no longer qualifies
-                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `1h momentum ${mom1h.toFixed(2)}% < ${min1h.toFixed(2)}% floor`, stage: 'Momentum Floor' } };
-              }
-              if (transitionFloorAdj > 0) {
-                logger.info('Orchestrator: 1h floor lowered by transition detector', { pair, original: min1hBase, adjusted: min1h, mom1h: mom1h.toFixed(3) });
-              }
-              if (early4hBypass && mom1h < min1hBase) {
-                logger.info('Orchestrator: 1h floor bypassed — 4h confirmed + intrabar rising', { pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
+              const bypass4hThreshold = effectiveEnv.RISK_STRONG_4H_BYPASS_THRESHOLD ?? 0.80;
+              const bypass4hIntrabarMin = effectiveEnv.RISK_STRONG_4H_BYPASS_INTRABAR_MIN ?? 0.15;
+              return mom4h >= bypass4hThreshold && intrabar >= bypass4hIntrabarMin;
+            })();
+            // Log regime context so it's visible in logs (not a gate, just informational)
+            {
+              const mom1h = indicators.momentum1h ?? 0;
+              const mom4h = indicators.momentum4h ?? 0;
+              const pairMin1hBase = isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H;
+              if (mom1h < pairMin1hBase) {
+                logger.info('ℹ️ Orchestrator: 1h momentum below old floor (entry proceeds — lagging indicator, regime context only)', {
+                  pair, mom1h: mom1h.toFixed(3), mom4h: mom4h.toFixed(3), oldFloor: pairMin1hBase,
+                  note: '1h used for regime classification only, not entry gate',
+                });
               }
             }
 
@@ -1307,21 +1292,21 @@ class TradeSignalOrchestrator {
             // for hourly candle confirmation), violating CLAUDE.md "no cooldowns/delays" rule.
             // Entry quality is handled by: momentum thresholds, AI veto, trend exhaustion veto.
 
-            // INTRABAR MOMENTUM GATE: block entry when price is currently declining tick-by-tick.
-            // This is a market condition check (is price moving up RIGHT NOW?), not a cooldown.
-            // Prevents re-entering immediately after an erosion cap exit while price is still falling.
-            // BYPASS: when 1h momentum is strongly trending (>= RISK_1H_BYPASS_INTRABAR_MIN * 10),
-            // a minor intrabar pullback is normal — don't block a strong uptrend on a dip.
+            // INTRABAR MOMENTUM GATE: the PRIMARY entry gate. Blocks when price is declining NOW.
+            // Since 1h is no longer a gate (lagging), intrabar is the real-time signal confirming
+            // the move is still active at the moment of entry — not just that it was active 1h ago.
+            // isTrending now uses 4h (more reliable trend indicator) instead of 1h (lagging).
             {
               const intrabar = indicators.intrabarMomentum ?? 0;
               const mom1h = indicators.momentum1h ?? 0;
-              const isTrending = mom1h >= effectiveEnv.REGIME_MODERATE_1H_PCT;
+              const mom4h = indicators.momentum4h ?? 0;
+              // Use 4h to determine if we're in a trending market (not 1h — lagging)
+              const isTrending = mom4h >= effectiveEnv.REGIME_MODERATE_4H_PCT;
               const minIntrabar = isTrending
                 ? (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? 0)
                 : (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY ?? 0);
-              // Strong trend bypass: if 1h momentum is well above the bypass threshold, allow entry even if
-              // intrabar is below the trending minimum — but intrabar must be non-negative.
-              // Never enter a candle already declining (intrabar < 0), even in a strong trend.
+              // Strong trend bypass: strong 1h momentum allows intrabar >= 0 (normal pullback in uptrend)
+              // Never enter a candle already declining (intrabar < 0).
               const bypassThreshold = effectiveEnv.RISK_INTRABAR_BYPASS_1H_MIN ?? 1.5;
               const strongTrendBypass = mom1h >= bypassThreshold && intrabar >= 0.0;
               if (intrabar < minIntrabar && !strongTrendBypass) {
@@ -1403,7 +1388,7 @@ class TradeSignalOrchestrator {
               isCreepingUptrend,
               isReboundEntry,
               regimeContext: null, // regime agent removed — deterministic veto in analyzer.ts
-              minMomentum1h: pairMin1hBase,
+              minMomentum1h: isBinance ? effectiveEnv.RISK_MIN_MOMENTUM_1H_BINANCE : effectiveEnv.RISK_MIN_MOMENTUM_1H,
             });
 
             logger.info('Orchestrator: analyzeMarket returned', { pair, hasSignal: !!analysis.signal, hasRegime: !!analysis.regime, signalType: analysis.signal?.signal, signalConfidence: analysis.signal?.confidence, regimeType: analysis.regime?.regime });
@@ -1412,8 +1397,8 @@ class TradeSignalOrchestrator {
 
             logger.info('Orchestrator: regime detected', { pair, regime, signalConfidence: analysis.signal?.confidence });
 
-            // AI confidence is advisory only — entry gated by 4h > 0 AND 1h > min (pure price).
-            // AI veto (signal === null) is still respected — null means explicit veto, not just low score.
+            // AI confidence is advisory only — entry is gated by leading signals (intrabar, slope,
+            // direction score). AI veto (signal === null) is still respected as explicit veto.
             if (analysis.signal && analysis.regime) {
               if (analysis.signal.signal !== 'buy') {
                 return { type: 'rejected', signal: { pair, reason: 'not_buy', signal: analysis.signal.signal, confidence: analysis.signal.confidence } };
@@ -1463,7 +1448,9 @@ class TradeSignalOrchestrator {
               // and skip — wait for the next cycle to confirm the signal is sustained (not a spike).
               const nowMs = Date.now();
               const firstSeenMs = this.signalConfirmationCache.get(pair);
-              const intervalMs = 24000; // orchestrator main cycle; must survive 3 cycles (~24s) before entry
+              // Strong 4h + intrabar bypass: trend already established — 1 cycle (8s) is enough.
+              // Standard path: must survive 3 cycles (~24s) to filter spike signals.
+              const intervalMs = isStrong4hBypass ? 8000 : 24000;
               if (!firstSeenMs) {
                 // First valid signal — record and wait one more cycle
                 this.signalConfirmationCache.set(pair, nowMs);

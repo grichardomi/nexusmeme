@@ -21,7 +21,8 @@
  *   transitionConfidence: 0-100 (how likely this move sustains)
  *   riskLevel: low | medium | high
  *   estimatedHoldMinutes: how long the move likely runs
- *   mom1hFloorAdjustment: how much to lower the 1h entry floor (0 = don't lower)
+ *   intrabarFloorAdjustment: how much to lower the intrabar entry floor (0 = no change)
+ *   NOTE: mom1hFloorAdjustment is DEPRECATED — 1h floor was removed (lagging indicator)
  *
  * Cost control:
  *   - Claude Haiku called at most once per AI_TRANSITION_AGENT_CACHE_TTL_SECONDS per pair
@@ -39,7 +40,9 @@ export interface TransitionAgentState {
   transitionConfidence: number;          // 0-100: how likely the move is genuine
   riskLevel: 'low' | 'medium' | 'high'; // entry risk assessment
   estimatedHoldMinutes: number;          // expected duration of the move
-  mom1hFloorAdjustment: number;          // subtract from 1h floor (0 = no change, 0.15 = lower by 0.15%)
+  /** @deprecated 1h floor removed — lagging indicator. Use intrabarFloorAdjustment instead. */
+  mom1hFloorAdjustment: number;
+  intrabarFloorAdjustment: number;       // how much to lower intrabar entry floor (0 = no change)
   reasoning: string;                     // max 25 words
   timestamp: string;                     // ISO string
   pair: string;
@@ -191,7 +194,6 @@ class TransitionDetectorAgent {
     const trendScore = indicators.trendScore ?? 0;
     const higherCloses = indicators.higherCloses ?? false;
     const maxFloorAdj = env.AI_TRANSITION_MAX_FLOOR_ADJ;
-    const minFloor = env.RISK_MIN_MOMENTUM_1H_BINANCE;
 
     // Candle direction summary: compress 8 closes into directional sequence
     const candleDirs = recentCloses.slice(-8).map((c, i, arr) =>
@@ -202,7 +204,7 @@ class TransitionDetectorAgent {
 
 Market data (15m candles, last 2h):
 - Candle direction (oldest→newest): ${candleDirs}
-- 1h momentum: ${mom1h}%  (entry floor is ${minFloor}%, currently BELOW it)
+- 1h momentum: ${mom1h}%  (context only — not an entry gate, lagging indicator)
 - 2h momentum: ${mom2h}%  (just crossed 0 = recovery starting)
 - 4h momentum: ${mom4h}%  (prior dump, still negative)
 - Momentum slope: ${slope}%  (positive = accelerating)
@@ -215,14 +217,14 @@ Question: Is this a GENUINE choppy→trending transition or a false bounce?
 Consider: candle pattern consistency, volume trend, momentum acceleration, BTC confirmation.
 
 Rules:
-- False bounce = choppy candles + thin volume + slope decelerating → riskLevel=high, confidence<50, floorAdj=0
+- False bounce = choppy candles + thin volume + slope decelerating → riskLevel=high, confidence<50, intrabarFloorAdjustment=0
 - Genuine transition = consistent higher closes + volume building + slope positive → riskLevel=low/medium, confidence>65
-- Ambiguous = mixed signals → riskLevel=medium, confidence 45-65, floorAdj=0
-- mom1hFloorAdjustment: 0 to ${maxFloorAdj} (how much to lower the ${minFloor}% entry floor — only if genuinely confident, 0 if any doubt)
+- Ambiguous = mixed signals → riskLevel=medium, confidence 45-65, intrabarFloorAdjustment=0
+- intrabarFloorAdjustment: 0 to ${maxFloorAdj} (how much to lower the intrabar entry floor — only if genuinely confident, 0 if any doubt)
 - estimatedHoldMinutes: realistic hold time if entry taken (15-120)
 
 Return ONLY raw JSON (no markdown, no backticks):
-{"transitionConfidence":0-100,"riskLevel":"low|medium|high","estimatedHoldMinutes":15,"mom1hFloorAdjustment":0.0,"reasoning":"<max 25 words>"}`;
+{"transitionConfidence":0-100,"riskLevel":"low|medium|high","estimatedHoldMinutes":15,"intrabarFloorAdjustment":0.0,"reasoning":"<max 25 words>"}`;
 
     const timeoutMs = env.AI_TRANSITION_AGENT_TIMEOUT_MS;
     const model = env.AI_TRANSITION_AGENT_MODEL;
@@ -268,16 +270,17 @@ Return ONLY raw JSON (no markdown, no backticks):
         transitionConfidence: Math.min(100, Math.max(0, Math.round(Number(parsed.transitionConfidence) || 50))),
         riskLevel: validRisk.includes(parsed.riskLevel) ? parsed.riskLevel : 'medium',
         estimatedHoldMinutes: Math.min(120, Math.max(15, Math.round(Number(parsed.estimatedHoldMinutes) || 30))),
-        mom1hFloorAdjustment: Math.min(maxFloorAdj, Math.max(0, Number(parsed.mom1hFloorAdjustment) || 0)),
+        mom1hFloorAdjustment: 0, // deprecated
+        intrabarFloorAdjustment: Math.min(maxFloorAdj, Math.max(0, Number(parsed.intrabarFloorAdjustment) || 0)),
         reasoning: String(parsed.reasoning ?? '').slice(0, 150),
         timestamp: new Date().toISOString(),
         pair,
       };
 
       // Never lower floor on high risk — override if Claude got confused
-      if (state.riskLevel === 'high') state.mom1hFloorAdjustment = 0;
+      if (state.riskLevel === 'high') state.intrabarFloorAdjustment = 0;
       // Never lower floor if confidence below threshold
-      if (state.transitionConfidence < env.AI_TRANSITION_AGENT_MIN_CONFIDENCE) state.mom1hFloorAdjustment = 0;
+      if (state.transitionConfidence < env.AI_TRANSITION_AGENT_MIN_CONFIDENCE) state.intrabarFloorAdjustment = 0;
 
       const latencyMs = Date.now() - startMs;
       this.lastState.set(pair, state);
@@ -294,7 +297,7 @@ Return ONLY raw JSON (no markdown, no backticks):
         transitionConfidence: state.transitionConfidence,
         riskLevel: state.riskLevel,
         estimatedHoldMinutes: state.estimatedHoldMinutes,
-        mom1hFloorAdjustment: state.mom1hFloorAdjustment,
+        intrabarFloorAdjustment: state.intrabarFloorAdjustment,
         reasoning: state.reasoning,
         model, latencyMs,
       });
