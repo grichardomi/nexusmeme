@@ -760,8 +760,9 @@ class ExecutionFanOut {
     }
 
     // Calculate stop loss and take profit based on execution price (not signal price)
-    const calculatedStopLoss = stopLoss || (side === 'buy' ? executionPrice * 0.95 : executionPrice * 1.05);
-    const calculatedTakeProfit = takeProfit || (side === 'buy' ? executionPrice * 1.05 : executionPrice * 0.95);
+    const defaultStopLossPct = getEnvironmentConfig().DEFAULT_STOP_LOSS_PCT;
+    const calculatedStopLoss = stopLoss || (side === 'buy' ? executionPrice * (1 - defaultStopLossPct) : executionPrice * (1 + defaultStopLossPct));
+    const calculatedTakeProfit = takeProfit || (side === 'buy' ? executionPrice * (1 + defaultStopLossPct) : executionPrice * (1 - defaultStopLossPct));
 
     let orderId = `paper_${Date.now()}`;
     let entryFee = 0; // Track entry fee for NET profit calculations

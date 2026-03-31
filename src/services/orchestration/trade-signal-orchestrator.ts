@@ -250,8 +250,9 @@ class TradeSignalOrchestrator {
       }
       // ── END UNDERWATER PROTECTION ────────────────────────────────────────────
 
-      // Update peak (non-blocking, deferred write)
-      positionTracker.updatePeakIfHigher(foundId, netPct, exitPrice, totalFee).catch(() => {});
+      // Update peak using GROSS percent — fees must not suppress peak registration
+      // (net can stay negative even when gross is positive, blocking erosion cap from arming)
+      positionTracker.updatePeakIfHigher(foundId, grossPct, exitPrice, totalFee).catch(() => {});
 
       // Check erosion cap
       const erosionResult = positionTracker.checkErosionCap(foundId, _pair, netPct, regime, exitPrice);
@@ -605,7 +606,7 @@ class TradeSignalOrchestrator {
           const entryTimeMs = this.parseEntryTime(trade.entry_time);
           await positionTracker.recordPeak(
             trade.id,
-            netProfitPct,
+            grossProfitPct,
             entryTimeMs,
             entryPrice,
             quantity,
@@ -631,12 +632,12 @@ class TradeSignalOrchestrator {
           });
         }
 
-        // CASE 1: Trade is profitable (NET) - update peak AND check erosion cap
-        // Use NET profit so erosion cap only fires on truly profitable trades
-        if (currentProfitPct > 0) {
+        // CASE 1: Trade has gross profit - update peak AND check erosion cap
+        // Use GROSS profit for peak so fees don't prevent peak from registering
+        if (grossProfitPct > 0) {
           if (isTracked) {
             // Update peak if current is higher - pass currentPrice for absolute value tracking
-            await positionTracker.updatePeakIfHigher(trade.id, netProfitPct, currentPrice, totalFeeDollars);
+            await positionTracker.updatePeakIfHigher(trade.id, grossProfitPct, currentPrice, totalFeeDollars);
             updatedCount++;
 
             // TRAILING STOP - single source of truth for profit protection
@@ -1729,7 +1730,8 @@ class TradeSignalOrchestrator {
     };
 
     // Returns threshold as decimal (e.g., -0.015 for -1.5%)
-    if (tradeAgeMinutes <= 5) {
+    // minute_1_5 covers 0-15 min — env var named _1_5 but intended for early trade window
+    if (tradeAgeMinutes <= 15) {
       return thresholds.minute_1_5;
     } else if (tradeAgeMinutes <= 30) {
       return thresholds.minute_15_30;
@@ -1861,13 +1863,12 @@ class TradeSignalOrchestrator {
             peakPct: peak?.peakPct,
           };
 
-          // Update peak profit tracking (same as profit target pass)
-          // CRITICAL: Pass position data to prevent degraded mode
+          // Update peak profit tracking using GROSS — fees must not suppress peak registration
           if (!momTrackedSet.has(trade.id)) {
             const entryTimeMs = this.parseEntryTime(trade.entry_time);
             await positionTracker.recordPeak(
               trade.id,
-              profitPct,
+              momGrossProfitPct,
               entryTimeMs,
               entryPrice,
               quantity,
@@ -1875,7 +1876,7 @@ class TradeSignalOrchestrator {
               momTotalFees
             );
           } else {
-            await positionTracker.updatePeakIfHigher(trade.id, profitPct, currentPrice, momTotalFees);
+            await positionTracker.updatePeakIfHigher(trade.id, momGrossProfitPct, currentPrice, momTotalFees);
           }
 
           // Fetch and calculate real technical indicators
@@ -2175,17 +2176,17 @@ class TradeSignalOrchestrator {
 
           if (!ptTrackedSet.has(trade.id)) {
             const entryTimeMs = this.parseEntryTime(trade.entry_time);
-            // Use NET profit for peak tracking - peaks must be real (after fees)
+            // Use GROSS profit for peak tracking — fees must not suppress peak registration
             await positionTracker.recordPeak(
               trade.id,
-              currentProfitPct,
+              grossProfitPct,
               entryTimeMs,
               entryPrice,
               quantity,
               currentPrice,
               entryFeeDollars
             );
-            logger.debug('Position peak profit recorded (NET)', {
+            logger.debug('Position peak profit recorded (GROSS)', {
               tradeId: trade.id,
               pair: trade.pair,
               grossProfitPct: grossProfitPct.toFixed(2),
@@ -2196,9 +2197,9 @@ class TradeSignalOrchestrator {
               currentPrice,
             });
           } else {
-            // Update peak if current NET profit exceeds previous peak
-            await positionTracker.updatePeakIfHigher(trade.id, currentProfitPct, currentPrice, entryFeeDollars);
-            logger.debug('Position peak updated if higher (NET)', {
+            // Update peak using GROSS profit — fees must not suppress peak registration
+            await positionTracker.updatePeakIfHigher(trade.id, grossProfitPct, currentPrice, entryFeeDollars);
+            logger.debug('Position peak updated if higher (GROSS)', {
               tradeId: trade.id,
               currentProfitPct: currentProfitPct.toFixed(2),
             });
