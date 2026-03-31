@@ -505,6 +505,13 @@ class PositionTracker {
       return result;
     }
 
+    // Minimum hold time — don't fire on brand-new trades (bid-ask noise, not real erosion)
+    const minHoldSeconds = env.EROSION_MIN_HOLD_SECONDS;
+    const ageSeconds = existing.entryTime ? (Date.now() - existing.entryTime) / 1000 : 9999;
+    if (ageSeconds < minHoldSeconds) {
+      return result;
+    }
+
     const totalCost = existing.entryPrice * existing.quantity;
     const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
     const minPeakPct = env.EROSION_PEAK_MIN_PCT;
