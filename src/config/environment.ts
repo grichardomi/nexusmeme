@@ -231,6 +231,7 @@ const envSchema = z.object({
   RISK_1H_BYPASS_4H_MIN: z.string().transform(Number).default('1.0'),       // 4h must be >= 1.0% to bypass
   RISK_1H_BYPASS_INTRABAR_MIN: z.string().transform(Number).default('0.05'), // intrabar must be >= +0.05% (price moving up now)
   RISK_STRONG_MOMENTUM_OVERRIDE_PCT: z.string().transform(Number).default('2.5'), // 1h momentum % that bypasses volume floor & health-gate 4h requirement
+  RISK_INTRABAR_BYPASS_1H_MIN: z.string().transform(Number).default('1.5'),      // 1h momentum threshold to bypass intrabar gate (strong trend = pullback is ok)
   RISK_MAX_ADVERSE_4H_MOMENTUM: z.string().transform(Number).default('-0.5'), // Block path 1/3 entries when 4h is this negative (counter-trend protection)
   RISK_VOLUME_BREAKOUT_RATIO: z.string().transform(Number).default('1.3'),
   RISK_MIN_VOLUME_RATIO: z.string().transform(Number).default('0.50'), // Minimum volume ratio to allow entry (blocks extreme low-volume)
@@ -671,6 +672,7 @@ function getDefaultEnvironment(): Environment {
     RISK_1H_BYPASS_4H_MIN: 1.0,
     RISK_1H_BYPASS_INTRABAR_MIN: 0.05,
     RISK_STRONG_MOMENTUM_OVERRIDE_PCT: 2.5, // bypass volume floor & health-gate 4h check when 1h move >= this %
+    RISK_INTRABAR_BYPASS_1H_MIN: 1.5,       // 1h momentum to bypass intrabar gate on pullbacks
     RISK_MAX_ADVERSE_4H_MOMENTUM: -0.5, // Block path 1/3 when 4h strongly negative
     RISK_VOLUME_BREAKOUT_RATIO: 1.3,
     RISK_MIN_VOLUME_RATIO: 0.50, // Minimum volume ratio (blocks extreme low-volume)

@@ -505,13 +505,6 @@ class PositionTracker {
       return result;
     }
 
-    // Minimum hold time — don't fire on brand-new trades (bid-ask noise, not real erosion)
-    const minHoldSeconds = env.EROSION_MIN_HOLD_SECONDS;
-    const ageSeconds = existing.entryTime ? (Date.now() - existing.entryTime) / 1000 : 9999;
-    if (ageSeconds < minHoldSeconds) {
-      return result;
-    }
-
     const totalCost = existing.entryPrice * existing.quantity;
     const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
     const minPeakPct = env.EROSION_PEAK_MIN_PCT;
@@ -522,6 +515,12 @@ class PositionTracker {
     result.erosionUsedPct = Math.min(1.0, Math.max(0, erosionPct));
     result.peakProfit = existing.peakProfit;
     result.currentProfit = currentProfitDollars;
+
+    // Peak must represent REAL profit (above fee round-trip) before erosion cap arms.
+    // A peak below this is a bid-ask bounce, not a tradeable profit — don't protect it.
+    if (existing.peakProfit < env.EROSION_MIN_PROFIT_FLOOR_USD) {
+      return result;
+    }
 
     // Rebound trades: tighter thresholds — lock gains on first dip, don't let V-shape reverse
     // Standard trades tolerate more erosion to let trends run; rebound trades are quick in/out.
@@ -537,6 +536,12 @@ class PositionTracker {
 
     // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
     const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold;
+
+    // Don't exit if current gross profit won't cover the exit fee — locking a net loss is not profit protection
+    const estimatedExitFee = existing.estimatedTotalFees > 0 ? existing.estimatedTotalFees / 2 : totalCost * 0.001;
+    if (currentProfitDollars <= estimatedExitFee) {
+      return result;
+    }
 
     if (dollarFired || pctFired) {
       const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;

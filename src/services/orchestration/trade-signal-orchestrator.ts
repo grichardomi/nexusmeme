@@ -1310,13 +1310,19 @@ class TradeSignalOrchestrator {
             // INTRABAR MOMENTUM GATE: block entry when price is currently declining tick-by-tick.
             // This is a market condition check (is price moving up RIGHT NOW?), not a cooldown.
             // Prevents re-entering immediately after an erosion cap exit while price is still falling.
+            // BYPASS: when 1h momentum is strongly trending (>= RISK_1H_BYPASS_INTRABAR_MIN * 10),
+            // a minor intrabar pullback is normal — don't block a strong uptrend on a dip.
             {
               const intrabar = indicators.intrabarMomentum ?? 0;
-              const isTrending = (indicators.momentum1h ?? 0) >= effectiveEnv.REGIME_MODERATE_1H_PCT;
+              const mom1h = indicators.momentum1h ?? 0;
+              const isTrending = mom1h >= effectiveEnv.REGIME_MODERATE_1H_PCT;
               const minIntrabar = isTrending
                 ? (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_TRENDING ?? 0)
                 : (effectiveEnv.ENTRY_MIN_INTRABAR_MOMENTUM_CHOPPY ?? 0);
-              if (intrabar < minIntrabar) {
+              // Strong trend bypass: if 1h momentum is well above the bypass threshold, allow a mild intrabar dip
+              const bypassThreshold = effectiveEnv.RISK_INTRABAR_BYPASS_1H_MIN ?? 1.5;
+              const strongTrendBypass = mom1h >= bypassThreshold && intrabar >= -0.30;
+              if (intrabar < minIntrabar && !strongTrendBypass) {
                 logger.info('🚫 Orchestrator: entry blocked — intrabar momentum below minimum', {
                   pair, intrabar: intrabar.toFixed(3), minIntrabar, isTrending,
                 });
@@ -1324,6 +1330,11 @@ class TradeSignalOrchestrator {
                 this.lastCycleStatus.updatedAt = Date.now();
                 this.signalConfirmationCache.delete(pair); // reset — pair no longer qualifies
                 return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `intrabar ${intrabar.toFixed(3)}% < ${minIntrabar}%`, stage: 'Intrabar Gate' } };
+              }
+              if (strongTrendBypass && intrabar < minIntrabar) {
+                logger.info('✅ Orchestrator: intrabar gate bypassed — strong 1h trend', {
+                  pair, intrabar: intrabar.toFixed(3), mom1h: mom1h.toFixed(3), bypassThreshold,
+                });
               }
             }
 
