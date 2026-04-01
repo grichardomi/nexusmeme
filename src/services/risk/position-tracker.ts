@@ -1066,7 +1066,7 @@ class PositionTracker {
     // Peak must have covered round-trip fees before collapse protection arms.
     // A $0.50 peak on a $2k position (fees ~$4) is bid-ask noise — there was no real profit to protect.
     // Without this guard, the collapse check fires on entry-level oscillations, locking in a fee-only loss.
-    const collapseTotalCost = (existing.entryPrice ?? 0) * (existing.quantity ?? 0);
+    const collapseTotalCost = (existing?.entryPrice ?? 0) * (existing?.quantity ?? 0);
     const collapseEstimatedFees = collapseTotalCost * env.BINANCE_TAKER_FEE_DEFAULT * 2;
     const peakCoveredFees = collapseTotalCost > 0 ? peakProfitDollars >= collapseEstimatedFees : true;
 
