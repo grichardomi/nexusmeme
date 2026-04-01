@@ -1063,7 +1063,14 @@ class PositionTracker {
     const collapseArmedByPct = peakProfitPct >= profitCollapseMinPeakPct;
     const collapseArmedByDollars = peakProfitDollars >= minPeakDollars;
 
-    if ((collapseArmedByPct || collapseArmedByDollars) && currentProfitPct < 0) {
+    // Peak must have covered round-trip fees before collapse protection arms.
+    // A $0.50 peak on a $2k position (fees ~$4) is bid-ask noise — there was no real profit to protect.
+    // Without this guard, the collapse check fires on entry-level oscillations, locking in a fee-only loss.
+    const collapseTotalCost = (existing.entryPrice ?? 0) * (existing.quantity ?? 0);
+    const collapseEstimatedFees = collapseTotalCost * env.BINANCE_TAKER_FEE_DEFAULT * 2;
+    const peakCoveredFees = collapseTotalCost > 0 ? peakProfitDollars >= collapseEstimatedFees : true;
+
+    if ((collapseArmedByPct || collapseArmedByDollars) && peakCoveredFees && currentProfitPct < 0) {
       logger.info('🚨 PROFITABLE COLLAPSE - had real profit, now underwater → EXIT IMMEDIATELY', {
         tradeId,
         pair,
@@ -1072,6 +1079,7 @@ class PositionTracker {
         currentProfitPct: currentProfitPct.toFixed(4) + '%',
         ageMinutes: ageMinutes.toFixed(1),
         armedBy: collapseArmedByDollars ? `$${peakProfitDollars.toFixed(2)} >= $${minPeakDollars} (dollar)` : `${peakProfitPct.toFixed(4)}% >= ${profitCollapseMinPeakPct}% (pct)`,
+        peakVsFees: `$${peakProfitDollars.toFixed(2)} vs $${collapseEstimatedFees.toFixed(2)} fees`,
       });
       result.shouldExit = true;
       result.reason = 'underwater_profitable_collapse';
