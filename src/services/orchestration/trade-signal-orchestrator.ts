@@ -2506,7 +2506,10 @@ class TradeSignalOrchestrator {
               const peakData = positionTracker.getPeakProfit(trade.id);
               const peakUpdatedAt = peakData?.peakUpdatedAt ?? 0;
               const minutesSincePeakGrew = peakUpdatedAt > 0 ? (Date.now() - peakUpdatedAt) / 60000 : tradeAgeMinutes;
-              if (minutesSincePeakGrew >= stalePeakMinutes && currentProfitPct >= stalePeakMinProfit) {
+              const stalePeakPositionCost = entryPrice * quantity;
+              const stalePeakEstimatedFees = stalePeakPositionCost * env.BINANCE_TAKER_FEE_DEFAULT * 2;
+              const stalePeakCurrentProfitDollars = (currentPrice - entryPrice) * quantity;
+              if (minutesSincePeakGrew >= stalePeakMinutes && currentProfitPct >= stalePeakMinProfit && stalePeakCurrentProfitDollars > stalePeakEstimatedFees) {
                 shouldClose = true;
                 exitReason = 'stale_peak_lock';
                 logger.info('🔒 STALE PEAK LOCK — peak stalled, locking gain in weak regime', {
