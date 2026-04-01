@@ -91,8 +91,55 @@ export default function BillingPage() {
   if (status === 'loading' || loading) {
     return (
       <DashboardLayout title="Billing & Plans">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-slate-900 dark:text-white text-lg">Loading billing information...</div>
+        <div className="space-y-4 sm:space-y-6 animate-pulse">
+          {/* Plan card skeleton */}
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-4 sm:p-6">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-6 w-40 bg-slate-200 dark:bg-slate-700 rounded" />
+              <div className="h-5 w-14 bg-slate-200 dark:bg-slate-700 rounded-full" />
+            </div>
+            <div className="h-4 w-72 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
+            <div className="flex items-center justify-between gap-2 pt-4 border-t border-slate-200 dark:border-slate-700">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex-1 text-center">
+                  <div className="h-3 w-10 bg-slate-200 dark:bg-slate-700 rounded mx-auto mb-1.5" />
+                  <div className="h-4 w-14 bg-slate-200 dark:bg-slate-700 rounded mx-auto" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Performance fees skeleton */}
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 sm:p-6">
+            <div className="h-5 w-44 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[1, 2, 3, 4].map(i => (
+                <div key={i} className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+                  <div className="h-3 w-20 bg-slate-200 dark:bg-slate-600 rounded mb-2" />
+                  <div className="h-6 w-16 bg-slate-200 dark:bg-slate-600 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Transactions skeleton */}
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 sm:p-6">
+            <div className="h-5 w-36 bg-slate-200 dark:bg-slate-700 rounded mb-4" />
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 bg-slate-200 dark:bg-slate-700 rounded-full" />
+                    <div>
+                      <div className="h-3.5 w-28 bg-slate-200 dark:bg-slate-700 rounded mb-1.5" />
+                      <div className="h-3 w-20 bg-slate-200 dark:bg-slate-700 rounded" />
+                    </div>
+                  </div>
+                  <div className="h-4 w-16 bg-slate-200 dark:bg-slate-700 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </DashboardLayout>
     );
