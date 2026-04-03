@@ -165,6 +165,20 @@ class RiskManager {
       return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < ${crashGuard4h}% (panic/crash protection)`, stage: 'Health Gate' };
     }
 
+    // EXHAUSTION CAP: 1h momentum already too high = move happened before we entered.
+    // We measure past price change — by the time 1h reads 0.5%+, the rally is over and
+    // we're entering at the top. Block and wait for the next setup.
+    // Strong trend exception: if 4h is also very strong (>= 1.5%), multi-hour trend
+    // still has legs even if 1h is elevated.
+    const exhaustionCap = env.ENTRY_MAX_1H_MOMENTUM_PCT;
+    const strongMultiHourException = mom4h >= 1.5;
+    if (mom1hPct > exhaustionCap && !strongMultiHourException) {
+      logger.info('RiskManager: Entry blocked - 1h momentum exhausted (entered too late)', {
+        momentum1h: mom1hPct.toFixed(3), cap: exhaustionCap, momentum4h: mom4h.toFixed(3),
+      });
+      return { pass: false, reason: `1h momentum ${mom1hPct.toFixed(2)}% > ${exhaustionCap}% cap — move already ran, entering too late`, stage: 'Health Gate' };
+    }
+
     // DIRECTION SCORE GATE: need 2/3 leading signals confirming upward direction.
     // These are all leading indicators — they measure what is happening now, not what happened.
     //   1. higherCloses  — recent candles closing above prior (structure confirmation)

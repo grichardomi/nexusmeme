@@ -1930,6 +1930,9 @@ class TradeSignalOrchestrator {
                   profitLossPercent: profitLossPercent.toFixed(2),
                 });
                 positionTracker.clearPosition(trade.id);
+                // Block same-cycle re-entry — market conditions haven't changed in 8s
+                this.staleExitedPairsThisCycle.add(trade.pair);
+                logger.info('Momentum failure exit: blocking same-cycle re-entry', { pair: trade.pair, exitType: momExitType });
                 exitCount++;
               } else {
                 logger.error('Failed to close trade (momentum failure)', null, {
@@ -2380,31 +2383,10 @@ class TradeSignalOrchestrator {
             }
           }
 
-          // CHECK 2.5: STALE UNDERWATER — never profitable, old enough, still negative → give up
-          // Catches slow bleeds that don't hit early loss depth thresholds
-          if (!shouldClose && grossProfitPct < 0) {
-            const staleMinutes = env.STALE_UNDERWATER_MINUTES; // 30 min default
-            const staleMinLoss = env.STALE_UNDERWATER_MIN_LOSS_PCT * 100; // -0.3% default (in percent)
-            const peakData = positionTracker.getPeakProfit(trade.id);
-            const peakPct = peakData?.peakPct || 0;
-
-            // Use profitCollapseMinPeakPct (0.5%) as "meaningfully profitable" threshold
-            // Trades that peaked < 0.5% never confirmed the entry thesis — treat as stale
-            if (peakPct < profitCollapseMinPeakPct && tradeAgeMinutes >= staleMinutes && grossProfitPct < staleMinLoss) {
-              shouldClose = true;
-              exitReason = 'stale_underwater';
-              logger.info('🏊 STALE UNDERWATER - never profitable, giving up', {
-                tradeId: trade.id,
-                pair: trade.pair,
-                grossProfitPct: grossProfitPct.toFixed(2) + '%',
-                netProfitPct: currentProfitPct.toFixed(2) + '%',
-                peakPct: peakPct.toFixed(2) + '%',
-                ageMinutes: tradeAgeMinutes.toFixed(1),
-                staleThresholdMinutes: staleMinutes,
-                minLossThreshold: staleMinLoss.toFixed(2) + '%',
-              });
-            }
-          }
+          // CHECK 2.5: STALE UNDERWATER removed.
+          // Early loss percentage gate (tick-driven, -0.30% gross) handles all underwater exits.
+          // Time-based underwater checks are band-aids — if early loss is tuned correctly,
+          // no trade should stay underwater long enough to need a time gate.
 
           // CHECK 2.7: MAX HOLD TIME — agile trading, not investing
           // In trending/bullish regimes, profitable trades are skipped — erosion cap handles exit.
@@ -2580,7 +2562,7 @@ class TradeSignalOrchestrator {
                   exitReason,
                 });
                 positionTracker.clearPosition(trade.id);
-                if (exitReason === 'stale_underwater' || exitReason === 'stale_flat' ||
+                if (exitReason === 'stale_flat' ||
                     exitReason === 'underwater_small_peak_timeout' || exitReason === 'underwater_never_profited') {
                   this.staleExitedPairsThisCycle.add(trade.pair);
                   logger.info('Loss exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });

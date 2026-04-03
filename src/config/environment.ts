@@ -92,6 +92,7 @@ const envSchema = z.object({
   REGIME_CACHE_TTL_MS: z.string().transform(Number).default('30000'),            // Per-pair regime cache inside orchestrator (default 30s; was hardcoded 60s)
 
   /* Health Gate Thresholds */
+  ENTRY_MAX_1H_MOMENTUM_PCT: z.string().transform(Number).default('0.45'),       // Block entry if 1h momentum already > this — move is exhausted, we're chasing
   RISK_CRASH_GUARD_4H_PCT: z.string().transform(Number).default('-3.0'),         // 4h momentum below this = crash guard blocks entry
   RISK_HEALTH_GATE_4H_FLOOR_PCT: z.string().transform(Number).default('-0.5'),   // 4h floor when 1h override not triggered
   RISK_HEALTH_GATE_4H_NEAR_FLAT: z.string().transform(Number).default('-0.1'),   // Fallback A: 4h near-flat allowance
@@ -578,6 +579,7 @@ function getDefaultEnvironment(): Environment {
     OHLC_CACHE_TTL_MS_FETCHER: 60000,
     OHLC_CACHE_TTL_MS_ORCHESTRATOR: 15000,
     REGIME_CACHE_TTL_MS: 30000,
+    ENTRY_MAX_1H_MOMENTUM_PCT: 0.45,
     RISK_CRASH_GUARD_4H_PCT: -3.0,
     RISK_HEALTH_GATE_4H_FLOOR_PCT: -0.5,
     RISK_HEALTH_GATE_4H_NEAR_FLAT: -0.1,
