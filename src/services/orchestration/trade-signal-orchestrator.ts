@@ -1154,6 +1154,10 @@ class TradeSignalOrchestrator {
               const base4h = candles[candles.length - 16].close;
               indicators.momentum4h = ((currentPrice - base4h) / base4h) * 100;
             }
+            if (candles.length >= 32) {
+              const base8h = candles[candles.length - 32].close;
+              indicators.momentum8h = ((currentPrice - base8h) / base8h) * 100;
+            }
 
             // TREND DIRECTION SCORE — zero/near-zero lag signals for fast recovery detection
             // Replaces lagging ROC-based health gate: don't ask "are you above 4h ago?"
@@ -1313,6 +1317,23 @@ class TradeSignalOrchestrator {
                 logger.info('✅ Orchestrator: intrabar gate bypassed — strong 1h trend', {
                   pair, intrabar: intrabar.toFixed(3), mom1h: mom1h.toFixed(3), bypassThreshold,
                 });
+              }
+            }
+
+            // DAY TREND GATE: block entries during sustained intraday downtrends.
+            // 8h momentum measures the full intraday move. When it's deeply negative,
+            // 1h/4h bounces are dead-cat — the larger trend dominates.
+            {
+              const mom8h = indicators.momentum8h ?? 0;
+              const dayTrendMin = effectiveEnv.ENTRY_DAY_TREND_MIN_8H;
+              if (mom8h < dayTrendMin) {
+                logger.info('🚫 Orchestrator: entry blocked — sustained intraday downtrend', {
+                  pair, momentum8h: mom8h.toFixed(3), threshold: dayTrendMin,
+                });
+                this.lastCycleStatus.pairs[pair] = { regime: this.regimeCache.get(pair)?.regime || 'unknown', momentum1h: indicators.momentum1h ?? 0, momentum4h: indicators.momentum4h ?? 0, volumeRatio: indicators.volumeRatio ?? 0, blockReason: `8h momentum ${mom8h.toFixed(3)}% < ${dayTrendMin}% — intraday downtrend`, blockStage: 'Day Trend Gate', enteredAt: null };
+                this.lastCycleStatus.updatedAt = Date.now();
+                this.signalConfirmationCache.delete(pair);
+                return { type: 'rejected', signal: { pair, reason: 'risk_filter_blocked', details: `8h momentum ${mom8h.toFixed(3)}% < ${dayTrendMin}% — intraday downtrend, bounces are traps`, stage: 'Day Trend Gate' } };
               }
             }
 

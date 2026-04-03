@@ -12,6 +12,7 @@ export interface TechnicalIndicators {
   momentum1h?: number;        // Raw % price change over last 1h (4 × 15m candles)
   momentum2h?: number;        // Raw % price change over last 2h (8 × 15m candles) — faster recovery signal
   momentum4h?: number;        // Raw % price change over last 4h (16 × 15m candles)
+  momentum8h?: number;        // Raw % price change over last 8h (32 × 15m candles) — day-trend filter
   volumeRatio?: number;       // Current candle volume vs 20-candle average
   intrabarMomentum?: number;  // (currentPrice - candleOpen) / candleOpen — real-time direction
   recentHigh?: number;        // Highest high over last 20 candles
