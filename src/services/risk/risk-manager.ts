@@ -165,6 +165,21 @@ class RiskManager {
       return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < ${crashGuard4h}% (panic/crash protection)`, stage: 'Health Gate' };
     }
 
+    // MINIMUM VIABILITY FLOOR: 4h momentum below fee break-even = market not moving enough to profit.
+    // At 0.20% fee round-trip, a trade needs at least 0.20% gross movement to break even.
+    // When 4h momentum is near-zero (e.g., 0.05-0.10%), the market hasn't moved enough in 4h
+    // to expect a profitable move in the next 10-20 minutes. These entries lose to fees.
+    // Exception: if 1h momentum is strong (>= 0.20%), short-term move is already showing.
+    const min4hViability = env.RISK_MIN_4H_MOMENTUM_VIABILITY;
+    const short1hConfirms = mom1hPct >= env.RISK_MIN_1H_MOMENTUM_VIABILITY;
+    if (mom4h < min4hViability && !short1hConfirms) {
+      logger.info('RiskManager: Entry blocked - insufficient momentum to cover fees', {
+        momentum4h: mom4h.toFixed(3), threshold: min4hViability,
+        momentum1h: mom1hPct.toFixed(3), min1h: env.RISK_MIN_1H_MOMENTUM_VIABILITY,
+      });
+      return { pass: false, reason: `4h momentum ${mom4h.toFixed(3)}% < ${min4hViability}% floor — market not moving enough to cover fees`, stage: 'Health Gate' };
+    }
+
     // EXHAUSTION CAP: 1h momentum already too high = move happened before we entered.
     // We measure past price change — by the time 1h reads 0.5%+, the rally is over and
     // we're entering at the top. Block and wait for the next setup.
