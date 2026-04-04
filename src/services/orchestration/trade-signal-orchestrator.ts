@@ -2472,7 +2472,10 @@ class TradeSignalOrchestrator {
                 // A rising trade inside the flat band is not dead capital — it just hasn't cleared fees yet.
                 const peakPct = parseFloat(String(trade.peak_profit_percent ?? 0));
                 const distanceFromPeak = peakPct - grossProfitPct; // positive = pulled back from peak
-                const isRising = peakPct >= 0 && distanceFromPeak <= flatBand; // at or near all-time high
+                // Only treat "near peak" as a meaningful rising signal if the peak itself clears
+                // the round-trip fee cost (~0.20%). A sub-fee peak is noise, not a real recovery.
+                const minMeaningfulPeak = env.STALE_FLAT_MIN_MEANINGFUL_PEAK_PCT * 100; // convert to pct
+                const isRising = peakPct >= minMeaningfulPeak && distanceFromPeak <= flatBand; // at or near all-time high
                 if (isRising) {
                   logger.info('😴 STALE FLAT skipped — price actively rising (gross near peak)', {
                     tradeId: trade.id,

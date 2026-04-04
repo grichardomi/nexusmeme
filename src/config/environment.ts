@@ -394,6 +394,7 @@ const envSchema = z.object({
   /* Stale Flat Exit - hovering at zero is dead capital, free it */
   STALE_FLAT_MINUTES: z.string().transform(Number).default('20'),             // 20 min flat = exit (was 45 — cut dead capital faster)
   STALE_FLAT_BAND_PCT: z.string().transform(Number).default('0.001'),         // ±0.1% counts as flat
+  STALE_FLAT_MIN_MEANINGFUL_PEAK_PCT: z.string().transform(Number).default('0.002'), // Peak must clear 0.2% (round-trip fee) to count as "rising"
 
   /* Early Loss Time-Based Thresholds - REGIME-AWARE */
   /* Philosophy: Adapt to market conditions - tight in chop, loose in trends */
@@ -778,6 +779,7 @@ function getDefaultEnvironment(): Environment {
     MAX_HOLD_MINUTES_STRONG: 360,
     STALE_FLAT_MINUTES: 20,
     STALE_FLAT_BAND_PCT: 0.001,
+    STALE_FLAT_MIN_MEANINGFUL_PEAK_PCT: 0.002,
     EARLY_LOSS_CHOPPY_MINUTE_1_5: -0.01,
     EARLY_LOSS_CHOPPY_MINUTE_15_30: -0.008,
     EARLY_LOSS_CHOPPY_HOUR_1_3: -0.006,
