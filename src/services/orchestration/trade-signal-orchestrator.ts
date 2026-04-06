@@ -107,9 +107,7 @@ class TradeSignalOrchestrator {
   // Unsubscribe functions keyed by pair (one active trade per pair)
   private tickUnsubs = new Map<string, () => void>();
 
-  // SIGNAL CONFIRMATION GATE: pair → timestamp when signal first qualified (ms)
-  // A signal must survive two independent 8s orchestrator cycles before capital is committed.
-  // Prevents flash/spike signals that look valid for a single reading then revert.
+  // Kept as empty map — was signal confirmation gate (removed: cooldowns forbidden per CLAUDE.md)
   private signalConfirmationCache = new Map<string, number>();
 
 
@@ -1457,36 +1455,10 @@ class TradeSignalOrchestrator {
                 logger.info('Orchestrator: ETH position halved — BTC 1h momentum negative', { pair, btcMomentum1h: btcMomentum1h.toFixed(3), newMultiplier: decision.capitalPreservationMultiplier });
               }
 
-              // SIGNAL CONFIRMATION GATE: require signal to survive 2 consecutive cycles (~16s).
-              // If this is the first time we see a valid signal for this pair, record the timestamp
-              // and skip — wait for the next cycle to confirm the signal is sustained (not a spike).
-              const nowMs = Date.now();
-              const firstSeenMs = this.signalConfirmationCache.get(pair);
-              // Strong 4h + intrabar bypass: trend already established — 1 cycle (8s) is enough.
-              // Standard path: must survive 3 cycles (~24s) to filter spike signals.
-              const intervalMs = isStrong4hBypass ? 8000 : 24000;
-              if (!firstSeenMs) {
-                // First valid signal — record and wait one more cycle
-                this.signalConfirmationCache.set(pair, nowMs);
-                logger.info('⏳ Orchestrator: signal pending confirmation (1st cycle)', {
-                  pair,
-                  mom1h: (indicators.momentum1h ?? 0).toFixed(2),
-                  mom4h: (indicators.momentum4h ?? 0).toFixed(2),
-                  regime: effectiveRegime,
-                  note: 'will enter next cycle if signal still valid',
-                });
-                return { type: 'skipped' };
-              }
-              if ((nowMs - firstSeenMs) < intervalMs * 1.2) {
-                // Signal appeared but hasn't persisted long enough — still waiting
-                logger.info('⏳ Orchestrator: signal confirming (2nd cycle not yet elapsed)', {
-                  pair,
-                  ageMs: nowMs - firstSeenMs,
-                  requiredMs: Math.round(intervalMs * 1.2),
-                });
-                return { type: 'skipped' };
-              }
-              // Signal confirmed across 2+ cycles — consume and proceed to entry
+              // NO confirmation gate — enter on first qualifying signal every cycle.
+              // Cooldowns are FORBIDDEN (CLAUDE.md). The 5-stage risk filter + intrabar gate
+              // already validate the signal in real-time. A 60s delay caused late fills at the
+              // top of moves, triggering immediate early-loss exits instead of booking profit.
               this.signalConfirmationCache.delete(pair);
 
               const regimeClass = effectiveRegime.toUpperCase();
