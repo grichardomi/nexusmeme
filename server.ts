@@ -33,16 +33,27 @@ async function main() {
   const handle = app.getRequestHandler();
   await app.prepare();
 
-  createServer((req, res) => {
+  const httpServer = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl).catch((err) => {
       console.error('Request error:', err);
       res.statusCode = 500;
       res.end('Internal Server Error');
     });
-  }).listen(port, () => {
+  });
+
+  httpServer.listen(port, () => {
     console.log(`▲ Next.js ready — http://localhost:${port}`);
   });
+
+  // Shutdown — dev-runner.mjs kills the process group (SIGTERM) on Ctrl+C
+  const shutdown = () => {
+    httpServer.close();
+    app.close().catch(() => {}).finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2000);
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }
 
 main().catch((err) => {

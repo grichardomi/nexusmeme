@@ -12,6 +12,7 @@ let initialized = false;
 let jobProcessorInterval: NodeJS.Timer | null = null;
 let orchestratorStarted = false;
 let shutdownHandlersRegistered = false;
+let shuttingDown = false;
 
 /**
  * Initialize background job processing for development mode
@@ -139,6 +140,8 @@ export async function initializeApp() {
         process.setMaxListeners(20);
 
         const shutdownHandler = async () => {
+          if (shuttingDown) return;
+          shuttingDown = true;
           console.log('⛔ Shutting down job processor, orchestrator, scheduler, and market data fetcher...');
           if (jobProcessorInterval) {
             clearInterval(jobProcessorInterval as NodeJS.Timeout);
@@ -171,10 +174,13 @@ export async function initializeApp() {
           } catch (error) {
             console.error('Error shutting down background fetcher:', error);
           }
+
+          // Force process exit after cleanup to prevent dev server from lingering after Ctrl+C
+          process.exit(0);
         };
 
-        process.on('SIGTERM', shutdownHandler);
-        process.on('SIGINT', shutdownHandler);
+        process.once('SIGTERM', shutdownHandler);
+        process.once('SIGINT', shutdownHandler);
       }
     } else {
       console.log('⚠️ Skipping in-app processor (WORKER_PROCESS=true)');

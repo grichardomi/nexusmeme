@@ -1269,14 +1269,6 @@ class TradeSignalOrchestrator {
             // Transition detector agent is not used — it was wired to adjust the 1h floor
             // which no longer exists. Intrabar gate is the real-time entry gate.
             const isBinance = (pairExchangeMap.get(pair) || 'binance').toLowerCase() === 'binance';
-            // isStrong4hBypass no longer needed for 1h floor — keep for confirmation window only
-            const isStrong4hBypass = (() => {
-              const mom4h = indicators.momentum4h ?? 0;
-              const intrabar = indicators.intrabarMomentum ?? 0;
-              const bypass4hThreshold = effectiveEnv.RISK_STRONG_4H_BYPASS_THRESHOLD ?? 0.80;
-              const bypass4hIntrabarMin = effectiveEnv.RISK_STRONG_4H_BYPASS_INTRABAR_MIN ?? 0.15;
-              return mom4h >= bypass4hThreshold && intrabar >= bypass4hIntrabarMin;
-            })();
             // Log regime context so it's visible in logs (not a gate, just informational)
             {
             }
