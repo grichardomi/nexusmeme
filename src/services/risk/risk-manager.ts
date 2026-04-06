@@ -186,7 +186,7 @@ class RiskManager {
     // Strong trend exception: if 4h is also very strong (>= 1.5%), multi-hour trend
     // still has legs even if 1h is elevated.
     const exhaustionCap = env.ENTRY_MAX_1H_MOMENTUM_PCT;
-    const strongMultiHourException = mom4h >= 1.5;
+    const strongMultiHourException = mom4h >= env.REGIME_STRONG_4H_PCT;
     if (mom1hPct > exhaustionCap && !strongMultiHourException) {
       logger.info('RiskManager: Entry blocked - 1h momentum exhausted (entered too late)', {
         momentum1h: mom1hPct.toFixed(3), cap: exhaustionCap, momentum4h: mom4h.toFixed(3),
