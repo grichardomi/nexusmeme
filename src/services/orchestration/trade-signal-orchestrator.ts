@@ -48,6 +48,7 @@ class TradeSignalOrchestrator {
   private isPeakRunning = false;       // Peak-tracking guard (1s loop)
   private isPyramidRunning = false;    // Pyramid guard (5s loop)
   private interval: NodeJS.Timer | null = null;
+  lastHeartbeat: number = 0;           // Updated each main cycle — watchdog uses this
   private peakTrackingInterval: NodeJS.Timer | null = null;
   private pyramidCheckInterval: NodeJS.Timer | null = null;
   private reconcileInterval: NodeJS.Timer | null = null; // Combined housekeeping (reconcile + low-balance)
@@ -428,6 +429,7 @@ class TradeSignalOrchestrator {
         return;
       }
       this.isCycleRunning = true;
+      this.lastHeartbeat = Date.now();
       const cycleStart = Date.now();
       try {
         await this.analyzeAndExecuteSignals();

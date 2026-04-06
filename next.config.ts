@@ -2,6 +2,9 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    instrumentationHook: true,
+  },
   compress: true,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
@@ -50,7 +53,7 @@ const config: NextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: https: blob:",
               "font-src 'self' data: https://fonts.gstatic.com",
-              "connect-src 'self' https://api.binance.us https://api.kraken.com https://api.coinbase.com https://www.google.com wss:",
+              "connect-src 'self' https://api.binance.us https://api.kraken.com https://api.coinbase.com https://www.google.com wss: ws://localhost:3000",
               "frame-src https://www.google.com https://recaptcha.google.com",
               "frame-ancestors 'none'",
               "base-uri 'self'",

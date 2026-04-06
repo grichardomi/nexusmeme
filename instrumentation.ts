@@ -5,47 +5,60 @@
  */
 
 export async function register() {
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Lazy-import to avoid edge-runtime issues
+  // Log immediately — if this doesn't appear, instrumentation.ts itself isn't being invoked
+  console.log('[instrumentation] register() called, NEXT_RUNTIME=' + process.env.NEXT_RUNTIME);
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+
+  // 1. Start orchestrator first — isolated, nothing else can block it
+  try {
+    const { tradeSignalOrchestrator } = await import('@/services/orchestration/trade-signal-orchestrator');
+    const intervalMs = parseInt(process.env.ORCHESTRATOR_INTERVAL_MS || '60000', 10);
+    tradeSignalOrchestrator.start(intervalMs);
+    console.log('✅ [instrumentation] Orchestrator started, intervalMs=' + intervalMs);
+
+    // Watchdog: restart if heartbeat goes stale (loop silently died)
+    const watchdogMs = Math.max(intervalMs * 5, 60_000);
+    setInterval(() => {
+      const staleSince = Date.now() - tradeSignalOrchestrator.lastHeartbeat;
+      if (tradeSignalOrchestrator.lastHeartbeat > 0 && staleSince > watchdogMs) {
+        console.warn('[instrumentation] Watchdog: orchestrator stale, restarting');
+        tradeSignalOrchestrator.stop();
+        tradeSignalOrchestrator.start(intervalMs);
+      }
+    }, watchdogMs);
+  } catch (err) {
+    console.error('[instrumentation] Failed to start orchestrator:', err);
+    process.stderr.write('[instrumentation] Orchestrator error: ' + String(err) + '\n');
+  }
+
+  // 2. Start other background services — failures here don't affect trading
+  try {
+    const [{ jobQueueManager }, { monthlyBillingScheduler }, { trialNotificationsScheduler }] = await Promise.all([
+      import('@/services/job-queue/singleton'),
+      import('@/services/cron/monthly-billing-scheduler'),
+      import('@/services/cron/trial-notifications-scheduler'),
+    ]);
+    jobQueueManager.startProcessing(5000);
+    await monthlyBillingScheduler.initialize();
+    await trialNotificationsScheduler.initialize();
+    console.log('✅ [instrumentation] Background services started');
+  } catch (err) {
+    console.error('[instrumentation] Failed to start background services:', err);
+  }
+
+  // 3. Error monitoring — isolated so import failure doesn't kill steps 1+2
+  try {
     const { notifyAdminError } = await import('@/services/monitoring/error-notifier');
-
-    // Start background services on server boot (same logic as /api/init)
-    try {
-      const [
-        { jobQueueManager },
-        { monthlyBillingScheduler },
-        { trialNotificationsScheduler },
-        { tradeSignalOrchestrator },
-        { logger },
-      ] = await Promise.all([
-        import('@/services/job-queue/singleton'),
-        import('@/services/cron/monthly-billing-scheduler'),
-        import('@/services/cron/trial-notifications-scheduler'),
-        import('@/services/orchestration/trade-signal-orchestrator'),
-        import('@/lib/logger'),
-      ]);
-
-      const intervalMs = parseInt(process.env.ORCHESTRATOR_INTERVAL_MS || '60000', 10);
-      jobQueueManager.startProcessing(5000);
-      await monthlyBillingScheduler.initialize();
-      await trialNotificationsScheduler.initialize();
-      tradeSignalOrchestrator.start(intervalMs);
-      logger.info('Background services started via instrumentation hook');
-    } catch (err) {
-      console.error('Failed to start background services on boot:', err);
-    }
-
-    // Catch unhandled promise rejections from route handlers / background tasks
     process.on('unhandledRejection', (reason: unknown) => {
       const message = reason instanceof Error ? reason.message : String(reason);
       const stack = reason instanceof Error ? reason.stack : undefined;
       void notifyAdminError({ statusCode: 500, path: 'unhandledRejection', message, stack });
     });
-
-    // Catch uncaught synchronous exceptions (last resort)
     process.on('uncaughtException', (err: Error) => {
       void notifyAdminError({ statusCode: 500, path: 'uncaughtException', message: err.message, stack: err.stack });
     });
+  } catch (err) {
+    console.error('[instrumentation] Failed to start error monitoring:', err);
   }
 }
 

@@ -3,6 +3,7 @@ import { Providers } from './providers';
 import { Header } from '@/components/layouts/Header';
 import { AppInitializer } from '@/components/AppInitializer';
 import { PWARegister } from '@/components/PWARegister';
+import { ServerRestartDetector } from '@/components/ServerRestartDetector';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -74,6 +75,7 @@ export default function RootLayout({
       <body className="antialiased bg-white dark:bg-slate-950 text-slate-900 dark:text-white transition-colors">
         <AppInitializer />
         <PWARegister />
+        <ServerRestartDetector />
         <Providers>
           <Header />
           {children}

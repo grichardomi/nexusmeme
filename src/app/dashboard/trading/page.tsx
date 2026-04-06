@@ -104,7 +104,7 @@ export default function TradingPage() {
     selectedBotIdRef.current = selectedBotId;
   }, [selectedBotId]);
 
-  // Fetch live balance for all live bots (unlimited + fixed capital)
+  //Fetch live balance for all live bots (unlimited + fixed capital)
   // Used for both position sizing display and low-balance warnings
   useEffect(() => {
     if (!selectedBotId) return;
