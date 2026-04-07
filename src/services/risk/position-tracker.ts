@@ -466,7 +466,7 @@ class PositionTracker {
     tradeId: string,
     pair: string,
     currentProfitPct: number,
-    _regime: string,
+    regime: string,
     currentPrice?: number,
     isRebound = false
   ): ErosionCheckResult {
@@ -510,7 +510,14 @@ class PositionTracker {
 
     const totalCost = existing.entryPrice * existing.quantity;
     const peakPctOfCost = (existing.peakProfit / totalCost) * 100;
-    const minPeakPct = env.EROSION_PEAK_MIN_PCT;
+    const regimeKey = regime?.toLowerCase() ?? '';
+    const minPeakPct =
+      regimeKey === 'choppy'        ? env.EROSION_PEAK_MIN_PCT_CHOPPY :
+      regimeKey === 'weak'          ? env.EROSION_PEAK_MIN_PCT_WEAK :
+      regimeKey === 'transitioning' ? env.EROSION_PEAK_MIN_PCT_TRANSITIONING :
+      regimeKey === 'moderate'      ? env.EROSION_PEAK_MIN_PCT_MODERATE :
+      regimeKey === 'strong'        ? env.EROSION_PEAK_MIN_PCT_STRONG :
+      env.EROSION_PEAK_MIN_PCT; // fallback
     const erosionDollars = existing.peakProfit - currentProfitDollars;
     const erosionPct = erosionDollars / existing.peakProfit;
 
