@@ -201,8 +201,13 @@ class TradeSignalOrchestrator {
         }
 
         // 3. EARLY LOSS — time-scaled threshold, only when past 1-minute noise window
+        // First 2 minutes: tighter threshold — a fast hard reversal means bad entry, cut quickly
         if (!exitReason && tradeAgeMinutes >= 1) {
-          const earlyLossThreshold = this.getEarlyLossThreshold(tradeAgeMinutes, regime) * 100;
+          const env2 = getEnvironmentConfig();
+          const isFirstTwoMinutes = tradeAgeMinutes < 2;
+          const earlyLossThreshold = isFirstTwoMinutes
+            ? env2.EARLY_LOSS_FIRST_2MIN_PCT * 100
+            : this.getEarlyLossThreshold(tradeAgeMinutes, regime) * 100;
           if (grossPct < earlyLossThreshold) {
             // Check profitable collapse: peaked ≥ PROFIT_COLLAPSE_MIN_PEAK_PCT, now underwater
             const env = getEnvironmentConfig();
@@ -1189,6 +1194,8 @@ class TradeSignalOrchestrator {
               indicators.trendScore = [higherCloses, slopeImproving, intrabarUp].filter(Boolean).length;
             }
 
+            let blockedByOverextension = false;
+
             // EARLY CYCLE DETECTION — enter at range bottom before lagging indicators catch up.
             // Condition: price in bottom EARLY_CYCLE_RANGE_PCT of 20-candle range
             //            + slope turning positive (momentum accelerating)
@@ -1221,6 +1228,27 @@ class TradeSignalOrchestrator {
                   mom4h: (indicators.momentum4h ?? 0).toFixed(3),
                   volumeRatio: (indicators.volumeRatio ?? 0).toFixed(3),
                 });
+              }
+            }
+
+            // OVEREXTENSION GUARD — block entry if price already ran too far in the last N candles
+            // Prevents buying exhausted tops (e.g. ETH running +2.9% in 18min then reversing hard)
+            if (effectiveEnv.ENTRY_OVEREXTENSION_ENABLED && candles.length >= effectiveEnv.ENTRY_OVEREXTENSION_CANDLES + 1) {
+              const lookback = effectiveEnv.ENTRY_OVEREXTENSION_CANDLES;
+              const baseCandle = candles[candles.length - 1 - lookback];
+              const recentMovePct = baseCandle ? ((currentPrice - baseCandle.close) / baseCandle.close) * 100 : 0;
+              indicators.recentMovePct = recentMovePct;
+
+              if (recentMovePct > effectiveEnv.ENTRY_OVEREXTENSION_MAX_PCT) {
+                logger.info('🚫 Orchestrator: entry blocked — price overextended (recent run too large)', {
+                  pair,
+                  recentMovePct: recentMovePct.toFixed(2) + '%',
+                  maxPct: effectiveEnv.ENTRY_OVEREXTENSION_MAX_PCT + '%',
+                  lookbackCandles: lookback,
+                  baseClose: baseCandle?.close,
+                  currentPrice,
+                });
+                blockedByOverextension = true;
               }
             }
 
@@ -1258,6 +1286,11 @@ class TradeSignalOrchestrator {
             }
 
             logger.debug('Orchestrator: pair scan', { pair, price: currentPrice, trendScore: indicators.trendScore, higherCloses: indicators.higherCloses, slope: (indicators.momentumSlope || 0).toFixed(3), intrabar: intrabarMomentum.toFixed(2), mom4h: (indicators.momentum4h || 0).toFixed(2), volRatio: (indicators.volumeRatio || 1).toFixed(2), spreadPct: (spreadPct * 100).toFixed(3) });
+
+            // PRE-CHECK: Block entry if overextension guard flagged this pair
+            if (blockedByOverextension) {
+              return { type: 'rejected', signal: { pair, reason: 'overextended', details: `Price ran >${effectiveEnv.ENTRY_OVEREXTENSION_MAX_PCT}% in last ${effectiveEnv.ENTRY_OVEREXTENSION_CANDLES} candles — exhausted top`, stage: 'Pre-Filter' } };
+            }
 
             // PRE-CHECK: Block entry if spread exceeds maximum
             const maxEntrySpreadPct = env.MAX_ENTRY_SPREAD_PCT || 0.003;

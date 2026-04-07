@@ -287,6 +287,11 @@ const envSchema = z.object({
   EARLY_CYCLE_ENABLED: z.string().transform(v => v === 'true').default('true'),
   EARLY_CYCLE_RANGE_PCT: z.string().transform(Number).default('0.25'), // bottom 25% of 20-candle range = early cycle
 
+  /* Overextension guard — block entry when price already ran too far recently */
+  ENTRY_OVEREXTENSION_ENABLED: z.string().transform(v => v === 'true').default('true'),
+  ENTRY_OVEREXTENSION_CANDLES: z.string().transform(Number).default('3'),   // look-back candles (3 × 5m = 15min)
+  ENTRY_OVEREXTENSION_MAX_PCT: z.string().transform(Number).default('1.5'), // block if price moved >1.5% in that window
+
   /* V-Shape Rebound Detection */
   SHARP_DROP_RECOVERY_ENABLED: z.string().transform(v => v === 'true').default('true'),
   SHARP_DROP_MIN_PCT: z.string().transform(Number).default('1.5'),             // Min drop magnitude to qualify as V-shape
@@ -412,6 +417,9 @@ const envSchema = z.object({
 
   /* Early Loss Time-Based Thresholds - REGIME-AWARE */
   /* Philosophy: Adapt to market conditions - tight in chop, loose in trends */
+
+  /* First 2 minutes: tighter hard-reversal cut — bad entry = get out fast */
+  EARLY_LOSS_FIRST_2MIN_PCT: z.string().transform(Number).default('-0.003'), // -0.3% in first 2 min = hard reversal, exit immediately
 
   /* CHOPPY REGIME (ADX < 25) - Tight thresholds for quick exits */
   EARLY_LOSS_CHOPPY_MINUTE_1_5: z.string().transform(Number).default('-0.01'),      // -1.0%
@@ -729,6 +737,9 @@ function getDefaultEnvironment(): Environment {
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_RATCHET_ACTIVATION_PCT: 0.8,   // arms at 0.8% peak (every real trade)
     EROSION_RATCHET_THRESHOLD: 0.10,       // 10% erosion - locks 90% of peak
+    ENTRY_OVEREXTENSION_ENABLED: true,
+    ENTRY_OVEREXTENSION_CANDLES: 3,
+    ENTRY_OVEREXTENSION_MAX_PCT: 1.5,
     EARLY_CYCLE_ENABLED: true,
     EARLY_CYCLE_RANGE_PCT: 0.25,
     SHARP_DROP_RECOVERY_ENABLED: true,
@@ -806,6 +817,7 @@ function getDefaultEnvironment(): Environment {
     STALE_FLAT_MINUTES: 20,
     STALE_FLAT_BAND_PCT: 0.001,
     STALE_FLAT_MIN_MEANINGFUL_PEAK_PCT: 0.002,
+    EARLY_LOSS_FIRST_2MIN_PCT: -0.003,
     EARLY_LOSS_CHOPPY_MINUTE_1_5: -0.01,
     EARLY_LOSS_CHOPPY_MINUTE_15_30: -0.008,
     EARLY_LOSS_CHOPPY_HOUR_1_3: -0.006,

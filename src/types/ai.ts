@@ -26,6 +26,7 @@ export interface TechnicalIndicators {
   recoveryRatioPct?: number;  // How much of the drop has been recovered (0-1, 1 = full recovery)
   rangePosition?: number;     // 0=at range bottom, 1=at range top (20-candle high/low)
   isEarlyCycle?: boolean;     // Price near range bottom + slope turning + intrabar rising = cycle just starting
+  recentMovePct?: number;     // Price change over last N short-term candles — overextension detection
 }
 
 export interface MarketRegimeAnalysis {
