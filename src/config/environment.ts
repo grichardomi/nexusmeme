@@ -278,6 +278,10 @@ const envSchema = z.object({
   EROSION_RATCHET_ACTIVATION_PCT: z.string().transform(Number).default('8.0'), // 8% of cost → ratchet arms
   EROSION_RATCHET_THRESHOLD: z.string().transform(Number).default('0.20'),     // 20% erosion when ratchet active (vs 35% standard)
 
+  /* Early Cycle Detection — enter at range bottom before lagging indicators confirm */
+  EARLY_CYCLE_ENABLED: z.string().transform(v => v === 'true').default('true'),
+  EARLY_CYCLE_RANGE_PCT: z.string().transform(Number).default('0.25'), // bottom 25% of 20-candle range = early cycle
+
   /* V-Shape Rebound Detection */
   SHARP_DROP_RECOVERY_ENABLED: z.string().transform(v => v === 'true').default('true'),
   SHARP_DROP_MIN_PCT: z.string().transform(Number).default('1.5'),             // Min drop magnitude to qualify as V-shape
@@ -712,6 +716,8 @@ function getDefaultEnvironment(): Environment {
     EROSION_PEAK_RELATIVE_MIN_HOLD_MINUTES: 5, // 5 min - fast response
     EROSION_RATCHET_ACTIVATION_PCT: 0.8,   // arms at 0.8% peak (every real trade)
     EROSION_RATCHET_THRESHOLD: 0.10,       // 10% erosion - locks 90% of peak
+    EARLY_CYCLE_ENABLED: true,
+    EARLY_CYCLE_RANGE_PCT: 0.25,
     SHARP_DROP_RECOVERY_ENABLED: true,
     SHARP_DROP_MIN_PCT: 1.5,
     SHARP_DROP_MIN_RECOVERY_RATIO: 0.5,

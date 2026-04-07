@@ -1189,6 +1189,41 @@ class TradeSignalOrchestrator {
               indicators.trendScore = [higherCloses, slopeImproving, intrabarUp].filter(Boolean).length;
             }
 
+            // EARLY CYCLE DETECTION — enter at range bottom before lagging indicators catch up.
+            // Condition: price in bottom EARLY_CYCLE_RANGE_PCT of 20-candle range
+            //            + slope turning positive (momentum accelerating)
+            //            + intrabar > 0 (rising RIGHT NOW)
+            // No 1h/4h momentum floor — those are lagging. Slope + intrabar + range position
+            // fire 1-3 candles into a new cycle, not 4-8 candles in (like 1h momentum would).
+            // Tagged isEarlyCycle → bypasses volume floor (low vol = accumulation = early cycle)
+            //                     → regime overridden to 'weak' for conservative quick-exit target.
+            if (effectiveEnv.EARLY_CYCLE_ENABLED && candles.length >= 20) {
+              const rangeLow = Math.min(...candles.slice(-20).map((c: { low: number }) => c.low));
+              const rangeHigh = Math.max(...candles.slice(-20).map((c: { high: number }) => c.high));
+              const rangeSize = rangeHigh - rangeLow;
+              const rangePosition = rangeSize > 0 ? (currentPrice - rangeLow) / rangeSize : 0.5;
+              indicators.rangePosition = rangePosition;
+
+              const inRangeLow = rangePosition <= effectiveEnv.EARLY_CYCLE_RANGE_PCT;
+              const slopePositive = (indicators.momentumSlope ?? 0) > 0;
+              const intrabarPositive = intrabarMomentum > 0;
+
+              indicators.isEarlyCycle = inRangeLow && slopePositive && intrabarPositive;
+
+              if (indicators.isEarlyCycle) {
+                logger.info('🔄 Orchestrator: early cycle entry detected — price at range bottom, slope turning', {
+                  pair,
+                  rangePosition: rangePosition.toFixed(3),
+                  rangePct: (effectiveEnv.EARLY_CYCLE_RANGE_PCT * 100).toFixed(0) + '%',
+                  slope: (indicators.momentumSlope ?? 0).toFixed(3),
+                  intrabar: intrabarMomentum.toFixed(3),
+                  mom1h: (indicators.momentum1h ?? 0).toFixed(3),
+                  mom4h: (indicators.momentum4h ?? 0).toFixed(3),
+                  volumeRatio: (indicators.volumeRatio ?? 0).toFixed(3),
+                });
+              }
+            }
+
             // SHARP DROP RECOVERY (V-shape detection)
             // Looks back 4 candles (1h) to find a panic drop followed by a recovery.
             // Pattern: high → sharp drop → current price recovered >= 50% of drop.
@@ -1409,7 +1444,10 @@ class TradeSignalOrchestrator {
               }
 
               // Cost floor validated pre-AI in Risk Manager Stage 5 (uses live spread + RISK_COST_FLOOR_MULTIPLIER)
-              const effectiveRegime = analysis.regime.regime as any;
+              // Early cycle in choppy market → override to 'weak': gets conservative 1.5% target (quick in-out)
+              // instead of 0.5% choppy target (barely covers fees) or waiting for full trend confirmation.
+              const rawRegime = analysis.regime.regime;
+              const effectiveRegime = (indicators.isEarlyCycle && rawRegime === 'choppy' ? 'weak' : rawRegime) as any;
               const entryPath = 'momentum';
               const decision: TradeDecision = {
                 pair,

@@ -345,7 +345,10 @@ class RiskManager {
     // momentum1h is already in %, compare directly (no * 100)
     const strongMomentumMove = momentum1h >= strongMomentumOverridePct;
 
-    if (volumeRatio < this.config.minVolumeRatio && !strongMomentumMove) {
+    // Early cycle: low volume IS the signature of accumulation — don't block early entries
+    const earlyCycleBypass = indicators.isEarlyCycle === true;
+
+    if (volumeRatio < this.config.minVolumeRatio && !strongMomentumMove && !earlyCycleBypass) {
       logger.info('RiskManager: Entry blocked - volume too thin', {
         pair,
         volumeRatio: volumeRatio.toFixed(3),
@@ -362,6 +365,11 @@ class RiskManager {
       logger.info('RiskManager: Volume floor bypassed — strong momentum move', {
         pair, momentum1h: momentum1h.toFixed(2), volumeRatio: volumeRatio.toFixed(3),
         threshold: strongMomentumOverridePct,
+      });
+    }
+    if (earlyCycleBypass && volumeRatio < this.config.minVolumeRatio) {
+      logger.info('RiskManager: Volume floor bypassed — early cycle entry (low vol = accumulation)', {
+        pair, volumeRatio: volumeRatio.toFixed(3), rangePosition: (indicators.rangePosition ?? 0).toFixed(3),
       });
     }
 
