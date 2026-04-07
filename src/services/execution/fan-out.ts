@@ -674,17 +674,17 @@ class ExecutionFanOut {
     // Note: plan.price is the AI signal's suggested price (may be stale from candle close)
 
     // DUPLICATE CHECK + BOT LOOKUP in parallel (independent queries)
-    // Check across ALL running bots — prevents two bots entering same pair simultaneously
+    // Check per-bot only — each bot independently manages its own position.
+    // Allowing multiple bots to trade the same pair is intentional (paper + live, or multi-bot).
     const pairBase = pair.split('/')[0];
     const [existing, botResult] = await Promise.all([
       query<{ id: string; pair: string }>(
         `SELECT t.id, t.pair FROM trades t
-         JOIN bot_instances b ON b.id = t.bot_instance_id
-         WHERE b.status = 'running'
-         AND t.pair LIKE $1
+         WHERE t.bot_instance_id = $1
+         AND t.pair LIKE $2
          AND t.status = 'open'
          LIMIT 1`,
-        [`${pairBase}/%`]
+        [botInstanceId, `${pairBase}/%`]
       ),
       query<{ user_id: string; exchange: string; config: any; trading_mode: string }>(
         `SELECT user_id, exchange, config, trading_mode FROM bot_instances WHERE id = $1`,

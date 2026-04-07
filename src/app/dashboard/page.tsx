@@ -123,8 +123,8 @@ export default function DashboardPage() {
           setHasApiKeys(null); // Unknown - don't show banner
         }
 
-        // Fetch stats — live mode only (after live_since) to exclude paper/trial trades
-        const statsResponse = await fetch('/api/trades?limit=1000&mode=live');
+        // Fetch stats — all modes so paper bots show their trades too
+        const statsResponse = await fetch('/api/trades?limit=1000&mode=all');
         if (statsResponse.ok) {
           const data = await statsResponse.json();
           const tradeStats = data.stats || {};
