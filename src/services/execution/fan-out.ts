@@ -176,22 +176,21 @@ class ExecutionFanOut {
 
     // Calculate position size using DynamicPositionSizer (ported from /nexus)
     // Supports fixed capital (e.g., 1000) or unlimited (0 = fetches from exchange with 95% buffer)
+    const env = getEnvironmentConfig();
     const hasInitialCapital = bot.config?.initialCapital !== undefined;
-    const configuredCapital = bot.config?.initialCapital ?? 1000; // Fallback to $1k if not set (parity with nexus)
+    const configuredCapital = bot.config?.initialCapital ?? env.BOT_DEFAULT_INITIAL_CAPITAL;
 
-    // Log when fallback capital is used (improved parity with nexus)
-    if (!hasInitialCapital && configuredCapital === 1000) {
+    // Log when fallback capital is used
+    if (!hasInitialCapital) {
       logger.warn('Using fallback initial capital - bot config missing initialCapital', {
         botId: bot.id,
         pair: decision.pair,
-        fallbackCapital: 1000,
+        fallbackCapital: env.BOT_DEFAULT_INITIAL_CAPITAL,
       });
     }
 
     // Use signal confidence (0-100) for position sizing, NOT regime confidence
-    // Signal confidence = AI's confidence in the trade signal (72% = bigger position)
-    // Regime confidence = confidence in market regime detection (separate concern)
-    const aiConfidence = decision.signalConfidence ?? 70; // 0-100 scale
+    const aiConfidence = decision.signalConfidence ?? env.SIGNAL_DEFAULT_CONFIDENCE;
 
     let effectiveBalance = 0;
     let totalFreeStable = 0; // Total free stablecoins across all quote currencies
@@ -204,8 +203,8 @@ class ExecutionFanOut {
     if (isUnlimitedMode) {
       // Paper mode: never touch the exchange API — unlimited capital bots simulate with a large fixed balance.
       if ((bot.config?.tradingMode as string) !== 'live') {
-        effectiveBalance = 100000; // Simulated unlimited balance for paper trading
-        logger.debug('Unlimited paper bot using simulated balance', { botId: bot.id });
+        effectiveBalance = env.PAPER_TRADING_SIMULATED_BALANCE;
+        logger.debug('Unlimited paper bot using simulated balance', { botId: bot.id, simulatedBalance: effectiveBalance });
       } else
       try {
         // Live mode only: fetch real balance from exchange
@@ -380,7 +379,7 @@ class ExecutionFanOut {
     const positionSizer = new DynamicPositionSizer(effectiveBalance);
 
     // Fetch closed trade history + capital preservation in parallel (independent)
-    const [env, adminOverrides] = [getEnvironmentConfig(), await getParamOverrides()];
+    const adminOverrides = await getParamOverrides();
     let stopLossPct = env.DEFAULT_STOP_LOSS_PCT;
     if (decision.stopLoss && Math.abs(decision.stopLoss - decision.price) > 0.01) {
       stopLossPct = Math.abs((decision.stopLoss - decision.price) / decision.price);

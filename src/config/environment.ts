@@ -375,6 +375,9 @@ const envSchema = z.object({
   POSITION_SIZER_KELLY_NO_HISTORY: z.string().transform(Number).default('0.05'), // Default 5% Kelly when < 10 trades
   POSITION_SIZER_AVG_WIN_PCT: z.string().transform(Number).default('0.025'),     // Assumed avg win % (before history builds)
   POSITION_SIZER_AVG_LOSS_PCT: z.string().transform(Number).default('0.015'),    // Assumed avg loss % (before history builds)
+  PAPER_TRADING_SIMULATED_BALANCE: z.string().transform(Number).default('10000'), // Simulated balance for unlimited-mode paper bots
+  BOT_DEFAULT_INITIAL_CAPITAL: z.string().transform(Number).default('1000'),      // Fallback capital when bot config missing initialCapital
+  SIGNAL_DEFAULT_CONFIDENCE: z.string().transform(Number).default('70'),          // Default AI confidence when signal missing it
 
   /* Position sizing by regime */
   REGIME_SIZE_STRONG: z.string().transform(Number).default('1.5'),        // 150% — both timeframes confirmed
@@ -762,6 +765,9 @@ function getDefaultEnvironment(): Environment {
     GREEN_TO_RED_MIN_HOLD_MINUTES: 2, // 2 minutes
     STALE_FLAT_TRADE_HOURS: 6,
     STALE_FLAT_TRADE_BAND_PCT: 0.5,
+    PAPER_TRADING_SIMULATED_BALANCE: 10000,
+    BOT_DEFAULT_INITIAL_CAPITAL: 1000,
+    SIGNAL_DEFAULT_CONFIDENCE: 70,
     POSITION_SIZER_MAX_RISK: 0.10,
     POSITION_SIZER_MIN_RISK: 0.01,
     POSITION_SIZER_KELLY_FRACTION: 0.25,
