@@ -471,7 +471,6 @@ const envSchema = z.object({
   ENTRY_THESIS_INVALIDATION_ENABLED: z.string().transform(v => v === 'true').default('true'),
   ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES: z.string().transform(Number).default('10'), // Don't fire in first 10 min (entry noise)
   ENTRY_THESIS_INVALIDATION_LOSS_PCT: z.string().transform(Number).default('-0.002'), // Must be ≥ -0.2% underwater
-  THESIS_INVALIDATION_BLOCK_MINUTES: z.string().transform(Number).default('45'), // Block re-entry after thesis invalidation
 
   /* BTC Dump Exit - exit underwater trades immediately when BTC is panic-selling */
   BTC_DUMP_MOM1H_THRESHOLD: z.string().transform(Number).default('-0.5'),   // BTC 1h momentum below this = dump (-0.5%)
@@ -853,7 +852,6 @@ function getDefaultEnvironment(): Environment {
     ENTRY_THESIS_INVALIDATION_ENABLED: true,
     ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES: 10,
     ENTRY_THESIS_INVALIDATION_LOSS_PCT: -0.002,
-    THESIS_INVALIDATION_BLOCK_MINUTES: 45,
     BTC_DUMP_MOM1H_THRESHOLD: -0.5,
     BTC_DUMP_VOLUME_MIN: 2.5,
     BTC_DUMP_MIN_TRADE_AGE_MINUTES: 2,

@@ -542,16 +542,18 @@ class PositionTracker {
       : env.EROSION_PEAK_RELATIVE_THRESHOLD;
 
     // PRIMARY: Dollar threshold — fires only when current profit covers fees with meaningful margin.
-    // Dollar path requires 2x fees (prevents exiting near-zero on large positions).
     const estimatedRoundTripFees = totalCost * env.BINANCE_TAKER_FEE_DEFAULT * 2;
-    const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > estimatedRoundTripFees * 2;
+    // Minimum net profit floor: current gross must exceed fees by at least EROSION_MIN_EXIT_PROFIT_PCT of position cost.
+    // Prevents exits that leave near-zero net gain (e.g., $4.36 gross on $4.00 fees = $0.36 net).
+    const minNetDollars = totalCost * env.EROSION_MIN_EXIT_PROFIT_PCT;
+    const minExitThreshold = estimatedRoundTripFees + minNetDollars;
+    const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > minExitThreshold;
 
     // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
     const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold;
 
-    // Pct path only requires 1x fees — it has its own quality gate (minPeakPct).
-    // Exiting at 1x fees+ is a small win vs letting the trade collapse to zero.
-    if ((dollarFired || pctFired) && currentProfitDollars > estimatedRoundTripFees) {
+    // Both paths require current profit to clear the minimum exit threshold.
+    if ((dollarFired || pctFired) && currentProfitDollars > minExitThreshold) {
       const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
       logger.info(isRebound ? '🔒 REBOUND TRAILING STOP - locking profit (tight)' : '🔒 TRAILING STOP - locking profit', {
         tradeId,

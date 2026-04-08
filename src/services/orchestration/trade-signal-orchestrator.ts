@@ -52,8 +52,6 @@ class TradeSignalOrchestrator {
   private peakTrackingInterval: NodeJS.Timer | null = null;
   private pyramidCheckInterval: NodeJS.Timer | null = null;
   private reconcileInterval: NodeJS.Timer | null = null; // Combined housekeeping (reconcile + low-balance)
-  // Pairs exited for stale reasons in the current cycle — block re-entry until next cycle
-  private staleExitedPairsThisCycle = new Set<string>();
   private lowBalanceCheckInterval: NodeJS.Timer | null = null; // kept for stop() cleanup reference
   private lastLowBalanceCheckTs = 0; // tracks last low-balance check within housekeeping interval
 
@@ -811,7 +809,6 @@ class TradeSignalOrchestrator {
    */
   private async analyzeAndExecuteSignals() {
     // Reset stale-exit tracking at the start of each cycle
-    this.staleExitedPairsThisCycle.clear();
     try {
       // Get all active bots with enabled pairs
       const activeBots = await this.getActiveBots();
@@ -1042,12 +1039,6 @@ class TradeSignalOrchestrator {
         allPairs.map(async (pair): Promise<PairResult> => {
           const pairExchange = pairExchangeMap.get(pair) || 'binance';
           try {
-            // Skip pairs exited for stale reasons this cycle — signal still live, would re-trigger
-            if (this.staleExitedPairsThisCycle.has(pair)) {
-              logger.info('Skipping entry: pair had stale exit this cycle', { pair });
-              return { type: 'skipped' };
-            }
-
 
             // OPEN POSITION GUARD: Skip AI/Claude entirely if any active bot already
             // holds this pair. fan-out.ts does the per-bot DB check, but checking here
@@ -1988,9 +1979,6 @@ class TradeSignalOrchestrator {
                   profitLossPercent: profitLossPercent.toFixed(2),
                 });
                 positionTracker.clearPosition(trade.id);
-                // Block same-cycle re-entry — market conditions haven't changed in 8s
-                this.staleExitedPairsThisCycle.add(trade.pair);
-                logger.info('Momentum failure exit: blocking same-cycle re-entry', { pair: trade.pair, exitType: momExitType });
                 exitCount++;
               } else {
                 logger.error('Failed to close trade (momentum failure)', null, {
@@ -2623,11 +2611,6 @@ class TradeSignalOrchestrator {
                   exitReason,
                 });
                 positionTracker.clearPosition(trade.id);
-                if (exitReason === 'stale_flat' ||
-                    exitReason === 'underwater_small_peak_timeout' || exitReason === 'underwater_never_profited') {
-                  this.staleExitedPairsThisCycle.add(trade.pair);
-                  logger.info('Loss exit: blocking same-cycle re-entry', { pair: trade.pair, exitReason });
-                }
                 exitCount++;
               } else {
                 logger.error('Failed to close trade', null, {
