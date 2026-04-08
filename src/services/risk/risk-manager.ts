@@ -165,19 +165,20 @@ class RiskManager {
       return { pass: false, reason: `Crash guard: 4h momentum ${mom4h.toFixed(2)}% < ${crashGuard4h}% (panic/crash protection)`, stage: 'Health Gate' };
     }
 
-    // MINIMUM VIABILITY FLOOR: 4h momentum below fee break-even = market not moving enough to profit.
-    // At 0.20% fee round-trip, a trade needs at least 0.20% gross movement to break even.
-    // When 4h momentum is near-zero (e.g., 0.05-0.10%), the market hasn't moved enough in 4h
-    // to expect a profitable move in the next 10-20 minutes. These entries lose to fees.
-    // Exception: if 1h momentum is strong (>= 0.20%), short-term move is already showing.
+    // MINIMUM VIABILITY FLOOR: 4h momentum below threshold = broader market not moving enough.
+    // 4h is the context timeframe — it reflects where the market has been for the last 4 hours.
+    // A weak 4h (< threshold) with a strong 1h means: short-term bounce in a flat/declining market.
+    // That pattern describes exactly the dead-cat bounces that produce our losses.
+    //
+    // NO 1h bypass: 1h is the shorter timeframe. Allowing 1h strength to override a weak 4h
+    // context defeats the purpose of having a 4h floor. Genuine new uptrends show 4h turning up
+    // first; if only 1h is positive while 4h is flat/negative, we are chasing a bounce.
     const min4hViability = env.RISK_MIN_4H_MOMENTUM_VIABILITY;
-    const short1hConfirms = mom1hPct >= env.RISK_MIN_1H_MOMENTUM_VIABILITY;
-    if (mom4h < min4hViability && !short1hConfirms) {
-      logger.info('RiskManager: Entry blocked - insufficient momentum to cover fees', {
-        momentum4h: mom4h.toFixed(3), threshold: min4hViability,
-        momentum1h: mom1hPct.toFixed(3), min1h: env.RISK_MIN_1H_MOMENTUM_VIABILITY,
+    if (mom4h < min4hViability) {
+      logger.info('RiskManager: Entry blocked - 4h momentum below viability floor', {
+        momentum4h: mom4h.toFixed(3), threshold: min4hViability, momentum1h: mom1hPct.toFixed(3),
       });
-      return { pass: false, reason: `4h momentum ${mom4h.toFixed(3)}% < ${min4hViability}% floor — market not moving enough to cover fees`, stage: 'Health Gate' };
+      return { pass: false, reason: `4h momentum ${mom4h.toFixed(3)}% < ${min4hViability}% — broader market not moving enough to profit`, stage: 'Health Gate' };
     }
 
     // EXHAUSTION CAP: 1h momentum already too high = move happened before we entered.
