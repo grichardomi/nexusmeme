@@ -237,6 +237,7 @@ export async function GET(request: NextRequest) {
           t.exit_fee,
           t.trading_mode,
           b.config ->> 'initialCapital' AS initial_capital,
+          COALESCE(b.config ->> 'name', 'Bot ' || LEFT(b.id::text, 8)) AS bot_name,
           b.exchange,
           b.live_since
         FROM trades t
@@ -500,6 +501,7 @@ export async function GET(request: NextRequest) {
       return {
         id: t.id,
         botId: t.bot_instance_id,
+        botName: t.bot_name as string | null,
         pair: t.pair,
         entryPrice,
         exitPrice,

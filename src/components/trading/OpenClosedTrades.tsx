@@ -22,6 +22,7 @@ interface Trade {
   status: string;
   exitReason?: string | null;
   botId?: string;
+  botName?: string | null;
   tradingMode?: 'live' | 'paper';
 }
 
@@ -475,7 +476,7 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
       const response = await fetch('/api/admin/trades/delete-closed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ botId }),
+        body: JSON.stringify(botId ? { botId } : { userId: session?.user?.id }),
       });
 
       const data = await response.json();
@@ -539,6 +540,11 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {new Date(trade.entryTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </p>
+            {!botId && trade.botName && (
+              <p className="text-xs text-indigo-500 dark:text-indigo-400 font-medium mt-0.5">
+                🤖 {trade.botName}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-1.5 flex-wrap justify-end">
             {trade.tradingMode && (
@@ -905,7 +911,7 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          {isAdmin && botId && !isClosedPositionsCollapsed && closedTrades.length > 0 && (
+          {isAdmin && !isClosedPositionsCollapsed && closedTrades.length > 0 && (
             <button
               onClick={handleDeleteAllClosedTrades}
               disabled={isDeletingClosedTrades}
