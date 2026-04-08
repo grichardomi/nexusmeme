@@ -244,15 +244,10 @@ class RiskManager {
       return { pass: true, stage: 'Health Gate' };
     }
 
-    // FALLBACK: 4h stable + any real-time confirmation (intrabar > 0 = price rising now)
-    const nearFlat4h = env.RISK_HEALTH_GATE_4H_NEAR_FLAT;
-    if (mom4h >= nearFlat4h && intrabar > 0) {
-      logger.info('RiskManager: Health gate passed via 4h stable + positive intrabar', { momentum4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });
-      return { pass: true, stage: 'Health Gate' };
-    }
-
-    // FALLBACK: Creeping uptrend — slope accelerating + 4h non-negative + intrabar rising
+    // FALLBACK: Creeping uptrend — slope accelerating + 4h non-negative + intrabar rising with magnitude
     // (catches slow momentum builds before direction score reaches 2/3)
+    // Requires intrabar >= RISK_CREEP_INTRABAR_MIN (positive magnitude, not just sign) to prevent
+    // micro-tick entries in flat markets where fees exceed expected price movement.
     const slope = momentumSlope ?? 0;
     if (slope > env.RISK_CREEP_SLOPE_MIN && mom4h >= 0 && intrabar >= env.RISK_CREEP_INTRABAR_MIN) {
       logger.info('RiskManager: Health gate passed via creeping uptrend', { momentumSlope: slope.toFixed(3), momentum4h: mom4h.toFixed(3), intrabar: intrabar.toFixed(3) });

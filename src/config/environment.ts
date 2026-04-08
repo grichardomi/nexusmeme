@@ -95,14 +95,12 @@ const envSchema = z.object({
   ENTRY_MAX_1H_MOMENTUM_PCT: z.string().transform(Number).default('0.45'),       // Block entry if 1h momentum already > this — move is exhausted, we're chasing
   ENTRY_DAY_TREND_MIN_8H: z.string().transform(Number).default('-0.5'),         // Block entry if 8h momentum < this — sustained intraday downtrend, bounces are traps
   RISK_CRASH_GUARD_4H_PCT: z.string().transform(Number).default('-3.0'),         // 4h momentum below this = crash guard blocks entry
-  RISK_MIN_4H_MOMENTUM_VIABILITY: z.string().transform(Number).default('0.15'),  // 4h must show this much momentum OR 1h confirms — fee viability floor
-  RISK_MIN_1H_MOMENTUM_VIABILITY: z.string().transform(Number).default('0.20'),  // 1h override: if 1h >= this, bypass 4h viability floor
-  RISK_HEALTH_GATE_4H_FLOOR_PCT: z.string().transform(Number).default('-0.5'),   // 4h floor when 1h override not triggered
-  RISK_HEALTH_GATE_4H_NEAR_FLAT: z.string().transform(Number).default('-0.1'),   // Fallback A: 4h near-flat allowance
+  RISK_MIN_4H_MOMENTUM_VIABILITY: z.string().transform(Number).default('0.15'),  // 4h must reach this floor — fee viability gate (no bypasses)
+  RISK_HEALTH_GATE_4H_FLOOR_PCT: z.string().transform(Number).default('-0.5'),   // 4h floor for early-recovery exception
   RISK_SLOPE_MIN_STRONG: z.string().transform(Number).default('-0.05'),          // Slope floor in strong regime (brief dips tolerated)
   RISK_SLOPE_MIN_DEFAULT: z.string().transform(Number).default('0.0'),           // Slope floor in moderate/weak/choppy (must be accelerating)
   RISK_CREEP_SLOPE_MIN: z.string().transform(Number).default('0.03'),            // Creeping uptrend min slope
-  RISK_CREEP_INTRABAR_MIN: z.string().transform(Number).default('-0.1'),         // Creeping uptrend min intrabar
+  RISK_CREEP_INTRABAR_MIN: z.string().transform(Number).default('0.05'),         // Creeping uptrend min intrabar — must be positive with magnitude
   RISK_STEADY_GRIND_INTRABAR_MIN: z.string().transform(Number).default('-0.15'), // Steady grind min intrabar
 
   /* Bot Configuration */
@@ -606,13 +604,11 @@ function getDefaultEnvironment(): Environment {
     ENTRY_DAY_TREND_MIN_8H: -0.5,
     RISK_CRASH_GUARD_4H_PCT: -3.0,
     RISK_MIN_4H_MOMENTUM_VIABILITY: 0.15,
-    RISK_MIN_1H_MOMENTUM_VIABILITY: 0.20,
     RISK_HEALTH_GATE_4H_FLOOR_PCT: -0.5,
-    RISK_HEALTH_GATE_4H_NEAR_FLAT: -0.1,
     RISK_SLOPE_MIN_STRONG: -0.05,
     RISK_SLOPE_MIN_DEFAULT: 0.0,
     RISK_CREEP_SLOPE_MIN: 0.03,
-    RISK_CREEP_INTRABAR_MIN: -0.1,
+    RISK_CREEP_INTRABAR_MIN: 0.05,
     RISK_STEADY_GRIND_INTRABAR_MIN: -0.15,
     BOT_API_PORT_START: 20000,
     BOT_API_PORT_END: 39999,
