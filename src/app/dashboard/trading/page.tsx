@@ -583,7 +583,7 @@ export default function TradingPage() {
                   📊 Trade History
                 </h2>
                 <OpenClosedTrades
-                  botId={selectedBot.id}
+                  botId={null}
                   modeFilter={selectedBot.tradingMode === 'live' && selectedBot.liveSince ? tradeViewMode : 'all'}
                   onOpenTradeCount={setOpenTradeCount}
                 />

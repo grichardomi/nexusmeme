@@ -42,7 +42,7 @@ interface PositionHealth {
 }
 
 interface OpenClosedTradesProps {
-  botId: string;
+  botId: string | null;
   modeFilter?: 'live' | 'paper' | 'all';
   onOpenTradeCount?: (count: number) => void;
 }
@@ -54,7 +54,7 @@ interface CurrentPrices {
   [pair: string]: number;
 }
 
-export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }: OpenClosedTradesProps) {
+export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTradeCount }: OpenClosedTradesProps) {
   const { data: session } = useSession();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,7 +104,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
     try {
       const from = getFromDate();
       const params = new URLSearchParams({
-        botId,
+        ...(botId ? { botId } : {}),
         offset: offset.toString(),
         limit: TRADES_PER_PAGE.toString(),
         status: statusFilter,
@@ -366,7 +366,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
   const handleCSVExport = useCallback(() => {
     const from = getFromDate();
     const params = new URLSearchParams({
-      botId,
+      ...(botId ? { botId } : {}),
       status: statusFilter,
       mode: modeFilter,
       type: 'export',
@@ -905,7 +905,7 @@ export function OpenClosedTrades({ botId, modeFilter = 'all', onOpenTradeCount }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          {isAdmin && !isClosedPositionsCollapsed && closedTrades.length > 0 && (
+          {isAdmin && botId && !isClosedPositionsCollapsed && closedTrades.length > 0 && (
             <button
               onClick={handleDeleteAllClosedTrades}
               disabled={isDeletingClosedTrades}
