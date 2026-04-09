@@ -198,9 +198,12 @@ class TradeSignalOrchestrator {
           });
         }
 
-        // 3. EARLY LOSS — time-scaled threshold, only when past 1-minute noise window
-        // First 2 minutes: tighter threshold — a fast hard reversal means bad entry, cut quickly
-        if (!exitReason && tradeAgeMinutes >= 1) {
+        // 3. EARLY LOSS — time-scaled threshold, only when past initial noise window
+        // 30s guard: enough to avoid exiting on entry spread noise (spread is ~0.05-0.10%,
+        // well below the -0.25% threshold). Lowered from 1 minute to reduce overshoot lag
+        // when price drops sharply — the tick handler catches it ~100ms after threshold is hit
+        // rather than waiting up to 8s for the orchestrator cycle.
+        if (!exitReason && tradeAgeMinutes >= 0.5) {
           const env2 = getEnvironmentConfig();
           const isFirstTwoMinutes = tradeAgeMinutes < 2;
           const earlyLossThreshold = isFirstTwoMinutes

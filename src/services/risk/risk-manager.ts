@@ -181,14 +181,26 @@ class RiskManager {
       return { pass: false, reason: `4h momentum ${mom4h.toFixed(3)}% < ${min4hViability}% — broader market not moving enough to profit`, stage: 'Health Gate' };
     }
 
+    // 1H VIABILITY FLOOR: 1h momentum below threshold = short-term move hasn't started.
+    // 4h can be above floor but if 1h is near zero, the move hasn't actually begun —
+    // fees will exceed any realistic gross profit in the available hold window.
+    const min1hViability = env.RISK_MIN_1H_MOMENTUM_VIABILITY;
+    if (mom1hPct < min1hViability) {
+      logger.info('RiskManager: Entry blocked - 1h momentum below viability floor', {
+        momentum1h: mom1hPct.toFixed(3), threshold: min1hViability, momentum4h: mom4h.toFixed(3),
+      });
+      return { pass: false, reason: `1h momentum ${mom1hPct.toFixed(3)}% < ${min1hViability}% — short-term move insufficient to cover fees`, stage: 'Health Gate' };
+    }
+
     // EXHAUSTION CAP: 1h momentum already too high = move happened before we entered.
-    // We measure past price change — by the time 1h reads 0.5%+, the rally is over and
-    // we're entering at the top. Block and wait for the next setup.
-    // Strong trend exception: if 4h is also very strong (>= 1.5%), multi-hour trend
-    // still has legs even if 1h is elevated.
-    const exhaustionCap = env.ENTRY_MAX_1H_MOMENTUM_PCT;
-    const strongMultiHourException = mom4h >= env.REGIME_STRONG_4H_PCT;
-    if (mom1hPct > exhaustionCap && !strongMultiHourException) {
+    // We measure past price change — by the time 1h is elevated, the rally may be over.
+    // Tiered: normal regime uses ENTRY_MAX_1H_MOMENTUM_PCT; strong 4h regime uses a higher
+    // ceiling (ENTRY_MAX_1H_MOMENTUM_STRONG_PCT) rather than a full bypass. Even in a strong
+    // trend, 1h > 1.5% means the hourly move already ran — we're entering at exhaustion.
+    const exhaustionCap = mom4h >= env.REGIME_STRONG_4H_PCT
+      ? env.ENTRY_MAX_1H_MOMENTUM_STRONG_PCT  // strong regime: higher ceiling, not unlimited
+      : env.ENTRY_MAX_1H_MOMENTUM_PCT;         // normal regime: strict cap
+    if (mom1hPct > exhaustionCap) {
       logger.info('RiskManager: Entry blocked - 1h momentum exhausted (entered too late)', {
         momentum1h: mom1hPct.toFixed(3), cap: exhaustionCap, momentum4h: mom4h.toFixed(3),
       });
