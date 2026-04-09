@@ -97,7 +97,7 @@ const envSchema = z.object({
   ENTRY_DAY_TREND_MIN_8H: z.string().transform(Number).default('-0.5'),         // Block entry if 8h momentum < this — sustained intraday downtrend, bounces are traps
   RISK_CRASH_GUARD_4H_PCT: z.string().transform(Number).default('-3.0'),         // 4h momentum below this = crash guard blocks entry
   RISK_MIN_4H_MOMENTUM_VIABILITY: z.string().transform(Number).default('0.15'),  // 4h must reach this floor — fee viability gate (no bypasses)
-  RISK_MIN_1H_MOMENTUM_VIABILITY: z.string().transform(Number).default('0.20'),  // 1h must reach this floor — short-term move must have started to cover fees
+  RISK_MIN_1H_MOMENTUM_VIABILITY: z.string().transform(Number).default('0.30'),  // 1h must reach this floor — short-term move must have started to cover fees
   RISK_HEALTH_GATE_4H_FLOOR_PCT: z.string().transform(Number).default('-0.5'),   // 4h floor for early-recovery exception
   RISK_SLOPE_MIN_STRONG: z.string().transform(Number).default('-0.05'),          // Slope floor in strong regime (brief dips tolerated)
   RISK_SLOPE_MIN_DEFAULT: z.string().transform(Number).default('0.0'),           // Slope floor in moderate/weak/choppy (must be accelerating)
@@ -607,7 +607,7 @@ function getDefaultEnvironment(): Environment {
     ENTRY_DAY_TREND_MIN_8H: -0.5,
     RISK_CRASH_GUARD_4H_PCT: -3.0,
     RISK_MIN_4H_MOMENTUM_VIABILITY: 0.15,
-    RISK_MIN_1H_MOMENTUM_VIABILITY: 0.20,
+    RISK_MIN_1H_MOMENTUM_VIABILITY: 0.30,
     RISK_HEALTH_GATE_4H_FLOOR_PCT: -0.5,
     RISK_SLOPE_MIN_STRONG: -0.05,
     RISK_SLOPE_MIN_DEFAULT: 0.0,
