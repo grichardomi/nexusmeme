@@ -69,21 +69,25 @@ export class MomentumFailureDetector {
     const regime = (position.regime || regimeHint || 'moderate').toLowerCase();
 
     // Time/MAE guard for transitioning regime: if no progress by guard time, exit early
+    // Use GROSS profit — fees must not trigger the guard on trades where price moved in our favor.
+    // A trade with +0.15% gross is not "stuck" — it just hasn't cleared the fee round-trip yet.
     const holdMins = position.holdTimeMinutes ?? 0;
     const guardMinutes = env.TRANSITIONING_TIME_GUARD_MINUTES;
     const guardProfitPct = env.TRANSITIONING_TIME_GUARD_MIN_PROFIT_PCT;
-    if (regime === 'transitioning' && holdMins >= guardMinutes && position.profitPct < guardProfitPct) {
+    const grossProfitForGuard = position.grossProfitPct ?? position.profitPct;
+    if (regime === 'transitioning' && holdMins >= guardMinutes && grossProfitForGuard < guardProfitPct) {
       result.shouldExit = true;
       result.signalCount = 2;
       result.signals.priceActionFailure = true;
       result.signals.htfBreakdown = true;
       result.reasoning.push(
-        `Time/MAE guard: ${holdMins.toFixed(1)}min with profit ${position.profitPct.toFixed(2)}% < ${guardProfitPct.toFixed(2)}% target`
+        `Time/MAE guard: ${holdMins.toFixed(1)}min with gross profit ${grossProfitForGuard.toFixed(2)}% < ${guardProfitPct.toFixed(2)}% target`
       );
       logger.info('Transitioning time/MAE guard triggered', {
         pair: position.pair,
         holdTimeMinutes: holdMins,
-        profitPct: position.profitPct,
+        grossProfitPct: grossProfitForGuard,
+        netProfitPct: position.profitPct,
         guardMinutes,
         guardProfitPct,
       });
