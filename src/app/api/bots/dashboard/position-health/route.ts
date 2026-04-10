@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const includeClosed = searchParams.get('includeClosed') === 'true';
+    const botIdFilter = searchParams.get('botId');
 
     logger.debug('Fetching position health dashboard');
 
@@ -93,6 +94,9 @@ export async function GET(req: NextRequest) {
 
     if (includeClosed) {
       query_sql = query_sql.replace("WHERE t.status = 'open'", "WHERE t.status IN ('open', 'closed')");
+    }
+    if (botIdFilter) {
+      query_sql += ` AND t.bot_instance_id = '${botIdFilter.replace(/'/g, "''")}'`;
     }
 
     query_sql += ` ORDER BY t.entry_time ASC`;

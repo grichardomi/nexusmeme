@@ -216,7 +216,10 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
   useEffect(() => {
     async function fetchPositionHealth() {
       try {
-        const response = await fetch('/api/bots/dashboard/position-health');
+        const url = botId
+          ? `/api/bots/dashboard/position-health?botId=${encodeURIComponent(botId)}`
+          : '/api/bots/dashboard/position-health';
+        const response = await fetch(url);
         if (!response.ok) return;
 
         const data = await response.json();
@@ -671,35 +674,60 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
                     title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ ${(health.erosionArmThreshold ?? 0.15).toFixed(2)}%. Currently ${health.peakProfitPct > 0 ? `peak is ${health.peakProfitPct.toFixed(2)}%` : 'no peak yet'}.`}
                   >?</span>
                 </span>
-                <span className={`font-semibold ${
-                  health.peakProfitPct < (health.erosionArmThreshold ?? 0.4)
-                    ? 'text-slate-400 dark:text-slate-500'
-                    : health.erosionRatioPct >= 100
-                      ? 'text-red-600 dark:text-red-400'
-                      : health.erosionRatioPct > 70
-                        ? 'text-amber-500 dark:text-amber-400'
-                        : 'text-slate-900 dark:text-white'
-                }`}>
-                  {health.peakProfitPct < (health.erosionArmThreshold ?? 0.4)
-                    ? `Unarmed (peak ${health.peakProfitPct.toFixed(2)}% < ${(health.erosionArmThreshold ?? 0.4).toFixed(2)}%)`
-                    : health.erosionRatioPct >= 100
-                      ? `CAP HIT — exit triggered`
-                      : health.erosionDollars > 0
-                        ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
-                        : `${health.erosionRatioPct.toFixed(1)}%`
+                {(() => {
+                  const armThreshold = health.erosionArmThreshold ?? 0.4;
+                  const armed = health.peakProfitPct >= armThreshold;
+                  const hasPeak = health.peakProfitPct > 0;
+                  const warmPct = armThreshold > 0 ? Math.min(100, (health.peakProfitPct / armThreshold) * 100) : 0;
+                  if (!hasPeak) {
+                    return <span className="text-slate-400 dark:text-slate-500 italic">No peak yet</span>;
                   }
-                </span>
+                  if (!armed) {
+                    return (
+                      <span className="text-slate-400 dark:text-slate-500 font-semibold">
+                        Arming… {warmPct.toFixed(0)}% &nbsp;
+                        <span className="font-normal opacity-75">(peak {health.peakProfitPct.toFixed(2)}% / {armThreshold.toFixed(2)}% needed)</span>
+                      </span>
+                    );
+                  }
+                  if (health.erosionRatioPct >= 100) {
+                    return <span className="font-semibold text-red-600 dark:text-red-400">CAP HIT — exit triggered</span>;
+                  }
+                  return (
+                    <span className={`font-semibold ${health.erosionRatioPct > 70 ? 'text-amber-500 dark:text-amber-400' : 'text-slate-900 dark:text-white'}`}>
+                      {health.erosionDollars > 0
+                        ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
+                        : `${health.erosionRatioPct.toFixed(1)}%`}
+                    </span>
+                  );
+                })()}
               </div>
               <div className="w-full h-3 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
-                <div
-                  className="h-full transition-all"
-                  style={{
-                    width: `${health.peakProfitPct < (health.erosionArmThreshold ?? 0.4) ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
-                    background: health.erosionRatioPct >= 100 ? '#ef4444'
-                      : health.erosionRatioPct > 70 ? 'linear-gradient(90deg, #eab308 0%, #ef4444 100%)'
-                      : 'linear-gradient(90deg, #22c55e 0%, #eab308 100%)',
-                  }}
-                />
+                {(() => {
+                  const armThreshold = health.erosionArmThreshold ?? 0.4;
+                  const armed = health.peakProfitPct >= armThreshold;
+                  const hasPeak = health.peakProfitPct > 0;
+                  const warmPct = armThreshold > 0 ? Math.min(100, (health.peakProfitPct / armThreshold) * 100) : 0;
+                  if (!hasPeak) {
+                    // No profit yet — empty bar
+                    return <div className="h-full w-0" />;
+                  }
+                  if (!armed) {
+                    // Warming up — faint blue progress toward arm threshold
+                    return (
+                      <div className="h-full transition-all rounded"
+                        style={{ width: `${warmPct}%`, background: 'linear-gradient(90deg, #60a5fa 0%, #3b82f6 100%)', opacity: 0.6 }} />
+                    );
+                  }
+                  return (
+                    <div className="h-full transition-all" style={{
+                      width: `${Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
+                      background: health.erosionRatioPct >= 100 ? '#ef4444'
+                        : health.erosionRatioPct > 70 ? 'linear-gradient(90deg, #eab308 0%, #ef4444 100%)'
+                        : 'linear-gradient(90deg, #22c55e 0%, #eab308 100%)',
+                    }} />
+                  );
+                })()}
               </div>
             </div>
             <div className="flex items-center justify-between">
