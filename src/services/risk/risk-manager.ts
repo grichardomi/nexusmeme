@@ -238,11 +238,13 @@ class RiskManager {
       const slope = momentumSlope ?? 0;
       const isStrongTrend = mom4h >= env.REGIME_STRONG_4H_PCT; // 4h >= 0.8% = established trend
       const dynamicMinSlope = isStrongTrend ? env.RISK_SLOPE_MIN_STRONG : env.RISK_SLOPE_MIN_DEFAULT;
-      // Override slope gate when momentum or structure is overwhelmingly positive
+      // Override slope gate when momentum or structure is overwhelmingly positive.
+      // NOTE: strongMultiHour removed — strong 4h context uses the relaxed RISK_SLOPE_MIN_STRONG
+      // threshold (-0.05) which already tolerates brief dips. A full bypass lets spike reversals
+      // through unconditionally (e.g., re-entering at spike top when slope is clearly negative).
       const perfectScore = score >= 3 && mom4h >= 0;
       const veryStrongMomentum = mom1hPct >= (env.RISK_STRONG_MOMENTUM_OVERRIDE_PCT ?? 2.5);
-      const strongMultiHour = mom4h >= env.REGIME_STRONG_4H_PCT;
-      const slopeOverridden = perfectScore || veryStrongMomentum || strongMultiHour;
+      const slopeOverridden = perfectScore || veryStrongMomentum;
 
       if (slope < dynamicMinSlope && !slopeOverridden) {
         logger.info('RiskManager: Entry blocked - decelerating momentum', {

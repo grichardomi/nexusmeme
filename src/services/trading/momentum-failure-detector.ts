@@ -31,7 +31,8 @@ export interface OpenPosition {
   pair: string;
   entryPrice: number;
   currentPrice: number;
-  profitPct: number;
+  profitPct: number;         // NET (after fees) — used for profit targets / erosion
+  grossProfitPct?: number;   // GROSS (before fees) — used for directional thesis checks
   pyramidLevelsActivated: number;
   holdTimeMinutes?: number;
   regime?: string;
@@ -93,6 +94,10 @@ export class MomentumFailureDetector {
     // 1h < -0.2% = clear reversal; 4h < 0.3% = trend not supporting entry (neutral or declining)
     // Entry thesis is gone — no reason to hold, exit immediately regardless of loss size
     //
+    // IMPORTANT: Use GROSS profit for the "never went green" check, not NET.
+    // Fee drag makes even profitable price moves appear negative in net terms.
+    // If price moved in our favor (gross > 0), the thesis is NOT invalidated — just hold longer.
+    //
     // Minimum hold guard: must match ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES (default 10 min)
     // to stay consistent with the orchestrator's own CHECK 2.4. A trade that is 5 seconds old
     // hasn't failed its thesis — it's just paying entry fees. Without this guard, every trade
@@ -100,7 +105,9 @@ export class MomentumFailureDetector {
     const momentum1hNow = indicators.momentum1h ?? 0;
     const momentum4hNow = indicators.momentum4h ?? 0;
     const thesisMinHoldMinutes = env.ENTRY_THESIS_INVALIDATION_MIN_AGE_MINUTES ?? 10;
-    if (position.profitPct <= 0 && holdMins >= thesisMinHoldMinutes && momentum1hNow < -0.2 && momentum4hNow < 0.3) {
+    // Use gross profit if available — price moved in our favor = thesis is still valid
+    const grossProfitForThesis = position.grossProfitPct ?? position.profitPct;
+    if (grossProfitForThesis <= 0 && holdMins >= thesisMinHoldMinutes && momentum1hNow < -0.2 && momentum4hNow < 0.3) {
       result.shouldExit = true;
       result.signalCount = 2;
       result.signals.priceActionFailure = true;
@@ -130,7 +137,9 @@ export class MomentumFailureDetector {
     const staleMinLossPct = (regime === 'weak' || regime === 'transitioning'
       ? env.MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT_WEAK
       : env.MOMENTUM_FAILURE_STALE_MIN_LOSS_PCT) * 100; // convert to percent
-    if (position.profitPct <= staleMinLossPct && holdMins >= staleHoldMinutes) {
+    // Use gross profit for stale check — fee drag must not classify a price-positive trade as stale
+    const grossProfitForStale = position.grossProfitPct ?? position.profitPct;
+    if (grossProfitForStale <= staleMinLossPct && holdMins >= staleHoldMinutes) {
       result.shouldExit = true;
       result.signalCount = 2;
       result.signals.priceActionFailure = true;

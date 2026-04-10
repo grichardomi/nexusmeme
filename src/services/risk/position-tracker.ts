@@ -550,10 +550,13 @@ class PositionTracker {
     const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > minExitThreshold;
 
     // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
-    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold;
+    // The pct path bypasses minExitThreshold — it is the large-erosion safety net. If we've given
+    // back 25%+ of a real peak, we exit as long as we're still above exit fees (not the higher floor).
+    // The minExitThreshold floor applies to the dollar path only (prevents micro-exits and fee churn).
+    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold && currentProfitDollars > estimatedRoundTripFees;
 
-    // Both paths require current profit to clear the minimum exit threshold.
-    if ((dollarFired || pctFired) && currentProfitDollars > minExitThreshold) {
+    // Dollar path requires full minExitThreshold (fees + profit floor). Pct path requires fees only.
+    if (dollarFired || pctFired) {
       const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
       logger.info(isRebound ? '🔒 REBOUND TRAILING STOP - locking profit (tight)' : '🔒 TRAILING STOP - locking profit', {
         tradeId,

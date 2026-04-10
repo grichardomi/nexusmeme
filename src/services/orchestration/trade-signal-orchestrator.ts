@@ -1901,6 +1901,7 @@ class TradeSignalOrchestrator {
             entryPrice,
             currentPrice,
             profitPct,
+            grossProfitPct: momGrossProfitPct,
             pyramidLevelsActivated: 0,
             holdTimeMinutes,
             regime,
