@@ -204,7 +204,17 @@ export async function GET(req: NextRequest) {
       // Use PEAK-RELATIVE erosion threshold for dashboard (fraction of peak allowed to erode)
       // Absolute-of-cost cap is used in execution; for UI health, compare against peak-relative threshold
       const env = getEnvironmentConfig();
-      const erosionCapFraction = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g., 0.50 = 50%
+      const erosionCapFraction = env.EROSION_PEAK_RELATIVE_THRESHOLD; // e.g., 0.25 = 25%
+
+      // Regime-specific arm threshold — must match position-tracker.ts checkErosionCap() logic
+      const regimeKey = regime.toLowerCase();
+      const erosionArmThresholdByRegime =
+        regimeKey === 'choppy'        ? env.EROSION_PEAK_MIN_PCT_CHOPPY :
+        regimeKey === 'weak'          ? env.EROSION_PEAK_MIN_PCT_WEAK :
+        regimeKey === 'transitioning' ? env.EROSION_PEAK_MIN_PCT_TRANSITIONING :
+        regimeKey === 'moderate'      ? env.EROSION_PEAK_MIN_PCT_MODERATE :
+        regimeKey === 'strong'        ? env.EROSION_PEAK_MIN_PCT_STRONG :
+        env.EROSION_PEAK_MIN_PCT;
 
       // Calculate erosion when position HAD profit (peak > 0) and has since dropped
       // This includes cases where position went underwater after having profit - that's meaningful erosion!
@@ -216,12 +226,15 @@ export async function GET(req: NextRequest) {
       let erosionUsedFraction = 0;
       let erosionRatioPct = 0;
 
-      if (effectivePeakPct > 0 && currentProfitPct < effectivePeakPct) {
+      // Cap is only active when peak has reached the regime-specific arm threshold
+      const erosionCapArmed = effectivePeakPct >= erosionArmThresholdByRegime;
+
+      if (erosionCapArmed && effectivePeakPct > 0 && currentProfitPct < effectivePeakPct) {
         // Position has eroded from peak - calculate how much
         erosionAbsolutePct = Math.max(0, effectivePeakPct - currentProfitPct);
         erosionUsedFraction = erosionAbsolutePct / effectivePeakPct;
 
-        // Calculate ratio of erosion cap used (capped at 100% for display sanity)
+        // Calculate ratio of erosion cap used (capped at 100% = cap has been hit, action needed)
         if (erosionCapFraction > 0) {
           erosionRatioPct = Math.min(100, Math.max(0, (erosionUsedFraction / erosionCapFraction) * 100));
         }
@@ -264,8 +277,8 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Check erosion condition using cap fraction (percentage-of-peak model)
-      if (effectivePeakPct > 0) {
+      // Check erosion condition — only when cap is armed (peak >= regime threshold)
+      if (erosionCapArmed && effectivePeakPct > 0) {
         if (erosionUsedFraction > erosionCapFraction) {
           alerts.push(`EROSION_ALERT: Peaked +${effectivePeakPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% (used ${(erosionUsedFraction * 100).toFixed(2)}% of peak vs cap ${(erosionCapFraction * 100).toFixed(2)}%)`);
           status = 'critical';
@@ -303,7 +316,7 @@ export async function GET(req: NextRequest) {
         erosionUsedFraction,
         erosionRatioPct,
         erosionAbsolutePct,
-        erosionArmThreshold: env.EROSION_PEAK_MIN_PCT,
+        erosionArmThreshold: erosionArmThresholdByRegime,
         regime,
         priceStale: !hasLivePrice,
       };

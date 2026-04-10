@@ -671,12 +671,22 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
                     title={`Erosion Cap: exits when profit has pulled back by ${(health.erosionCap * 100).toFixed(0)}% from its peak. Arms once peak ≥ ${(health.erosionArmThreshold ?? 0.15).toFixed(2)}%. Currently ${health.peakProfitPct > 0 ? `peak is ${health.peakProfitPct.toFixed(2)}%` : 'no peak yet'}.`}
                   >?</span>
                 </span>
-                <span className="font-semibold text-slate-900 dark:text-white">
-                  {health.peakProfitPct < (health.erosionArmThreshold ?? 0.15)
-                    ? 'Unarmed'
-                    : health.erosionDollars > 0
-                      ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
-                      : `${health.erosionRatioPct.toFixed(1)}%`
+                <span className={`font-semibold ${
+                  health.peakProfitPct < (health.erosionArmThreshold ?? 0.4)
+                    ? 'text-slate-400 dark:text-slate-500'
+                    : health.erosionRatioPct >= 100
+                      ? 'text-red-600 dark:text-red-400'
+                      : health.erosionRatioPct > 70
+                        ? 'text-amber-500 dark:text-amber-400'
+                        : 'text-slate-900 dark:text-white'
+                }`}>
+                  {health.peakProfitPct < (health.erosionArmThreshold ?? 0.4)
+                    ? `Unarmed (peak ${health.peakProfitPct.toFixed(2)}% < ${(health.erosionArmThreshold ?? 0.4).toFixed(2)}%)`
+                    : health.erosionRatioPct >= 100
+                      ? `CAP HIT — exit triggered`
+                      : health.erosionDollars > 0
+                        ? `$${health.erosionDollars.toFixed(2)} (${health.erosionRatioPct.toFixed(0)}%)`
+                        : `${health.erosionRatioPct.toFixed(1)}%`
                   }
                 </span>
               </div>
@@ -684,8 +694,8 @@ export function OpenClosedTrades({ botId = null, modeFilter = 'all', onOpenTrade
                 <div
                   className="h-full transition-all"
                   style={{
-                    width: `${health.peakProfitPct < (health.erosionArmThreshold ?? 0.15) ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
-                    background: health.erosionRatioPct === 0 ? 'transparent'
+                    width: `${health.peakProfitPct < (health.erosionArmThreshold ?? 0.4) ? 0 : Math.min(100, Math.max(0, health.erosionRatioPct))}%`,
+                    background: health.erosionRatioPct >= 100 ? '#ef4444'
                       : health.erosionRatioPct > 70 ? 'linear-gradient(90deg, #eab308 0%, #ef4444 100%)'
                       : 'linear-gradient(90deg, #22c55e 0%, #eab308 100%)',
                   }}
