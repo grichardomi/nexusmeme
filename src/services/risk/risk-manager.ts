@@ -197,9 +197,14 @@ class RiskManager {
     // Tiered: normal regime uses ENTRY_MAX_1H_MOMENTUM_PCT; strong 4h regime uses a higher
     // ceiling (ENTRY_MAX_1H_MOMENTUM_STRONG_PCT) rather than a full bypass. Even in a strong
     // trend, 1h > 1.5% means the hourly move already ran — we're entering at exhaustion.
-    const exhaustionCap = mom4h >= env.REGIME_STRONG_4H_PCT
-      ? env.ENTRY_MAX_1H_MOMENTUM_STRONG_PCT  // strong regime: higher ceiling, not unlimited
-      : env.ENTRY_MAX_1H_MOMENTUM_PCT;         // normal regime: strict cap
+    // Require BOTH 1h and 4h to meet strong thresholds — matching the regime classifier logic.
+    // Using 4h alone caused moderate-regime trades (1h < 1.0% but 4h ≥ 0.8%) to bypass the
+    // normal exhaustion cap, allowing post-spike re-entries (e.g. 1h=0.906% passed 1.5% cap
+    // instead of being caught by the 0.85% normal cap).
+    const isStrongForCap = mom1hPct >= env.REGIME_STRONG_1H_PCT && mom4h >= env.REGIME_STRONG_4H_PCT;
+    const exhaustionCap = isStrongForCap
+      ? env.ENTRY_MAX_1H_MOMENTUM_STRONG_PCT  // genuinely strong: higher ceiling, not unlimited
+      : env.ENTRY_MAX_1H_MOMENTUM_PCT;         // normal/moderate: strict cap
     if (mom1hPct > exhaustionCap) {
       logger.info('RiskManager: Entry blocked - 1h momentum exhausted (entered too late)', {
         momentum1h: mom1hPct.toFixed(3), cap: exhaustionCap, momentum4h: mom4h.toFixed(3),
