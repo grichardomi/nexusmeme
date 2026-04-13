@@ -541,29 +541,22 @@ class PositionTracker {
       ? (env.REBOUND_EROSION_PCT_THRESHOLD ?? env.EROSION_PEAK_RELATIVE_THRESHOLD * 0.5)
       : env.EROSION_PEAK_RELATIVE_THRESHOLD;
 
-    // PRIMARY: Dollar threshold — fires only when current profit covers fees plus a flat net minimum.
     const estimatedRoundTripFees = totalCost * env.BINANCE_TAKER_FEE_DEFAULT * 2;
-    // Flat net floor: require at least EROSION_MIN_PROFIT_FLOOR_USD above round-trip fees.
-    // Prevents near-zero exits (e.g., $4.35 gross / $4.00 fees = $0.35 net) on small peaks.
+
+    // Dollar path: requires meaningful net profit (fees + flat floor) — prevents exiting at near-zero net.
     const minExitThreshold = estimatedRoundTripFees + env.EROSION_MIN_PROFIT_FLOOR_USD;
+    const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > minExitThreshold;
 
-    // Floor tiers — shared by both dollar and pct paths:
-    //   Normal: require minExitThreshold — prevent exiting at near-zero net on tiny peaks
-    //   Significant reversal (erosion >= 50% AND real peak >= 0.30%): floor = 0 (require gross > 0 only)
-    //     A confirmed reversal from a real peak must be cut regardless — holding makes it worse
-    //   Catastrophic (erosion >= 60%): same override as significant reversal
-    const catastrophicErosion = erosionPct >= 0.60;
-    const significantReversal = peakPctOfCost >= 0.30 && erosionPct >= 0.50;
-    const activeFloor = (catastrophicErosion || significantReversal) ? 0 : minExitThreshold;
-
-    const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > activeFloor;
-
-    // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
-    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold && currentProfitDollars > activeFloor;
+    // Pct path (backstop): armed only after peak reaches regime min threshold.
+    // Uses fees-only floor — if a real peak gave back 25%+ we exit as long as gross > fees.
+    // The peak arm threshold (EROSION_PEAK_MIN_PCT_MODERATE etc.) is the primary guard against
+    // firing on noise: only peaks large enough to produce meaningful profit after fees arm this.
+    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold && currentProfitDollars > estimatedRoundTripFees;
 
     if (dollarFired || pctFired) {
-      const triggerMode = catastrophicErosion ? 'catastrophic' : significantReversal ? 'reversal' : 'standard';
-      const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar, ${triggerMode})` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct, ${triggerMode})`;
+      const trigger = dollarFired
+        ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)`
+        : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct)`;
 
       logger.info(isRebound ? '🔒 REBOUND TRAILING STOP - locking profit (tight)' : '🔒 TRAILING STOP - locking profit', {
         tradeId,
