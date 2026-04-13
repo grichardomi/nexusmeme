@@ -544,21 +544,26 @@ class PositionTracker {
     // PRIMARY: Dollar threshold — fires only when current profit covers fees plus a flat net minimum.
     const estimatedRoundTripFees = totalCost * env.BINANCE_TAKER_FEE_DEFAULT * 2;
     // Flat net floor: require at least EROSION_MIN_PROFIT_FLOOR_USD above round-trip fees.
-    // This prevents near-zero exits (e.g., $4.35 gross on $4.00 fees = $0.35 net) while still
-    // allowing exits at meaningful small gains (e.g., $4.83 gross on $3.00 fees = $1.83 net).
+    // Prevents near-zero exits (e.g., $4.35 gross / $4.00 fees = $0.35 net) on small peaks.
     const minExitThreshold = estimatedRoundTripFees + env.EROSION_MIN_PROFIT_FLOOR_USD;
-    const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > minExitThreshold;
+
+    // Floor tiers — shared by both dollar and pct paths:
+    //   Normal: require minExitThreshold — prevent exiting at near-zero net on tiny peaks
+    //   Significant reversal (erosion >= 50% AND real peak >= 0.30%): floor = 0 (require gross > 0 only)
+    //     A confirmed reversal from a real peak must be cut regardless — holding makes it worse
+    //   Catastrophic (erosion >= 60%): same override as significant reversal
+    const catastrophicErosion = erosionPct >= 0.60;
+    const significantReversal = peakPctOfCost >= 0.30 && erosionPct >= 0.50;
+    const activeFloor = (catastrophicErosion || significantReversal) ? 0 : minExitThreshold;
+
+    const dollarFired = erosionDollars >= dollarThreshold && currentProfitDollars > activeFloor;
 
     // BACKSTOP: Percentage threshold — only armed after peak reaches minPeakPct (avoids noise on tiny peaks)
-    // Applies same flat net floor as dollar path to prevent near-zero exits.
-    // Exception: catastrophic erosion (>= 60% of peak given back) exits at fees-only floor — last-resort
-    // safety net to prevent a large gain from collapsing entirely to a loss.
-    const catastrophicErosion = erosionPct >= 0.60;
-    const pctNetFloor = catastrophicErosion ? estimatedRoundTripFees : minExitThreshold;
-    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold && currentProfitDollars > pctNetFloor;
+    const pctFired = peakPctOfCost >= minPeakPct && erosionPct >= pctThreshold && currentProfitDollars > activeFloor;
 
     if (dollarFired || pctFired) {
-      const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar)` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct, ${catastrophicErosion ? 'catastrophic' : 'standard'})`;
+      const triggerMode = catastrophicErosion ? 'catastrophic' : significantReversal ? 'reversal' : 'standard';
+      const trigger = dollarFired ? `$${erosionDollars.toFixed(2)} >= $${dollarThreshold} (dollar, ${triggerMode})` : `${(erosionPct * 100).toFixed(1)}% >= ${(pctThreshold * 100).toFixed(0)}% (pct, ${triggerMode})`;
 
       logger.info(isRebound ? '🔒 REBOUND TRAILING STOP - locking profit (tight)' : '🔒 TRAILING STOP - locking profit', {
         tradeId,
