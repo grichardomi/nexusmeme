@@ -144,12 +144,15 @@ export async function GET(req: NextRequest) {
       const hasLivePrice = marketPrices.has(trade.pair);
       const currentPrice = hasLivePrice ? marketPrices.get(trade.pair)! : entryPrice;
 
-      // Calculate NET P&L (gross - entry fee ONLY)
-      // Exit fee is NOT deducted until trade actually closes — best practice per exchange standards
+      // Calculate P&L in two forms:
+      //   grossProfitPct — used for erosion comparisons (peak_profit_percent is stored as GROSS)
+      //   currentProfitPct — NET after entry fee, used for display and underwater checks
+      // CRITICAL: erosion math MUST compare gross-to-gross. Mixing gross peak with net current
+      // produces false "CAP HIT" alarms (e.g. 0.35% gross peak vs -0.05% net = 113% erosion).
       const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
       const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(tradeExchange));
       const entryFeePct = quantity > 0 && entryPrice > 0 ? (entryFeeDollars / (entryPrice * quantity)) * 100 : 0;
-      const currentProfitPct = grossProfitPct - entryFeePct;
+      const currentProfitPct = grossProfitPct - entryFeePct; // NET (display + underwater checks)
       const currentProfit = (currentPrice - entryPrice) * quantity - entryFeeDollars;
 
       const peakProfitPct = parseFloat(String(trade.peak_profit_percent || 0));
@@ -173,11 +176,11 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // Fix stale peak: if current > peak and current is positive, update peak in DB
-      // This catches cases where the orchestrator's DB update may have failed
+      // Fix stale peak: if gross current > stored peak, update peak in DB
+      // Uses grossProfitPct (not net) because peak_profit_percent is stored as GROSS
       let effectivePeakPct = peakProfitPct;
-      if (currentProfitPct > 0 && peakProfitPct < currentProfitPct) {
-        effectivePeakPct = currentProfitPct;
+      if (grossProfitPct > 0 && peakProfitPct < grossProfitPct) {
+        effectivePeakPct = grossProfitPct;
         logger.info('Position health: fixing stale peak (current > stored peak)', {
           tradeId: trade.id,
           pair: trade.pair,
@@ -233,9 +236,10 @@ export async function GET(req: NextRequest) {
       // Cap is only active when peak has reached the regime-specific arm threshold
       const erosionCapArmed = effectivePeakPct >= erosionArmThresholdByRegime;
 
-      if (erosionCapArmed && effectivePeakPct > 0 && currentProfitPct < effectivePeakPct) {
+      // Use grossProfitPct for erosion comparisons — peak is stored as GROSS, must compare apples-to-apples
+      if (erosionCapArmed && effectivePeakPct > 0 && grossProfitPct < effectivePeakPct) {
         // Position has eroded from peak - calculate how much
-        erosionAbsolutePct = Math.max(0, effectivePeakPct - currentProfitPct);
+        erosionAbsolutePct = Math.max(0, effectivePeakPct - grossProfitPct);
         erosionUsedFraction = erosionAbsolutePct / effectivePeakPct;
 
         // Calculate ratio of erosion cap used (capped at 100% = cap has been hit, action needed)
@@ -246,19 +250,19 @@ export async function GET(req: NextRequest) {
         logger.debug('Position erosion calculated', {
           tradeId: trade.id,
           pair: trade.pair,
-          currentProfitPct: currentProfitPct.toFixed(4),
+          grossProfitPct: grossProfitPct.toFixed(4),
           effectivePeakPct: effectivePeakPct.toFixed(4),
           erosionAbsolutePct: erosionAbsolutePct.toFixed(4),
           erosionUsedFraction: (erosionUsedFraction * 100).toFixed(2) + '%',
           erosionCapFraction: (erosionCapFraction * 100).toFixed(2) + '%',
           erosionRatioPct: erosionRatioPct.toFixed(2) + '%',
         });
-      } else if (effectivePeakPct > 0 && currentProfitPct >= effectivePeakPct) {
-        // Current >= Peak means NO erosion (profit increasing or stable)
+      } else if (effectivePeakPct > 0 && grossProfitPct >= effectivePeakPct) {
+        // Gross current >= Peak means NO erosion (profit increasing or stable)
         logger.debug('Position at or above peak - no erosion', {
           tradeId: trade.id,
           pair: trade.pair,
-          currentProfitPct: currentProfitPct.toFixed(4),
+          grossProfitPct: grossProfitPct.toFixed(4),
           effectivePeakPct: effectivePeakPct.toFixed(4),
         });
       }
@@ -284,7 +288,7 @@ export async function GET(req: NextRequest) {
       // Check erosion condition — only when cap is armed (peak >= regime threshold)
       if (erosionCapArmed && effectivePeakPct > 0) {
         if (erosionUsedFraction > erosionCapFraction) {
-          alerts.push(`EROSION_ALERT: Peaked +${effectivePeakPct.toFixed(2)}%, now ${currentProfitPct.toFixed(2)}% (used ${(erosionUsedFraction * 100).toFixed(2)}% of peak vs cap ${(erosionCapFraction * 100).toFixed(2)}%)`);
+          alerts.push(`EROSION_ALERT: Peaked +${effectivePeakPct.toFixed(2)}%, now ${grossProfitPct.toFixed(2)}% gross / ${currentProfitPct.toFixed(2)}% net (used ${(erosionUsedFraction * 100).toFixed(2)}% of peak vs cap ${(erosionCapFraction * 100).toFixed(2)}%)`);
           status = 'critical';
           recommendation = `CLOSE NOW: Erosion ${(erosionRatioPct).toFixed(1)}% of cap`;
         } else if (erosionUsedFraction > erosionCapFraction * 0.8) {
