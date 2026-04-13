@@ -151,9 +151,14 @@ export async function GET(req: NextRequest) {
       // produces false "CAP HIT" alarms (e.g. 0.35% gross peak vs -0.05% net = 113% erosion).
       const grossProfitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
       const entryFeeDollars = trade.fee ? parseFloat(String(trade.fee)) : (entryPrice * quantity * getCachedTakerFee(tradeExchange));
-      const entryFeePct = quantity > 0 && entryPrice > 0 ? (entryFeeDollars / (entryPrice * quantity)) * 100 : 0;
-      const currentProfitPct = grossProfitPct - entryFeePct; // NET (display + underwater checks)
-      const currentProfit = (currentPrice - entryPrice) * quantity - entryFeeDollars;
+      const positionCost = entryPrice * quantity;
+      const exitFeeDollars = positionCost * getCachedTakerFee(tradeExchange); // estimated exit fee
+      const roundTripFeeDollars = entryFeeDollars + exitFeeDollars;
+      const roundTripFeePct = quantity > 0 && entryPrice > 0 ? (roundTripFeeDollars / positionCost) * 100 : 0;
+      // currentProfitPct = TRUE net after BOTH fees (entry + estimated exit)
+      // This prevents the UI from showing false "profit" when the trade can't cover round-trip fees.
+      const currentProfitPct = grossProfitPct - roundTripFeePct;
+      const currentProfit = (currentPrice - entryPrice) * quantity - roundTripFeeDollars;
 
       const peakProfitPct = parseFloat(String(trade.peak_profit_percent || 0));
       const ageMinutes = (Date.now() - parseEntryTimeUTC(trade.entry_time)) / (1000 * 60);
