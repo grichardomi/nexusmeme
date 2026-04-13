@@ -2487,9 +2487,11 @@ class TradeSignalOrchestrator {
             const flatBand = env.STALE_FLAT_BAND_PCT * 100; // convert to pct
             const isFlat = Math.abs(grossProfitPct) <= flatBand;
             if (isFlat && tradeAgeMinutes >= env.STALE_FLAT_MINUTES) {
-              if (currentProfitPct > 0) {
-                // Trade is net-profitable even while "flat" — hold, let erosion cap protect gains
-                logger.info('😴 STALE FLAT skipped — trade is net-positive, erosion cap will exit', {
+              if (grossProfitPct > 0) {
+                // Trade is gross-positive — holding costs nothing extra, exiting guarantees fee loss.
+                // A gross-positive trade is NOT dead capital: it's working toward clearing fees.
+                // Let it run; erosion cap will exit if it peaks and collapses.
+                logger.info('😴 STALE FLAT skipped — trade is gross-positive, holding to clear fee hurdle', {
                   tradeId: trade.id,
                   pair: trade.pair,
                   grossProfitPct: grossProfitPct.toFixed(3) + '%',
