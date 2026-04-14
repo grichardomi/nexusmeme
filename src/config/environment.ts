@@ -260,12 +260,15 @@ const envSchema = z.object({
   /* Minimum peak profit before collapse protection kicks in */
   /* Philosophy: Only protect peaks above fee round-trip + buffer; below this let time-gated early loss handle it */
   PROFIT_COLLAPSE_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - above 0.2% fee round-trip + buffer
-  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('0.15'), // fallback if regime-specific not set
-  EROSION_PEAK_MIN_PCT_CHOPPY: z.string().transform(Number).default('0.2'),       // 0.2% — protect any gain, market can flip fast
-  EROSION_PEAK_MIN_PCT_WEAK: z.string().transform(Number).default('0.3'),         // 0.3% — small moves, lock in quickly
-  EROSION_PEAK_MIN_PCT_TRANSITIONING: z.string().transform(Number).default('0.4'), // 0.4% — some momentum, a bit more room
-  EROSION_PEAK_MIN_PCT_MODERATE: z.string().transform(Number).default('0.6'),     // 0.6% — developing trend, let it breathe
-  EROSION_PEAK_MIN_PCT_STRONG: z.string().transform(Number).default('1.0'),       // 1.0% — real momentum, let winners run
+  // Erosion arms only AFTER the trade reaches its regime profit target.
+  // Below target: profit target exit handles it. Above target: erosion protects the excess.
+  // These must stay aligned with PROFIT_TARGET_* values.
+  EROSION_PEAK_MIN_PCT: z.string().transform(Number).default('0.60'),              // fallback (weak target)
+  EROSION_PEAK_MIN_PCT_CHOPPY: z.string().transform(Number).default('0.40'),      // = PROFIT_TARGET_CHOPPY 0.4%
+  EROSION_PEAK_MIN_PCT_WEAK: z.string().transform(Number).default('0.60'),        // = PROFIT_TARGET_WEAK 0.6%
+  EROSION_PEAK_MIN_PCT_TRANSITIONING: z.string().transform(Number).default('0.50'), // = PROFIT_TARGET_TRANSITIONING 0.5%
+  EROSION_PEAK_MIN_PCT_MODERATE: z.string().transform(Number).default('0.80'),    // = PROFIT_TARGET_MODERATE 0.8%
+  EROSION_PEAK_MIN_PCT_STRONG: z.string().transform(Number).default('1.20'),      // = PROFIT_TARGET_STRONG 1.2%
 
   /* Minimum peak profit before erosion cap kicks in */
   EROSION_MIN_PEAK_PCT: z.string().transform(Number).default('0.008'), // 0.8% - meaningful peak, not noise
@@ -289,7 +292,7 @@ const envSchema = z.object({
 
   /* Overextension guard — block entry when price already ran too far recently */
   ENTRY_OVEREXTENSION_ENABLED: z.string().transform(v => v === 'true').default('true'),
-  ENTRY_OVEREXTENSION_CANDLES: z.string().transform(Number).default('3'),   // look-back candles (3 × 5m = 15min)
+  ENTRY_OVEREXTENSION_CANDLES: z.string().transform(Number).default('3'),   // look-back candles (3 × 15m = 45min)
   ENTRY_OVEREXTENSION_MAX_PCT: z.string().transform(Number).default('1.5'), // block if price moved >1.5% in that window
 
   /* V-Shape Rebound Detection */
@@ -722,12 +725,12 @@ function getDefaultEnvironment(): Environment {
     UNDERWATER_MOMENTUM_MIN_LOSS_PCT: 0.001,
     UNDERWATER_EXIT_MIN_TIME_MINUTES: 15, // Parity with /nexus
     PROFIT_COLLAPSE_MIN_PEAK_PCT: 0.008, // 0.8% - above fee round-trip + buffer
-    EROSION_PEAK_MIN_PCT: 0.15,
-    EROSION_PEAK_MIN_PCT_CHOPPY: 0.2,
-    EROSION_PEAK_MIN_PCT_WEAK: 0.3,
-    EROSION_PEAK_MIN_PCT_TRANSITIONING: 0.4,
-    EROSION_PEAK_MIN_PCT_MODERATE: 0.6,
-    EROSION_PEAK_MIN_PCT_STRONG: 1.0,
+    EROSION_PEAK_MIN_PCT: 0.60,
+    EROSION_PEAK_MIN_PCT_CHOPPY: 0.40,
+    EROSION_PEAK_MIN_PCT_WEAK: 0.60,
+    EROSION_PEAK_MIN_PCT_TRANSITIONING: 0.50,
+    EROSION_PEAK_MIN_PCT_MODERATE: 0.80,
+    EROSION_PEAK_MIN_PCT_STRONG: 1.20,
     EROSION_MIN_PEAK_PCT: 0.008, // 0.8% - meaningful peak, not noise
     EROSION_MIN_PEAK_DOLLARS: 0.50, // $0.50 - small-profit dead zone (prevents bid/ask bounce exits)
     UNDERWATER_MIN_MEANINGFUL_PEAK_DOLLARS: 0.50, // $0.50 - /nexus profit collapse threshold
